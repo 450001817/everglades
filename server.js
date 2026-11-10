@@ -70,6 +70,7 @@ function viewFor(room, member) {
     legal: myTurn && s.phase === 'play' && !s.step ? G.legalCards(s, me) : [],
     placeTargets: myTurn ? G.placeTargets(s) : [],
     abilityUsed: s.abilityUsed,
+    availableRoles: s.phase === 'draft' ? G.availableRoles(s) : [], draftTurn: s.draftTurn,
     tourPeek: myTurn ? s.tourPeek : null,
     results: ended ? s.results : null,
   });
@@ -86,7 +87,7 @@ function broadcast(room) {
 
 function scheduleBot(room) {
   const s = room.game;
-  if (room.botTimer || (s.phase !== 'choose' && s.phase !== 'play')) return;
+  if (room.botTimer || !['draft', 'choose', 'play'].includes(s.phase)) return;
   const w = G.waitingOn(s);
   if (w < 0 || !s.players[w].bot) return;
   room.botTimer = setTimeout(() => {
@@ -110,7 +111,7 @@ function readBody(req) {
     req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch (e) { reject(e); } });
   });
 }
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.ttf': 'font/ttf' };
 function serveStatic(req, res) {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   if (p === '/') p = '/index.html';
@@ -119,7 +120,7 @@ function serveStatic(req, res) {
   fs.readFile(file, (e, buf) => {
     if (e) { res.writeHead(404); return res.end('Not found'); }
     const ext = path.extname(file);
-    res.writeHead(200, { 'Content-Type': TYPES[ext] || 'application/octet-stream', 'Cache-Control': ext === '.png' ? 'public, max-age=86400' : 'no-cache' });
+    res.writeHead(200, { 'Content-Type': TYPES[ext] || 'application/octet-stream', 'Cache-Control': ext === '.png' || ext === '.ttf' ? 'public, max-age=86400' : 'no-cache' });
     res.end(buf);
   });
 }

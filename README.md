@@ -29,10 +29,12 @@ The whole game fits on one screen with no page scrolling. From left to right: th
 - **Once a biome is chosen**, the Travel Row shrinks to a small strip at the bottom. The current biome and the cards played to it take over the play area.
 - **Field notes** (the game log) is a drop-down in the top bar, next to the sound and Rules buttons. A red number shows how many new notes arrived since you last looked.
 
+- **Role draft:** after the host starts, everyone's hand is dealt and players choose roles one at a time in turn order. The first player picks first, and taken roles are stamped with the owner's name. Bots pick when their turn comes. The first round starts once everyone has a role.
 - **Read any card:** hover over it for 1 second (on a phone, press and hold). This works everywhere: your hand, the travel row, played cards, role cards and the end screen.
 - **Lead player:** when it's your pick, the travel row glows and each biome says TRAVEL HERE. Click one.
 - **On your turn:** cards you can't legally play are greyed out. Click a card to select it, then click it again (or click Play).
-- **Your role ability** (start of turn) appears as a gold button next to Play.
+- **Your role ability** (start of turn) appears as a gold button next to Play. If you try to play a card while it's unused and would actually do something, an **"Use your ability first?"** pop-up explains what you'd miss. Choose **Use ability first**, **Play anyway**, or tick **Don't warn me again this game**.
+- **Red warning signs** appear over Invasive cards in your hand whose Impact is above the current Invasive Risk. Those cards can't win the trick, though they still populate. The signs update if a Keystone card changes the Risk.
 - **Migratory:** click the glowing regions on the map to place each token. The tokens have to form a continuous line.
 - **Predatory:** click the blinking green or red counters on the map to remove Native or Invasive tokens, then click Done.
 - **Population** shows two ways: a counter under each region name, plus small green (Native) and red (Invasive) squares that drop in and spread across the region.
@@ -53,7 +55,7 @@ Your rulebook (Everglades 2.0), the reference card and the printed cards disagre
 5. **Fisherman/Hunter swap:** the scoring-pile card has to be a Water/Land card (Native or Invasive) with **lower Impact than the hand card** you give up.
 6. **"Most / least tricks" goals** still count when you're tied. "Most" goals and the Tourist's "only objective regions" goal need at least 1 trick won.
 7. **Fisherman/Hunter endings** compare Native vs Invasive **Water/Land** cards in their scoring pile.
-8. **Setup:** the Ecology deck is dealt evenly and any leftover cards are discarded. Roles are dealt randomly and are **public** (changed from the rulebook's secret roles). The rulebook's "1 impact card" at setup is skipped because no such card exists in the art.
+8. **Setup:** the Ecology deck is dealt evenly and any leftover cards are discarded. Seating (turn order) is random. Players then **choose their roles in turn order** after seeing their hand, and roles are **public**. Both are changes from the rulebook's secret, randomly dealt roles. The rulebook's "1 impact card" at setup is skipped because no such card exists in the art.
 9. `NGOpenWaterss.png` is treated as a third Northern Gulf biome. It looks like a duplicate file name, so you may want to rename it.
 
 Every rule is in **game.js**, and all card stats are in **public/data.js**. Both have plain comments, so changes are easy.
@@ -68,6 +70,8 @@ Every rule is in **game.js**, and all card stats are in **public/data.js**. Both
 | `public/data.js` | Every card's stats, the regions, adjacency and roles |
 | `public/client.js`, `style.css`, `index.html` | What players see in the browser |
 | `public/assets/` | Your art. Biome cards are rotated to lie landscape. |
+| `public/fonts/` | EGDigits, a custom blocky pixel font used for every number (0–9) so 2 and 5 are easy to tell apart |
+| `tools/make_digits_font.py` | Rebuilds that font if you ever want to tweak a digit's pixels (needs Python + fontTools) |
 | `test/sim.js` | Plays 500 bot-only games to check the rules never get stuck (`npm test`) |
 
 Nothing needs to be installed except Node.js. The server only uses what comes with Node.

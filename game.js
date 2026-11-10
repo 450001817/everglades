@@ -43,12 +43,11 @@ function addPlayer(s, info) {
 function startGame(s) {
   const n = s.players.length;
   if (n < MIN_PLAYERS) err('You need at least 2 players.');
-  const roles = shuffle(Object.keys(ROLES));
-  s.players = shuffle(s.players); // random seating
+  s.players = shuffle(s.players); // random seating = turn order
   const deck = shuffle(Object.keys(CARDS));
   const per = Math.floor(deck.length / n);
   s.players.forEach((pl, i) => {
-    pl.role = roles[i];
+    pl.role = null; // chosen in the role draft
     pl.hand = deck.slice(i * per, (i + 1) * per);
     pl.pile = []; pl.biomesWon = []; pl.triggeredCrisis = false;
   });
@@ -57,9 +56,27 @@ function startGame(s) {
   s.travel = s.biomeDeck.splice(0, 3);
   s.board = emptyBoard();
   s.leader = 0; s.turn = 0; s.round = 1;
-  s.phase = 'choose'; s.trick = null; s.step = null; s.lastTrick = null;
+  s.phase = 'draft'; s.draftTurn = 0; s.trick = null; s.step = null; s.lastTrick = null;
   s.abilityUsed = false; s.tourPeek = null; s.results = null;
-  log(s, `Game started. Each player holds ${per} cards. ${pname(s, 0)} leads the first round.`);
+  log(s, `Game started. Each player holds ${per} cards. Choose roles in turn order — ${pname(s, 0)} picks first.`);
+}
+
+// ---------- role draft: each player picks a role in turn order ----------
+function availableRoles(s) {
+  const taken = new Set(s.players.map(p => p.role).filter(Boolean));
+  return Object.keys(ROLES).filter(r => !taken.has(r));
+}
+function pickRole(s, p, role) {
+  if (s.phase !== 'draft') err('Roles have already been chosen.');
+  if (p !== s.draftTurn) err('It is not your turn to choose a role.');
+  if (!availableRoles(s).includes(role)) err('That role is not available.');
+  s.players[p].role = role;
+  log(s, `${pname(s, p)} becomes the ${ROLES[role].name}.`);
+  s.draftTurn += 1;
+  if (s.draftTurn >= s.players.length) {
+    s.phase = 'choose'; s.leader = 0; s.turn = 0;
+    log(s, `All roles chosen. ${pname(s, 0)} leads the first round.`);
+  }
 }
 
 // ---------- rules queries ----------
@@ -339,6 +356,7 @@ function endGame(s) {
 // ---------- dispatcher ----------
 function applyAction(s, p, a) {
   switch (a.type) {
+    case 'pickRole': pickRole(s, p, a.role); break;
     case 'chooseBiome': chooseBiome(s, p, a.biome); break;
     case 'play': playCard(s, p, a.card, a.populate); break;
     case 'place': placeToken(s, p, a.region); break;
@@ -353,6 +371,7 @@ function applyAction(s, p, a) {
 
 // Whose input is the game waiting on?
 function waitingOn(s) {
+  if (s.phase === 'draft') return s.draftTurn;
   if (s.phase === 'choose') return s.leader;
   if (s.phase === 'play') return s.turn;
   return -1;
@@ -361,6 +380,7 @@ function waitingOn(s) {
 // ---------- simple bot ----------
 function botAction(s, p) {
   const pl = s.players[p];
+  if (s.phase === 'draft') { const av = availableRoles(s); return { type: 'pickRole', role: av[Math.floor(Math.random() * av.length)] }; }
   const role = ROLES[pl.role];
   const wantKind = r => role.map[r] === 'I' ? 'i' : 'n'; // what the bot wants to keep in region r
   if (s.phase === 'choose') {
@@ -403,6 +423,6 @@ function botAction(s, p) {
 }
 
 module.exports = {
-  newGame, addPlayer, startGame, applyAction, legalCards, placeTargets, waitingOn, botAction,
+  newGame, addPlayer, startGame, availableRoles, applyAction, legalCards, placeTargets, waitingOn, botAction,
   computeResults, trickWinner, cardMatches, MIN_PLAYERS, MAX_PLAYERS,
 };
