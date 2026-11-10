@@ -1,0 +1,10 @@
+{
+  "name": "everglades-web",
+  "version": "1.0.0",
+  "description": "Online multiplayer version of the Everglades trick-taking card game",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "test": "node test/sim.js" },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "private": true
+}
