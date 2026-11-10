@@ -8,7 +8,7 @@ const $toast = document.getElementById('toast');
 let S = null;               // latest game view from the server
 let es = null;              // live connection
 let sess = loadSess();      // { room, token }
-const ui = { showLog: false, unread: 0, sel: null, mode: null, swapHand: null, swapPile: null, err: '', lastRound: null, showRules: false, fresh: null };
+const ui = { confirm: null, showLog: false, unread: 0, sel: null, mode: null, swapHand: null, swapPile: null, err: '', lastRound: null, showRules: false, fresh: null };
 
 const ACTIVE_ABILITY = {
   Fisherman: 'Swap with scoring pile (Water)',
@@ -152,7 +152,7 @@ document.addEventListener('pointerup', e => { if (e.pointerType === 'touch') hid
 document.addEventListener('pointercancel', hidePeek);
 document.addEventListener('contextmenu', e => { if (e.target.closest('[data-peek]')) e.preventDefault(); });
 document.addEventListener('click', e => { if (ui.showLog && S && !e.target.closest('.notes-wrap')) { ui.showLog = false; render(); } });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { hidePeek(); if (ui.showLog) { ui.showLog = false; render(); } if (ui.showRules) { ui.showRules = false; render(); } } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { hidePeek(); if (ui.confirm) { ui.confirm = null; render(); } if (ui.showLog) { ui.showLog = false; render(); } if (ui.showRules) { ui.showRules = false; render(); } } });
 
 // ---------- connection ----------
 function connect() {
@@ -172,6 +172,7 @@ const boardTotal = b => Object.values(b).reduce((a, t) => a + t.n + t.i, 0);
 function onUpdate(prev) {
   if (!S || S.phase === 'lobby') { ui.lastRound = null; return; }
   if (S.waiting !== S.you || (S.step && ui.mode)) ui.mode = null;
+  if (S.waiting !== S.you || S.phase !== 'play' || S.step) ui.confirm = null;
   if (S.hand && ui.sel && !S.hand.includes(ui.sel)) ui.sel = null;
   const live = prev && prev.phase !== 'lobby' && prev.board;
 
@@ -195,6 +196,7 @@ function onUpdate(prev) {
     const newTrick = key && key !== ui.lastRound;
     if (S.phase === 'ended' && prev.phase !== 'ended') setTimeout(SFX.end, 700);
     if (prev.phase === 'choose' && S.phase === 'play') SFX.travel();
+    if (prev.phase === 'draft' && S.players.filter(p => p.role).length > prev.players.filter(p => p.role).length) SFX.trick();
     const prevPlays = prev.trick ? prev.trick.plays.length : 0;
     if ((S.trick && S.trick.plays.length > prevPlays) || (newTrick && prevPlays < S.players.length)) SFX.card();
     const d = boardTotal(S.board) - boardTotal(prev.board);
@@ -305,9 +307,9 @@ function renderLobby() {
 }
 
 // ---------- the game table ----------
-function cardEl(id, cls = '', extra = '', who = '') {
+function cardEl(id, cls = '', extra = '', who = '', badge = '') {
   const c = CARDS[id];
-  return `<div class="card eco ${cls}" data-peek="${c.img}" ${extra}><img src="${c.img}" alt="${esc(c.name)}" loading="lazy">${who ? `<div class="who">${esc(who)}</div>` : ''}</div>`;
+  return `<div class="card eco ${cls}" data-peek="${c.img}" ${extra}><img src="${c.img}" alt="${esc(c.name)}" loading="lazy">${badge}${who ? `<div class="who">${esc(who)}</div>` : ''}</div>`;
 }
 function biomeEl(id, cls = '', extra = '') {
   const b = BIOMES[id];
@@ -349,16 +351,36 @@ function boardHtml() {
 
 function playersHtml(mini) {
   return S.players.map((p, i) => {
-    const role = ROLES[p.role];
-    return `<div class="pl ${S.waiting === i ? 'turn' : ''}" data-peek="${role.img}">
+    const role = p.role ? ROLES[p.role] : null;
+    return `<div class="pl ${S.waiting === i ? 'turn' : ''}" ${role ? `data-peek="${role.img}"` : ''}>
       <div class="nm">${S.waiting === i ? '<span class="arrow">▶</span>' : ''}<span class="name">${esc(p.name)}</span>${i === S.you ? '<span class="you">(you)</span>' : ''}${p.online ? '' : '<span class="dot off" title="offline"></span>'}</div>
-      ${mini ? '' : `<div class="meta"><span class="rolename">${esc(role.name)}</span><span>Hand ${p.handCount}</span><span>Tricks ${p.tricks}</span></div>`}
+      ${mini ? '' : `<div class="meta">${role ? `<span class="rolename">${esc(role.name)}</span>` : '<span>choosing role…</span>'}<span>Hand ${p.handCount}</span><span>Tricks ${p.tricks}</span></div>`}
       ${!mini && S.isHost && !p.online && !p.bot && S.phase !== 'ended' ? `<button class="btn small" data-botify="${S.lobby.find(m => m.name === p.name)?.pid || ''}">Give seat to a bot</button>` : ''}
     </div>`;
   }).join('');
 }
 
+function draftHtml() {
+  const myTurn = isMine();
+  const owner = {};
+  S.players.forEach(p => { if (p.role) owner[p.role] = p.name; });
+  const cards = Object.keys(ROLES).filter(r => owner[r] || S.availableRoles.includes(r)).map(r => {
+    const R = ROLES[r];
+    const free = !owner[r];
+    const pick = myTurn && free;
+    return `<div class="rolepick ${pick ? 'choosable' : ''} ${free ? '' : 'taken'}" data-peek="${R.img}" ${pick ? `data-role="${r}"` : ''}>
+      <img src="${R.img}" alt="${esc(R.name)}">
+      ${free ? '' : `<div class="takenby">${esc(owner[r])}</div>`}
+    </div>`;
+  }).join('');
+  return `<div class="tabletop draft"><div class="players-mini">${playersHtml(true)}</div>
+    <h3>${myTurn ? '▶ Choose your role' : `${esc(S.players[S.waiting].name)} is choosing a role…`} <span style="color:var(--blush)">(picking in turn order)</span></h3>
+    <div class="rolegrid ${myTurn ? 'choosing' : ''}">${cards}</div>
+  </div>`;
+}
+
 function tableHtml() {
+  if (S.phase === 'draft') return draftHtml();
   const myTurn = isMine();
   const choosing = S.phase === 'choose' || !S.trick;
   const pickNow = S.phase === 'choose' && myTurn;
@@ -411,7 +433,11 @@ function renderGame() {
   const handHtml = hand.map(id => {
     const legal = canPlay && S.legal.includes(id);
     const cls = !canPlay ? '' : legal ? 'legal' : 'illegal';
-    return `<div class="slot">${cardEl(id, `${cls} ${ui.sel === id ? 'sel' : ''}`, `data-hand="${id}"`)}</div>`;
+    // Invasive cards above the current Invasive Risk can't win this trick: flag them.
+    const c = CARDS[id];
+    const over = S.trick && c.kind === 'Invasive' && c.impact > S.trick.risk;
+    const badge = over ? `<div class="overrisk" title="Impact ${c.impact} is above the Invasive Risk (${S.trick.risk}): this card can't win the trick, but it still populates."><span>!</span></div>` : '';
+    return `<div class="slot">${cardEl(id, `${cls} ${ui.sel === id ? 'sel' : ''}`, `data-hand="${id}"`, '', badge)}</div>`;
   }).join('') || '<span class="hint" style="color:var(--blush)">No cards in hand.</span>';
   const role = S.role ? ROLES[S.role] : null;
   if (peekSrc && !document.querySelector(`[data-peek="${peekSrc}"]`)) { /* card may have left; checked after render */ }
@@ -420,7 +446,7 @@ function renderGame() {
   <div class="topbar">
     <span class="logo-sm">EVERGLADES</span>
     <span class="chip">Room ${S.room}</span>
-    ${S.phase !== 'ended' ? `<span class="chip">Round ${S.round}</span>` : ''}
+    ${S.phase === 'draft' ? '<span class="chip">Role draft</span>' : S.phase !== 'ended' ? `<span class="chip">Round ${S.round}</span>` : ''}
     <span class="spacer"></span>
     <div class="notes-wrap">
       <button class="btn small ${ui.showLog ? 'brass' : ''}" id="notesBtn">Field notes ${ui.unread && !ui.showLog ? `<span class="badge">${ui.unread > 9 ? '9+' : ui.unread}</span>` : ''}▾</button>
@@ -445,6 +471,7 @@ function renderGame() {
       </div>
     </section>
   </div>
+  ${ui.confirm ? confirmModal() : ''}
   ${ui.mode === 'swap' ? swapModal() : ''}
   ${ui.showRules ? rulesModal() : ''}
   ${S.phase === 'ended' ? endModal() : ''}`;
@@ -459,12 +486,13 @@ function promptHtml() {
   const w = S.waiting >= 0 ? S.players[S.waiting] : null;
   if (S.phase === 'ended') return `<div class="paper spiral prompt"><div class="msg">Game over!</div></div>`;
   if (!myTurn) {
-    let what = S.phase === 'choose' ? 'to choose where to travel' : 'to play';
+    let what = S.phase === 'draft' ? 'to choose a role' : S.phase === 'choose' ? 'to choose where to travel' : 'to play';
     if (S.step?.type === 'place') what = `to spread ${CARDS[S.step.card].name}`;
     if (S.step?.type === 'predate') what = `to hunt with ${CARDS[S.step.card].name}`;
     return `<div class="paper spiral prompt"><div class="msg">Waiting for ${esc(w ? w.name : '…')} ${what}…<small>Hover any card for a second to read it.</small></div></div>`;
   }
   const box = (msg, buttons = '') => `<div class="paper spiral prompt yours"><div class="msg">${msg}</div>${buttons}</div>`;
+  if (S.phase === 'draft') return box('Choose your role! Click a role card in the play area.<small>Hover a card for a second to read its objectives. Your hand is already dealt, so plan around it.</small>');
   if (S.phase === 'choose') return box('You lead! Pick a biome in the glowing travel row.<small>Its type sets the lead suit, and its region is where everyone populates.</small>');
   const st = S.step;
   if (st?.type === 'place') return box(`Migratory: place ${st.left} more ${CARDS[st.card].kind} token${st.left > 1 ? 's' : ''}.<small>Click a glowing region on the map. Tokens spread in a continuous line from the current region.</small>`);
@@ -516,7 +544,7 @@ function rulesModal() {
       <img src="assets/ref-front.png" data-peek="assets/ref-front.png" alt="On your turn" style="width:min(240px,30%);border:3px solid var(--ink)">
       <img src="assets/ref-back.png" data-peek="assets/ref-back.png" alt="Playing tricks" style="width:min(240px,30%);border:3px solid var(--ink)">
       <div class="hint" style="flex:1;min-width:0;color:var(--ink)">
-        <p style="margin-top:0"><b>Each round:</b> the lead player picks a biome from the travel row. Everyone plays one card, in order.</p>
+        <p style="margin-top:0"><b>Setup:</b> after the cards are dealt, players choose roles one at a time in turn order.</p><p><b>Each round:</b> the lead player picks a biome from the travel row. Everyone plays one card, in order.</p>
         <p><b>Winning:</b> the highest-Impact card that matches the biome's type wins. Invasive cards match too if their Impact is at or below the current Invasive Risk. If nothing matches, the highest Impact card wins.</p>
         <p><b>Invasive Crisis:</b> if an Invasive card wins, each region loses 1 Native token per Invasive token there (or 1 Invasive token if it has only Invasives).</p>
         <p><b>Scoring:</b> 5 points per trick, plus the objectives on your role card. Everyone's role is public — hover a name to read it.</p>
@@ -548,6 +576,38 @@ function endModal() {
   </div></div>`;
 }
 
+// ---------- "are you sure?" when a card play would waste your ability ----------
+function abilityStillUseful() {
+  if (!S.role || !ACTIVE_ABILITY[S.role] || S.abilityUsed) return false;
+  if (S.role === 'Tourist') return S.deckCount > 0;
+  if (S.role === 'LandDeveloper') return boardTotal(S.board) > 0;
+  if (S.role === 'Researcher') return S.pile.length > 0 && S.hand.length > 0;
+  const need = S.role === 'Fisherman' ? 'Water' : 'Land';
+  return S.pile.some(pc => CARDS[pc].habitat === need && S.hand.some(h => CARDS[pc].impact < CARDS[h].impact));
+}
+function warnOff() { try { return sessionStorage.getItem('eg_nowarn_' + S.room) === '1'; } catch { return false; } }
+function tryPlay(card, populate) {
+  ui.sel = null; hidePeek();
+  if (!warnOff() && abilityStillUseful()) { ui.confirm = { card, populate }; return render(); }
+  act({ type: 'play', card, populate });
+}
+function confirmModal() {
+  const R = ROLES[S.role];
+  const c = CARDS[ui.confirm.card];
+  return `<div class="modal"><div class="paper spiral" style="width:min(560px,100%)">
+    <div class="panel-title">Use your ability first?</div>
+    <p style="margin:0 0 8px;font-size:18px">You haven't used your <b>${esc(R.name)}</b> ability this turn:</p>
+    <p class="hint" style="margin:0 0 10px;color:var(--ink);border-left:4px solid var(--brass);padding-left:8px">${esc(R.ability)}</p>
+    <p class="hint" style="margin:0 0 14px">Abilities can only be used at the start of your turn, before you play a card. If you play <b>${esc(c.name)}</b> now, you'll miss it until your next turn.</p>
+    <div class="row">
+      <button class="btn brass" id="cfUse">Use ability first</button>
+      <button class="btn primary" id="cfPlay">Play ${esc(c.name)} anyway</button>
+      <button class="btn small" id="cfCancel">Cancel</button>
+    </div>
+    <label class="hint" style="display:flex;gap:8px;align-items:center;margin-top:12px;cursor:pointer"><input type="checkbox" id="cfOff"> Don't warn me again this game</label>
+  </div></div>`;
+}
+
 // ---------- wiring ----------
 function wire() {
   const q = (sel, fn) => $app.querySelectorAll(sel).forEach(el => el.addEventListener('click', e => { e.stopPropagation(); fn(el, e); }));
@@ -559,6 +619,7 @@ function wire() {
   q('#quit2', () => leave());
   q('#rematch', () => lobby('rematch'));
   q('[data-botify]', el => lobby('botify', { pid: el.dataset.botify }));
+  q('[data-role]', el => { hidePeek(); act({ type: 'pickRole', role: el.dataset.role }); });
   q('[data-choose]', el => { hidePeek(); act({ type: 'chooseBiome', biome: el.dataset.choose }); });
   $app.querySelectorAll('[data-place]').forEach(el => el.addEventListener('click', () => act({ type: 'place', region: el.dataset.place })));
   q('[data-pick]', el => {
@@ -582,11 +643,23 @@ function wire() {
     if (!isMine() || S.phase !== 'play' || S.step || S.tourPeek || ui.mode) return;
     if (!S.legal.includes(id)) { SFX.error(); return showToast(`You must follow ${BIOMES[S.trick.biome].suit} or play an Invasive card.`); }
     hidePeek();
-    if (ui.sel === id && !(S.role === 'Conservationist' && CARDS[id].kind === 'Invasive')) { ui.sel = null; return act({ type: 'play', card: id }); }
+    if (ui.sel === id && !(S.role === 'Conservationist' && CARDS[id].kind === 'Invasive')) return tryPlay(id);
     ui.sel = id; render();
   });
-  q('#play', () => { const id = ui.sel; ui.sel = null; hidePeek(); act({ type: 'play', card: id }); });
-  q('#playNoPop', () => { const id = ui.sel; ui.sel = null; hidePeek(); act({ type: 'play', card: id, populate: false }); });
+  q('#play', () => tryPlay(ui.sel));
+  q('#playNoPop', () => tryPlay(ui.sel, false));
+  q('#cfCancel', () => { ui.confirm = null; render(); });
+  q('#cfPlay', () => {
+    const off = document.getElementById('cfOff')?.checked;
+    if (off) try { sessionStorage.setItem('eg_nowarn_' + S.room, '1'); } catch {}
+    const { card, populate } = ui.confirm; ui.confirm = null; act({ type: 'play', card, populate });
+  });
+  q('#cfUse', () => {
+    ui.confirm = null;
+    if (S.role === 'Tourist') return act({ type: 'ability' });
+    if (S.role === 'LandDeveloper') { ui.mode = 'landdev'; return render(); }
+    ui.mode = 'swap'; ui.swapHand = ui.swapPile = null; render();
+  });
 }
 
 connect();
