@@ -1,6 +1,7 @@
 // Everglades — browser client. Renders whatever the server says the game looks like.
 'use strict';
-const { CARDS, REGIONS, BIOMES, ROLES } = window.EG_DATA;
+const { CARDS, REGIONS, BIOMES, ROLES, BOSS } = window.EG_DATA;
+const roleInfo = r => r === 'Anaconda' ? BOSS : (r ? ROLES[r] : null);
 const $app = document.getElementById('app');
 const $peek = document.getElementById('peek');
 const $toast = document.getElementById('toast');
@@ -279,22 +280,51 @@ function enterRoom(r) {
   S = null; connect(); render();
 }
 
+// Partner-mode teams (colours match the board's palette)
+const TEAMS = [
+  { name: 'Mangrove', color: '#2a9a4a' },
+  { name: 'Sawgrass', color: '#b8892a' },
+  { name: 'Coral', color: '#e0679f' },
+];
+const teamTag = t => (t === null || t === undefined) ? '' : `<span class="teamtag" style="--tc:${TEAMS[t].color}">${TEAMS[t].name}</span>`;
+
 function renderLobby() {
   const link = location.origin + location.pathname + '?room=' + S.room;
   const humans = S.lobby.filter(m => !m.bot).length;
-  const bots = Math.max(0, 4 - S.lobby.length);
+  let tableSize = Math.max(4, S.lobby.length);
+  if (S.mode === 'partners' && tableSize % 2) tableSize += 1;
+  const bots = tableSize - S.lobby.length;
+  const nTeams = Math.min(3, Math.max(2, Math.ceil(tableSize / 2)));
+  const teamPicker = m => {
+    if (S.mode !== 'partners') return '';
+    const mine = m.pid === S.yourPid;
+    if (!mine && !S.isHost) return teamTag(m.team) || '<span class="hint">no team yet</span>';
+    return `<span class="teampick">${[...Array(nTeams).keys()].map(t =>
+      `<button class="teamopt ${m.team === t ? 'on' : ''}" style="--tc:${TEAMS[t].color}" data-team="${t}" data-pid="${m.pid}" title="Team ${TEAMS[t].name}">${TEAMS[t].name}</button>`).join('')}</span>`;
+  };
   $app.innerHTML = `
   <div class="landing">
-    <div class="paper spiral landing-card stack" style="width:min(560px,100%)">
+    <div class="paper spiral landing-card stack" style="width:min(620px,100%)">
       <h1 class="logo" style="font-size:42px">EVERGLADES</h1>
       <div><div class="panel-title">Room code</div><span class="room-code">${S.room}</span></div>
       <div class="row"><input class="field" readonly value="${esc(link)}" style="flex:1;font-size:15px"><button id="copy" class="btn small">Copy link</button></div>
+      <div class="row" style="justify-content:space-between">
+        <div><div class="panel-title" style="margin:0">Game mode</div>
+          <span style="font-size:18px">${({ solo: 'Everyone for themselves', partners: 'Partners — teams of 2 score together', coop: 'Co-op — everyone vs The Anaconda' })[S.mode || 'solo']}</span></div>
+        ${S.isHost ? `<div class="modepick">${[['solo', 'Solo'], ['partners', 'Partners'], ['coop', 'Co-op']].map(([m, l]) =>
+          `<button class="btn small ${(S.mode || 'solo') === m ? 'brass' : ''}" data-mode="${m}">${l}</button>`).join('')}</div>` : ''}
+      </div>
+      ${S.mode === 'partners' ? `<p class="hint" style="margin:-4px 0 0">Pick a team for yourself${S.isHost ? ' (as host you can also place others and bots)' : ''}. Anyone without a team gets a random partner. Teammates never take turns back to back.</p>` : ''}
+      ${S.mode === 'coop' ? `<div class="row" style="flex-wrap:nowrap;gap:12px;align-items:flex-start;margin-top:-4px">
+          <img src="${BOSS.portrait}" alt="" class="bossthumb" data-peek="${BOSS.img}">
+          <p class="hint" style="margin:0">Everyone plays together against <b>The Anaconda</b>. Players get the Native cards; after each player's turn the Anaconda flips an Invasive card. The game ends after the round it plays its last card. Add up all players' scores — you must beat the Anaconda's total. Hover the portrait to read its boss card.</p></div>` : ''}
       <div>
         <div class="panel-title">At the table (${S.lobby.length}/6)</div>
         ${S.lobby.map(m => `
           <div class="member">
             <span class="dot ${m.online ? '' : 'off'}"></span>
             <span style="flex:1">${esc(m.name)}${m.pid === S.yourPid ? ' <span style="color:var(--red)">(you)</span>' : ''}</span>
+            ${teamPicker(m)}
             ${m.host ? '<span class="tag host">HOST</span>' : ''}${m.bot ? '<span class="tag bot">BOT</span>' : ''}
             ${S.isHost && m.pid !== S.yourPid ? `<button class="btn small" data-remove="${m.pid}">✕</button>` : ''}
           </div>`).join('')}
@@ -302,7 +332,7 @@ function renderLobby() {
       ${S.isHost ? `
         <div class="row">
           <button id="addbot" class="btn small" ${S.lobby.length >= 6 ? 'disabled' : ''}>+ Add bot</button>
-          <span class="hint">${bots ? `${bots} bot${bots > 1 ? 's' : ''} will join when you start, to make 4 players.` : 'Ready when you are.'}</span>
+          <span class="hint">${bots ? `${bots} bot${bots > 1 ? 's' : ''} will join when you start, to make ${tableSize} players.` : 'Ready when you are.'}</span>
         </div>
         <button id="start" class="btn primary">Start game</button>`
       : `<p class="hint">Waiting for the host to start… ${humans} player${humans > 1 ? 's' : ''} here.</p>`}
@@ -311,7 +341,13 @@ function renderLobby() {
   </div>`;
   document.getElementById('copy').onclick = () => { navigator.clipboard?.writeText(link); showToast('Link copied — send it to your friends!'); };
   document.getElementById('leave').onclick = async () => { await lobby('leave'); leave(); };
+  $app.querySelectorAll('[data-team]').forEach(b => b.onclick = () => {
+    const m = S.lobby.find(x => x.pid === b.dataset.pid);
+    const t = +b.dataset.team;
+    lobby('team', { pid: b.dataset.pid, team: m && m.team === t ? null : t }); // click again to clear
+  });
   if (S.isHost) {
+    $app.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => lobby('mode', { mode: b.dataset.mode }));
     document.getElementById('addbot').onclick = () => lobby('addBot');
     document.getElementById('start').onclick = () => lobby('start');
     $app.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => lobby('remove', { pid: b.dataset.remove }));
@@ -363,9 +399,13 @@ function boardHtml() {
 
 function playersHtml(mini) {
   return S.players.map((p, i) => {
-    const role = p.role ? ROLES[p.role] : null;
+    const role = roleInfo(p.role);
+    if (p.boss) return `<div class="pl boss ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" data-peek="${BOSS.img}">
+      <div class="nm">${S.waiting === i ? '<span class="arrow">▶</span>' : ''}${mini ? '' : `<img class="bossthumb sm" src="${BOSS.portrait}" alt="">`}<span class="name">${esc(p.name)}</span><span class="tag bosstag">BOSS</span></div>
+      ${mini ? '' : `<div class="meta"><span>Invasive deck ${p.handCount}</span><span>Tricks ${p.tricks}</span></div>`}
+    </div>`;
     return `<div class="pl ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" ${role ? `data-peek="${role.img}"` : ''}>
-      <div class="nm">${S.waiting === i ? '<span class="arrow">▶</span>' : ''}<span class="name">${esc(p.name)}</span>${i === S.you ? '<span class="you">(you)</span>' : ''}${p.online ? '' : '<span class="dot off" title="offline"></span>'}</div>
+      <div class="nm">${S.waiting === i ? '<span class="arrow">▶</span>' : ''}<span class="name">${esc(p.name)}</span>${i === S.you ? '<span class="you">(you)</span>' : ''}${teamTag(p.team)}${p.online ? '' : '<span class="dot off" title="offline"></span>'}</div>
       ${mini ? '' : `<div class="meta">${role ? `<span class="rolename">${esc(role.name)}</span>` : '<span>choosing role…</span>'}<span>Hand ${p.handCount}</span><span>Tricks ${p.tricks}</span></div>`}
       ${!mini && S.isHost && !p.online && !p.bot && S.phase !== 'ended' ? `<button class="btn small" data-botify="${S.lobby.find(m => m.name === p.name)?.pid || ''}">Give seat to a bot</button>` : ''}
     </div>`;
@@ -427,7 +467,7 @@ function tableHtml() {
         <span class="risk">Risk <b>${S.trick.risk}</b>${changed ? `<span style="font-size:13px;color:var(--ink-soft)">(was ${b.risk})</span>` : ''}</span>
       </div>
     </div>
-    <div class="played" style="--n:${n}">${S.trick.plays.length ? S.trick.plays.map(pl => cardEl(pl.card, '', '', S.players[pl.p].name)).join('') : '<span class="lastline" style="color:var(--blush)">No cards played yet.</span>'}</div>
+    <div class="played" style="--n:${S.trick.seq ? S.trick.seq.length : n}">${S.trick.plays.length ? S.trick.plays.map(pl => cardEl(pl.card, '', '', S.players[pl.p].boss ? 'Anaconda' : S.players[pl.p].name)).join('') : '<span class="lastline" style="color:var(--blush)">No cards played yet.</span>'}</div>
     <div class="strip">
       <h3>Travel row</h3>
       <div class="strip-cards">${travelCards('')}${deck}</div>
@@ -459,6 +499,7 @@ function renderGame() {
     <span class="logo-sm">EVERGLADES</span>
     <span class="chip">Room ${S.room}</span>
     ${S.phase === 'draft' ? '<span class="chip">Role draft</span>' : S.phase !== 'ended' ? `<span class="chip">Round ${S.round}</span>` : ''}
+    ${S.partners ? '<span class="chip">Partners</span>' : ''}${S.coop ? '<span class="chip" style="background:#f2d7c9">Co-op vs The Anaconda</span>' : ''}
     <span class="spacer"></span>
     <div class="notes-wrap">
       <button class="btn small ${ui.showLog ? 'brass' : ''}" id="notesBtn">Field notes ${ui.unread && !ui.showLog ? `<span class="badge">${ui.unread > 9 ? '9+' : ui.unread}</span>` : ''}▾</button>
@@ -517,7 +558,7 @@ function promptHtml() {
   }
   if (ui.mode === 'landdev') return box('Land Developer: click any counter on the map to remove 1 token.', `<button class="btn" id="cancelMode">Cancel</button>`);
   const suit = BIOMES[S.trick.biome].suit;
-  const follow = S.legal.length < S.hand.length ? `Follow ${suit} or play an Invasive card.` : `You can't follow ${suit}, so play anything.`;
+  const follow = S.legal.length < S.hand.length ? (S.coop ? `Follow ${suit} if you can.` : `Follow ${suit} or play an Invasive card.`) : `You can't follow ${suit}, so play anything.`;
   let buttons = '';
   if (S.role && ACTIVE_ABILITY[S.role] && !S.abilityUsed) buttons += `<button class="btn brass" id="ability">${ACTIVE_ABILITY[S.role]}</button>`;
   const sel = ui.sel && S.legal.includes(ui.sel) ? CARDS[ui.sel] : null;
@@ -535,10 +576,10 @@ function swapModal() {
     if (!ui.swapHand) return false;
     if (role === 'Researcher') return true;
     const need = role === 'Fisherman' ? 'Water' : 'Land';
-    return CARDS[id].habitat === need && CARDS[id].impact < CARDS[ui.swapHand].impact;
+    return CARDS[id].habitat === need;
   };
   const rule = role === 'Researcher' ? 'any card in your scoring pile'
-    : `a ${role === 'Fisherman' ? 'Water' : 'Land'} card in your scoring pile with a lower Impact than the hand card`;
+    : `any ${role === 'Fisherman' ? 'Water' : 'Land'} card in your scoring pile`;
   return `<div class="modal"><div class="paper spiral">
     <div class="panel-title">Swap a card</div>
     <p class="hint" style="margin-top:0">Pick a card from your hand, then ${rule}.</p>
@@ -557,7 +598,7 @@ function rulesModal() {
       <img src="assets/ref-front.png" data-peek="assets/ref-front.png" alt="On your turn" style="width:min(240px,30%);border:3px solid var(--ink)">
       <img src="assets/ref-back.png" data-peek="assets/ref-back.png" alt="Playing tricks" style="width:min(240px,30%);border:3px solid var(--ink)">
       <div class="hint" style="flex:1;min-width:0;color:var(--ink)">
-        <p style="margin-top:0"><b>Setup:</b> after the cards are dealt, players choose roles one at a time in turn order.</p><p><b>Each round:</b> the lead player picks a biome from the travel row. Everyone plays one card, in order.</p>
+        <p style="margin-top:0"><b>Setup:</b> after the cards are dealt, players choose roles one at a time in turn order.</p>${S.coop ? `<p><b>Co-op vs The Anaconda:</b> you hold only Native cards. After each player's turn the Anaconda flips its top Invasive card. When it wins a trick it travels to the highest-Risk biome. Its Predatory cards eat Native tokens and its Migratory cards move next door to the most Natives. The game ends after the round it plays its last card. Add all players' scores together — you must beat the Anaconda's score (hover its name to read its boss card).</p>` : ''}<p><b>Each round:</b> the lead player picks a biome from the travel row. Everyone plays one card, in order.</p>
         <p><b>Winning:</b> the highest-Impact card that matches the biome's type wins. Invasive cards match too if their Impact is at or below the current Invasive Risk. A <b>Keystone</b> card lowers the Risk by the number of Native tokens in the region. If nothing matches, the highest Impact card wins.</p>
         <p><b>Invasive Crisis:</b> if an Invasive card wins, each region loses 1 Native token per Invasive token there (or 1 Invasive token if it has only Invasives).</p>
         <p><b>Scoring:</b> 5 points per trick, plus the objectives on your role card. Everyone's role is public — hover a name to read it.</p>
@@ -565,8 +606,36 @@ function rulesModal() {
     </div></div></div>`;
 }
 
+function coopEndModal() {
+  const R = S.results;
+  const e = R.scores.find(x => x.p === R.ending.p);
+  const role = ROLES[e.role];
+  const row = sc => `<tr>
+        <td><img class="rolethumb" src="${ROLES[sc.role].img}" data-peek="${ROLES[sc.role].img}" alt=""></td>
+        <td><b>${esc(sc.name)}</b><br><span class="hint">${esc(ROLES[sc.role].name)}</span></td>
+        <td class="lines">${sc.lines.map(l => `${esc(l.label)}: <b style="color:var(--ink)">${l.pts}</b>`).join('<br>')}</td>
+        <td class="total">${sc.total}</td></tr>`;
+  return `<div class="modal"><div class="paper spiral">
+    <h2 class="logo" style="font-size:38px;${R.playersWin ? '' : 'color:var(--red)'}">${R.playersWin ? 'THE EVERGLADES ARE SAVED!' : 'THE ANACONDA WINS!'}</h2>
+    <p style="font-size:22px;margin:6px 0">Players <b>${R.playersTotal}</b> &nbsp;vs&nbsp; The Anaconda <b>${R.anaconda.total}</b>${R.playersTotal === R.anaconda.total ? ' <span class="hint">(the Anaconda wins ties)</span>' : ''}</p>
+    <p class="hint" style="margin:0 0 6px">${R.playersWin
+      ? `${esc(e.name)}, the highest scorer, reads the good ending on the ${esc(role.name)} card:`
+      : `${esc(e.name)}, the lowest scorer, reads the grim ending on the ${esc(role.name)} card:`}</p>
+    <div class="ending" data-peek="${role.ending}"><img src="${role.ending}" alt="Ending"><div class="shade ${R.playersWin ? 'right' : 'left'}"></div></div>
+    <table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
+      <tr class="teamrow"><td colspan="3">The players, together</td><td class="total">${R.playersTotal}</td></tr>
+      ${R.scores.map(row).join('')}
+      <tr class="teamrow bossrow"><td colspan="3">The Anaconda</td><td class="total">${R.anaconda.total}</td></tr>
+      <tr><td><img class="rolethumb" src="${BOSS.img}" data-peek="${BOSS.img}" alt=""></td><td><b>The Anaconda</b><br><span class="hint">Co-op boss</span></td>
+        <td class="lines">${R.anaconda.lines.map(l => `${esc(l.label)}: <b style="color:var(--ink)">${l.pts}</b>`).join('<br>')}</td><td class="total">${R.anaconda.total}</td></tr>
+    </table>
+    <div class="row">${S.isHost ? '<button class="btn primary" id="rematch">Back to lobby</button>' : '<span class="hint">The host can start a new game.</span>'}<button class="btn" id="quit2">Leave</button></div>
+  </div></div>`;
+}
+
 function endModal() {
   const R = S.results;
+  if (R.coop) return coopEndModal();
   const sorted = R.scores.slice().sort((a, b) => b.total - a.total);
   const endings = R.winners.map(w => {
     const sc = R.scores.find(x => x.p === w);
@@ -574,6 +643,26 @@ function endModal() {
     return `<div class="ending-label">${esc(sc.name)}'s ending — the ${esc(role.name)} (${sc.good ? 'good' : 'grim'} ending)</div>
       <div class="ending" data-peek="${role.ending}"><img src="${role.ending}" alt="Ending"><div class="shade ${sc.good ? 'right' : 'left'}"></div></div>`;
   }).join('');
+  const row = sc => `<tr class="${R.winners.includes(sc.p) ? 'winner' : ''}">
+        <td><img class="rolethumb" src="${ROLES[sc.role].img}" data-peek="${ROLES[sc.role].img}" alt=""></td>
+        <td><b>${esc(sc.name)}</b><br><span class="hint">${esc(ROLES[sc.role].name)}</span></td>
+        <td class="lines">${sc.lines.map(l => `${esc(l.label)}: <b style="color:var(--ink)">${l.pts}</b>`).join('<br>')}</td>
+        <td class="total">${sc.total}</td></tr>`;
+  if (R.teams) {
+    // Partner mode: one block per team, with the team total
+    const tied = R.teams.filter(t => t.total === R.teams[0].total).length > 1;
+    const title = tied ? "IT'S A TIE!" : `TEAM ${TEAMS[R.teams[0].team].name.toUpperCase()} WINS!`;
+    return `<div class="modal"><div class="paper spiral">
+    <h2 class="logo" style="font-size:38px">${title}</h2>
+    <p class="hint" style="margin:4px 0 8px">The winning partners read their role cards' backs aloud:</p>
+    ${endings}
+    <table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
+      ${R.teams.map(t => `<tr class="teamrow"><td colspan="3">${teamTag(t.team)} ${t.members.map(m => esc(S.players[m].name)).join(' &amp; ')}</td><td class="total">${t.total}</td></tr>
+        ${t.members.map(m => row(R.scores.find(x => x.p === m))).join('')}`).join('')}
+    </table>
+    <div class="row">${S.isHost ? '<button class="btn primary" id="rematch">Back to lobby</button>' : '<span class="hint">The host can start a new game.</span>'}<button class="btn" id="quit2">Leave</button></div>
+  </div></div>`;
+  }
   return `<div class="modal"><div class="paper spiral">
     <h2 class="logo" style="font-size:38px">${R.winners.length > 1 ? "IT'S A TIE!" : esc(S.players[R.winners[0]].name).toUpperCase() + ' WINS!'}</h2>
     <p class="hint" style="margin:4px 0 8px">The winner reads their role card's back aloud:</p>
@@ -596,7 +685,7 @@ function abilityStillUseful() {
   if (S.role === 'LandDeveloper') return boardTotal(S.board) > 0;
   if (S.role === 'Researcher') return S.pile.length > 0 && S.hand.length > 0;
   const need = S.role === 'Fisherman' ? 'Water' : 'Land';
-  return S.pile.some(pc => CARDS[pc].habitat === need && S.hand.some(h => CARDS[pc].impact < CARDS[h].impact));
+  return S.hand.length > 0 && S.pile.some(pc => CARDS[pc].habitat === need);
 }
 function warnOff() { try { return sessionStorage.getItem('eg_nowarn_' + S.room) === '1'; } catch { return false; } }
 function tryPlay(card, populate) {

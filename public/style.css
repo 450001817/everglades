@@ -342,3 +342,20 @@ input.field:focus { outline: 3px solid var(--brass); }
 .hand.dealing .slot { visibility: hidden; }
 .hand.intro .slot .card { animation: flipin .45s steps(5) both; animation-delay: calc(var(--i) * 60ms); }
 @keyframes flipin { from { transform: translateY(40px) rotateY(90deg); opacity: 0; } }
+
+/* partner mode */
+.teamtag { display: inline-block; padding: 0 5px; margin-left: 4px; background: var(--tc); color: #fff; border: 2px solid var(--ink); font-size: 12px; font-weight: 700; line-height: 1.3; text-transform: uppercase; letter-spacing: .5px; }
+.teampick { display: inline-flex; gap: 3px; }
+.teamopt { font-family: inherit; font-size: 12px; font-weight: 700; padding: 1px 5px; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); cursor: pointer; text-transform: uppercase; }
+.teamopt:hover { background: #fff; }
+.teamopt.on { background: var(--tc); color: #fff; box-shadow: 2px 2px 0 var(--ink); }
+.scores tr.teamrow td { background: var(--paper-2); font-weight: 700; font-size: 18px; border-top: 3px solid var(--ink); }
+
+/* co-op boss */
+.modepick { display: flex; gap: 4px; }
+.bossthumb { width: 64px; height: 64px; border: 3px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); flex-shrink: 0; cursor: help; }
+.bossthumb.sm { width: 22px; height: 22px; border-width: 2px; box-shadow: none; }
+.pl.boss { background: #f6e3dc; border-color: var(--red); border-style: dashed; }
+.pl.boss.turn { background: #ffd9cf; border-style: solid; }
+.tag.bosstag { background: var(--red); color: #fff; font-size: 14px; padding: 0 4px; }
+.scores tr.bossrow td { background: #f6e3dc; }

@@ -140,13 +140,13 @@
     Fisherman: {
       name: 'Fisherman', img: 'assets/cards/roles/Fisherman.png', ending: 'assets/cards/roles/FishermanENDING.png',
       map: { NG: 'N', SG: 'N', KW: 'N', FK: 'N', KL: 'N' }, mapPts: 5,
-      ability: 'Start of turn: you may swap a card from your hand with any Water card with a lower Impact from your scoring pile.',
+      ability: 'Start of turn: you may swap any card from your hand with any Water card from your scoring pile.',
       goals: ['5 pts for each map objective met', '10 pts if there are at least 25 population in your objective regions', '15 pts if you win the most tricks from Water regions'],
     },
     Hunter: {
       name: 'Game Hunter', img: 'assets/cards/roles/Hunter.png', ending: 'assets/cards/roles/HunterENDING.png',
       map: { FSP: 'N', LO: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 5,
-      ability: 'Start of turn: you may swap a card from your hand with any Land card with a lower Impact from your scoring pile.',
+      ability: 'Start of turn: you may swap any card from your hand with any Land card from your scoring pile.',
       goals: ['5 pts for each map objective met', '15 pts if there are at least 25 population in your objective regions', '15 pts if you win the most tricks from Land regions'],
     },
     LandDeveloper: {
@@ -169,7 +169,13 @@
     },
   };
 
-  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES };
+  // Co-op boss (not a player role, so it is not in ROLES)
+  const BOSS = {
+    name: 'The Anaconda', img: 'assets/cards/roles/AnacondaBoss.png', portrait: 'assets/anaconda.png',
+    goals: ['5 pts for each map objective the players miss', '5 pts for each trick won', '3 pts for each region with an Invasive majority', 'Wins all ties'],
+  };
+
+  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS };
   if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
   else root.EG_DATA = DATA;
 })(typeof window !== 'undefined' ? window : globalThis);
