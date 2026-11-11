@@ -8,7 +8,7 @@ const $toast = document.getElementById('toast');
 let S = null;               // latest game view from the server
 let es = null;              // live connection
 let sess = loadSess();      // { room, token }
-const ui = { confirm: null, showLog: false, unread: 0, sel: null, mode: null, swapHand: null, swapPile: null, err: '', lastRound: null, showRules: false, fresh: null };
+const ui = { dealing: false, handIntro: 0, chatSeen: 0, bubbles: {}, confirm: null, showLog: false, unread: 0, sel: null, mode: null, swapHand: null, swapPile: null, err: '', lastRound: null, showRules: false, fresh: null };
 
 const ACTIVE_ABILITY = {
   Fisherman: 'Swap with scoring pile (Water)',
@@ -96,6 +96,7 @@ const SFX = {
   crisis: () => { tone(330, 0.5, { type: 'sawtooth', to: 55, vol: 0.08 }); tone(311, 0.5, { type: 'square', to: 52, vol: 0.04, at: 0.05 }); },
   error: () => tone(140, 0.14, { vol: 0.06 }),
   start: () => notes([392, 523, 659, 784], 0.09, { type: 'triangle', vol: 0.09 }),
+  chat: () => tone(1500, 0.04, { type: 'triangle', vol: 0.03 }),
   end: () => notes([523, 659, 784, 1047, 784, 1047, 1319], 0.12, { vol: 0.06 }),
 };
 document.addEventListener('pointerdown', () => audio(), { once: true });
@@ -190,6 +191,17 @@ function onUpdate(prev) {
   }
 
   // sounds
+  // bot speech bubbles (only lines that arrive while you're watching)
+  const chat = S.chatter || [];
+  const fresh = live || (prev && prev.phase === 'lobby');
+  for (const c of chat) {
+    if (c.id <= ui.chatSeen) continue;
+    if (fresh) { ui.bubbles[c.seat] = { text: c.text, until: Date.now() + 4200, id: c.id }; SFX.chat(); }
+  }
+  if (chat.length) ui.chatSeen = Math.max(ui.chatSeen, chat[chat.length - 1].id);
+  if (!chat.length) ui.chatSeen = 0;
+  // the game just started: shuffle and deal
+  if (prev && prev.phase === 'lobby' && S.phase === 'draft') { ui.dealing = true; ui.chatSeen = 0; setTimeout(playDeal, 60); }
   if (prev && prev.phase === 'lobby') SFX.start();
   if (live) {
     const lt = S.lastTrick, key = lt ? lt.round + ':' + lt.biome : null;
@@ -352,7 +364,7 @@ function boardHtml() {
 function playersHtml(mini) {
   return S.players.map((p, i) => {
     const role = p.role ? ROLES[p.role] : null;
-    return `<div class="pl ${S.waiting === i ? 'turn' : ''}" ${role ? `data-peek="${role.img}"` : ''}>
+    return `<div class="pl ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" ${role ? `data-peek="${role.img}"` : ''}>
       <div class="nm">${S.waiting === i ? '<span class="arrow">▶</span>' : ''}<span class="name">${esc(p.name)}</span>${i === S.you ? '<span class="you">(you)</span>' : ''}${p.online ? '' : '<span class="dot off" title="offline"></span>'}</div>
       ${mini ? '' : `<div class="meta">${role ? `<span class="rolename">${esc(role.name)}</span>` : '<span>choosing role…</span>'}<span>Hand ${p.handCount}</span><span>Tricks ${p.tricks}</span></div>`}
       ${!mini && S.isHost && !p.online && !p.bot && S.phase !== 'ended' ? `<button class="btn small" data-botify="${S.lobby.find(m => m.name === p.name)?.pid || ''}">Give seat to a bot</button>` : ''}
@@ -437,7 +449,7 @@ function renderGame() {
     const c = CARDS[id];
     const over = S.trick && c.kind === 'Invasive' && c.impact > S.trick.risk;
     const badge = over ? `<div class="overrisk" title="Impact ${c.impact} is above the Invasive Risk (${S.trick.risk}): this card can't win the trick, but it still populates."><span>!</span></div>` : '';
-    return `<div class="slot">${cardEl(id, `${cls} ${ui.sel === id ? 'sel' : ''}`, `data-hand="${id}"`, '', badge)}</div>`;
+    return `<div class="slot" style="--i:${hand.indexOf(id)}">${cardEl(id, `${cls} ${ui.sel === id ? 'sel' : ''}`, `data-hand="${id}"`, '', badge)}</div>`;
   }).join('') || '<span class="hint" style="color:var(--blush)">No cards in hand.</span>';
   const role = S.role ? ROLES[S.role] : null;
   if (peekSrc && !document.querySelector(`[data-peek="${peekSrc}"]`)) { /* card may have left; checked after render */ }
@@ -466,7 +478,7 @@ function renderGame() {
     <section class="handarea">
       ${promptHtml()}
       <div class="handrow">
-        <div class="hand">${handHtml}</div>
+        <div class="hand ${ui.dealing ? 'dealing' : ''} ${Date.now() - (ui.handIntro || 0) < 1400 ? 'intro' : ''}">${handHtml}</div>
         ${role ? `<div class="rolebox"><div class="cap">You are the <b>${esc(role.name)}</b></div><div class="card" data-peek="${role.img}"><img src="${role.img}" alt="${esc(role.name)}"></div></div>` : ''}
       </div>
     </section>
@@ -479,6 +491,7 @@ function renderGame() {
   if (peekSrc && !document.querySelector(`[data-peek="${CSS.escape(peekSrc)}"]`)) hidePeek();
   const logEl = document.getElementById('log'); if (logEl) logEl.scrollTop = logEl.scrollHeight;
   wire();
+  placeBubbles();
 }
 
 function promptHtml() {
@@ -545,7 +558,7 @@ function rulesModal() {
       <img src="assets/ref-back.png" data-peek="assets/ref-back.png" alt="Playing tricks" style="width:min(240px,30%);border:3px solid var(--ink)">
       <div class="hint" style="flex:1;min-width:0;color:var(--ink)">
         <p style="margin-top:0"><b>Setup:</b> after the cards are dealt, players choose roles one at a time in turn order.</p><p><b>Each round:</b> the lead player picks a biome from the travel row. Everyone plays one card, in order.</p>
-        <p><b>Winning:</b> the highest-Impact card that matches the biome's type wins. Invasive cards match too if their Impact is at or below the current Invasive Risk. If nothing matches, the highest Impact card wins.</p>
+        <p><b>Winning:</b> the highest-Impact card that matches the biome's type wins. Invasive cards match too if their Impact is at or below the current Invasive Risk. A <b>Keystone</b> card lowers the Risk by the number of Native tokens in the region. If nothing matches, the highest Impact card wins.</p>
         <p><b>Invasive Crisis:</b> if an Invasive card wins, each region loses 1 Native token per Invasive token there (or 1 Invasive token if it has only Invasives).</p>
         <p><b>Scoring:</b> 5 points per trick, plus the objectives on your role card. Everyone's role is public — hover a name to read it.</p>
       </div>
@@ -606,6 +619,102 @@ function confirmModal() {
     </div>
     <label class="hint" style="display:flex;gap:8px;align-items:center;margin-top:12px;cursor:pointer"><input type="checkbox" id="cfOff"> Don't warn me again this game</label>
   </div></div>`;
+}
+
+// ---------- bot speech bubbles ----------
+const $bubbles = document.getElementById('bubbles');
+function placeBubbles() {
+  if (!$bubbles) return;
+  const now = Date.now();
+  let html = '';
+  for (const [seat, b] of Object.entries(ui.bubbles)) {
+    if (b.until < now || !S || !S.players || !S.players[seat]) { delete ui.bubbles[seat]; continue; }
+    const rows = [...document.querySelectorAll(`.pl[data-seat="${seat}"]`)].filter(el => el.offsetParent);
+    if (!rows.length) continue;
+    const r = rows[0].getBoundingClientRect();
+    const below = r.right + 260 > innerWidth;         // no room on the right: hang it underneath instead
+    const x = below ? Math.max(8, r.left) : r.right + 12;
+    const y = below ? r.bottom + 8 : r.top + 4;
+    html += `<div class="bubble ${below ? 'below' : ''}" data-id="${b.id}" style="left:${x}px;top:${y}px">${esc(b.text)}</div>`;
+  }
+  // keep existing bubbles (so their pop-in animation doesn't replay), add new ones
+  const keep = new Set([...$bubbles.children].map(el => el.dataset.id));
+  const tmp = document.createElement('div'); tmp.innerHTML = html;
+  const want = new Set([...tmp.children].map(el => el.dataset.id));
+  [...$bubbles.children].forEach(el => { if (!want.has(el.dataset.id)) el.remove(); });
+  [...tmp.children].forEach(el => {
+    const old = $bubbles.querySelector(`[data-id="${el.dataset.id}"]`);
+    if (old) { old.style.left = el.style.left; old.style.top = el.style.top; old.className = el.className; }
+    else $bubbles.appendChild(el);
+  });
+  void keep;
+}
+setInterval(() => { if (Object.keys(ui.bubbles).length) placeBubbles(); }, 500);
+addEventListener('resize', () => placeBubbles());
+
+// ---------- shuffle and deal animation at the start of a game ----------
+const $deal = document.getElementById('deal');
+function finishDeal() {
+  if (!ui.dealing) return;
+  ui.dealing = false; ui.handIntro = Date.now();
+  $deal.innerHTML = ''; $deal.classList.add('hidden');
+  render();
+}
+async function playDeal() {
+  if (!$deal || matchMedia('(prefers-reduced-motion: reduce)').matches) return finishDeal();
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const area = (document.querySelector('.tablecol') || document.body).getBoundingClientRect();
+  const W = Math.min(130, area.width / 5), H = W * 1.4;
+  const cx = area.left + area.width / 2 - W / 2, cy = area.top + area.height / 2 - H / 2;
+  $deal.classList.remove('hidden');
+  $deal.innerHTML = `<div class="deal-title">Shuffling the Ecology deck…</div>`;
+  $deal.onclick = finishDeal;
+  const N = 14, cards = [];
+  for (let i = 0; i < N; i++) {
+    const el = document.createElement('img');
+    el.src = 'assets/ecology-back.png'; el.className = 'deal-card';
+    Object.assign(el.style, { width: W + 'px', height: H + 'px', left: cx + 'px', top: cy - i * 1.5 + 'px', zIndex: i });
+    $deal.appendChild(el); cards.push(el);
+  }
+  const title = $deal.querySelector('.deal-title');
+  Object.assign(title.style, { left: area.left + area.width / 2 + 'px', top: cy - 60 + 'px' });
+  // three riffle shuffles: split left/right, then zip back together
+  for (let round = 0; round < 3 && ui.dealing; round++) {
+    cards.forEach((el, i) => el.animate([{ transform: 'none' }, { transform: `translate(${i % 2 ? 80 : -80}px, ${(i % 2 ? -1 : 1) * 6}px) rotate(${i % 2 ? 8 : -8}deg)` }],
+      { duration: 220, easing: 'steps(4)', fill: 'forwards' }));
+    SFX.card(); await wait(260);
+    cards.forEach((el, i) => el.animate([{ transform: `translate(${i % 2 ? 80 : -80}px, 0) rotate(${i % 2 ? 8 : -8}deg)` }, { transform: 'none' }],
+      { duration: 160, delay: i * 18, easing: 'steps(3)', fill: 'forwards' }));
+    for (let k = 0; k < 5; k++) setTimeout(() => tone(1800 + Math.random() * 600, 0.015, { type: 'square', vol: 0.025 }), k * 45);
+    await wait(160 + N * 18 + 80);
+  }
+  if (!ui.dealing) return;
+  // deal: cards fly to every seat, three times around the table
+  title.textContent = 'Dealing…';
+  const seats = S.players.map((p, i) => {
+    if (i === S.you) { const h = document.querySelector('.hand'); if (h) { const r = h.getBoundingClientRect(); return { x: r.left + r.width / 2 - W / 2, y: r.top + 10 }; } }
+    const row = [...document.querySelectorAll(`.pl[data-seat="${i}"]`)].find(el => el.offsetParent);
+    if (row) { const r = row.getBoundingClientRect(); return { x: r.left + r.width / 2 - W / 2, y: r.top + r.height / 2 - H / 2 }; }
+    return { x: cx, y: -H };
+  });
+  for (let round = 0; round < 3 && ui.dealing; round++) {
+    for (let i = 0; i < seats.length && ui.dealing; i++) {
+      const el = document.createElement('img');
+      el.src = 'assets/ecology-back.png'; el.className = 'deal-card';
+      Object.assign(el.style, { width: W + 'px', height: H + 'px', left: cx + 'px', top: cy - N * 1.5 + 'px', zIndex: 100 });
+      $deal.appendChild(el);
+      const t = seats[i], spin = (Math.random() - 0.5) * 40;
+      const anim = el.animate([
+        { transform: 'translate(0,0) rotate(0deg) scale(1)', opacity: 1 },
+        { transform: `translate(${t.x - cx}px, ${t.y - (cy - N * 1.5)}px) rotate(${spin}deg) scale(${i === S.you ? 1 : 0.45})`, opacity: i === S.you ? 1 : 0.15 },
+      ], { duration: 340, easing: 'cubic-bezier(.3,.7,.3,1)', fill: 'forwards' });
+      anim.onfinish = () => el.remove();
+      tone(i === S.you ? 900 : 700, 0.03, { vol: 0.04 });
+      await wait(110);
+    }
+  }
+  await wait(380);
+  finishDeal();
 }
 
 // ---------- wiring ----------
