@@ -146,7 +146,6 @@ function playCard(s, p, cardId, populate) {
   s.trick.plays.push({ p, card: cardId });
   s.tourPeek = null;
   let msg = `${pname(s, p)} plays ${c.name} (${c.kind === 'Invasive' ? 'Invasive ' : ''}${c.habitat}, Impact ${c.impact}).`;
-  if (c.keystone) { s.trick.risk = c.impact; msg += ` Keystone: Invasive Risk is now ${c.impact}.`; }
   log(s, msg);
 
   const kind = c.kind === 'Invasive' ? 'i' : 'n';
@@ -187,8 +186,20 @@ function placeTargets(s) {
   return [...st.line, ...ADJ[last].filter(r => !st.line.includes(r))];
 }
 
+// Keystone: after the card populates, lower the Invasive Risk by the Native tokens now in the trick's region
+// (this card's own tokens included), never below 0.
+function applyKeystone(s, c) {
+  const natives = s.board[trickRegion(s)].n;
+  const was = s.trick.risk;
+  s.trick.risk = Math.max(0, was - natives);
+  log(s, natives > 0
+    ? `Keystone: ${natives} Native token${natives > 1 ? 's' : ''} in ${REGIONS[trickRegion(s)].name} lower the Invasive Risk from ${was} to ${s.trick.risk}.`
+    : `Keystone: no Native tokens in ${REGIONS[trickRegion(s)].name}, so the Invasive Risk stays at ${was}.`);
+}
+
 function afterPlacement(s, cardId, regions, before) {
   const c = CARDS[cardId];
+  if (c.keystone) applyKeystone(s, c);
   if (c.predatory > 0) {
     // Predators remove up to X tokens of either kind (Native or Invasive) from any region they populated.
     const total = regions.reduce((a, r) => a + s.board[r].n + s.board[r].i, 0);
@@ -393,7 +404,7 @@ function botAction(s, p) {
     }
     return { type: 'chooseBiome', biome: best };
   }
-  if (s.tourPeek) return { type: 'tourDecide', bottom: Math.random() < 0.5 };
+  if (s.tourPeek) return { type: 'tourDecide', bottom: !role.map[BIOMES[s.tourPeek].region] }; // keep biomes in its objective regions on top
   if (s.step && s.step.type === 'place') {
     // Spread toward regions where the bot's role wants this kind of population.
     const t = placeTargets(s);
@@ -407,12 +418,17 @@ function botAction(s, p) {
     }
     return { type: 'predateDone' };
   }
+  // Start of turn: use the role ability when it obviously helps.
+  if (s.phase === 'play' && !s.step && !s.abilityUsed) {
+    const a = botAbility(s, p, role, wantKind);
+    if (a) return a;
+  }
   // Pick a card: win cheaply if possible, otherwise dump the lowest Impact card.
   const legal = legalCards(s, p);
   const suit = leadSuit(s);
   const risk = s.trick.risk;
   const currentBest = s.trick.plays.filter(x => cardMatches(x.card, suit, risk)).reduce((m, x) => Math.max(m, CARDS[x.card].impact), -1);
-  const winners = legal.filter(c => cardMatches(c, suit, CARDS[c].keystone ? CARDS[c].impact : risk) && CARDS[c].impact > currentBest)
+  const winners = legal.filter(c => cardMatches(c, suit, CARDS[c].keystone ? Math.max(0, risk - s.board[BIOMES[s.trick.biome].region].n - CARDS[c].pop) : risk) && CARDS[c].impact > currentBest)
     .sort((a, b) => CARDS[a].impact - CARDS[b].impact);
   const wantsFew = pl.role === 'Researcher';
   let card;
@@ -422,7 +438,116 @@ function botAction(s, p) {
   return { type: 'play', card, populate };
 }
 
+function botAbility(s, p, role, wantKind) {
+  const pl = s.players[p];
+  const r = pl.role;
+  if (r === 'Tourist') return s.biomeDeck.length && Math.random() < 0.6 ? { type: 'ability' } : null;
+  if (r === 'LandDeveloper') {
+    // Remove a token that works against its map, otherwise thin out a small region (it wants empty regions).
+    for (const reg of Object.keys(role.map)) {
+      const bad = wantKind(reg) === 'n' ? 'i' : 'n';
+      if (s.board[reg][bad] > 0 && s.board[reg][bad] >= s.board[reg][wantKind(reg)]) return { type: 'ability', region: reg, kind: bad };
+    }
+    const small = Object.keys(s.board).filter(reg => !role.map[reg] && s.board[reg].n + s.board[reg].i > 0)
+      .sort((a, b) => (s.board[a].n + s.board[a].i) - (s.board[b].n + s.board[b].i))[0];
+    if (small) return { type: 'ability', region: small, kind: s.board[small].i > 0 ? 'i' : 'n' };
+    return null;
+  }
+  if (!pl.pile.length || Math.random() < 0.4) return null;
+  const byImpact = (a, b) => CARDS[a].impact - CARDS[b].impact;
+  if (r === 'Researcher') {
+    // Wants the fewest tricks: bank its strongest hand card, take back the weakest pile card.
+    const hi = pl.hand.slice().sort(byImpact).pop(), lo = pl.pile.slice().sort(byImpact)[0];
+    return CARDS[hi].impact > CARDS[lo].impact ? { type: 'ability', handCard: hi, pileCard: lo } : null;
+  }
+  if (r === 'Fisherman' || r === 'Hunter') {
+    // Trade an off-suit card for a lower Impact card of its favourite suit, to compete for those tricks.
+    const need = r === 'Fisherman' ? 'Water' : 'Land';
+    for (const h of pl.hand.filter(c => CARDS[c].habitat !== need).sort(byImpact).reverse()) {
+      const pc = pl.pile.filter(c => CARDS[c].habitat === need && CARDS[c].kind === 'Native' && CARDS[c].impact < CARDS[h].impact).sort(byImpact).pop();
+      if (pc) return { type: 'ability', handCard: h, pileCard: pc };
+    }
+  }
+  return null;
+}
+
+// ---------- what a bot says when it acts (short, in character) ----------
+const pickOne = a => a[Math.floor(Math.random() * a.length)];
+const VOICE = {
+  Conservationist: {
+    pick: ['I’ll protect these wetlands as the Conservationist.'],
+    travel: b => [`${b.place} needs protecting.`, `Let’s check on ${b.name}.`],
+    win: c => [`Tagging a ${c}. This biome needs a champion!`, `A healthy ${c} — just what this place needs.`],
+    low: c => [`Letting a ${c} settle in quietly.`, `A small ${c}. Every species counts.`],
+    inv: c => [`Releasing ${c}… under protest.`],
+  },
+  Researcher: {
+    pick: ['Field Researcher reporting. Clipboards ready.'],
+    travel: b => [`Field study at ${b.name}, ${b.place}.`, `Collecting samples in ${b.name}.`],
+    win: c => [`${c} sighting! Strong data.`, `Documenting a fine ${c} specimen.`],
+    low: c => [`Logging a modest ${c}. Low profile.`, `Quietly noting a ${c}.`],
+    inv: c => [`Introducing ${c}. Purely for science.`, `Observing ${c}… from a distance.`],
+  },
+  Fisherman: {
+    pick: ['Fisherman! Where are the big ones biting?'],
+    travel: b => [`Heading out to ${b.name}. Fish are biting!`, `Casting lines at ${b.name}.`],
+    win: c => [`Reeling in a ${c}. That’s a keeper!`, `Big ${c} on the line!`],
+    low: c => [`Throwing back a ${c}. Not worth it.`, `Just a little ${c}.`],
+    inv: c => [`Oops, a ${c} fell off the boat.`, `Bait bucket ${c} — who’ll notice?`],
+  },
+  Hunter: {
+    pick: ['Game Hunter. Let’s go track something.'],
+    travel: b => [`Tracking game through ${b.name}.`, `Fresh trail in ${b.name}.`],
+    win: c => [`${c} spotted. Taking the shot!`, `A trophy ${c}!`],
+    low: c => [`A ${c}… not trophy material.`, `Passing on that ${c}.`],
+    inv: c => [`Turn the ${c} loose. More game for me!`],
+  },
+  LandDeveloper: {
+    pick: ['Land Developer. Time to see some property.'],
+    travel: b => [`Surveying ${b.name} for new lots.`, `${b.name}? Prime waterfront.`],
+    win: c => [`${c} — great for the brochure.`, `Investing in ${c}. Big returns!`],
+    low: c => [`${c}? Not my investment.`, `Minimal spend on a ${c}.`],
+    inv: c => [`${c} clears space for development.`, `${c}: free land clearing!`],
+  },
+  Tourist: {
+    pick: ['Tourist! I brought three cameras.'],
+    travel: b => [`Next stop: ${b.name}! Sunscreen on.`, `Is ${b.name} on the tour?`],
+    win: c => [`Ooh, a ${c}! Best photo yet!`, `Look at that ${c}!`],
+    low: c => [`Just a ${c}. Saving film.`, `Cute ${c}. Moving on.`],
+    inv: c => [`Was I supposed to keep my pet ${c}?`, `Oops… my ${c} got loose.`],
+  },
+};
+function botSay(s, p, a) {
+  const pl = s.players[p];
+  if (a.type === 'pickRole') return VOICE[a.role].pick[0];
+  const V = VOICE[pl.role];
+  const rn = r => REGIONS[r].name;
+  switch (a.type) {
+    case 'chooseBiome': { const b = BIOMES[a.biome]; return pickOne(V.travel({ name: b.name, place: rn(b.region) })); }
+    case 'play': {
+      const c = CARDS[a.card];
+      if (c.keystone) return pickOne([`${c.name} anchors the ecosystem. Invasive Risk drops!`, `${c.name} keeps the invaders in check.`]);
+      if (c.kind === 'Invasive') return pickOne(V.inv(c.name));
+      const suit = leadSuit(s), risk = s.trick.risk;
+      const best = s.trick.plays.filter(x => cardMatches(x.card, suit, risk)).reduce((m, x) => Math.max(m, CARDS[x.card].impact), -1);
+      return pickOne(cardMatches(a.card, suit, risk) && c.impact > best ? V.win(c.name) : V.low(c.name));
+    }
+    case 'ability':
+      if (pl.role === 'Tourist') return 'Peeking at the travel brochure…';
+      if (pl.role === 'LandDeveloper') return `Bulldozing ${a.kind === 'n' ? 'a Native' : 'an Invasive'} population in ${rn(a.region)}.`;
+      if (pl.role === 'Researcher') return `Archiving my ${CARDS[a.handCard].name}. Less glory, more data.`;
+      if (pl.role === 'Fisherman') return `Swapping catches — keeping my ${CARDS[a.pileCard].name}.`;
+      if (pl.role === 'Hunter') return `Trading trophies — back on the trail of ${CARDS[a.pileCard].name}.`;
+      return null;
+    case 'tourDecide': return a.bottom ? `Skipping ${BIOMES[s.tourPeek].name}. Too touristy.` : `${BIOMES[s.tourPeek].name} stays on my itinerary!`;
+    case 'place': return s.step.left === 1 ? `${CARDS[s.step.card].name} spreads to ${rn(a.region)}!` : null;
+    case 'predate': return s.step.left < CARDS[s.step.card].predatory ? null : `${CARDS[s.step.card].name} hunts ${a.kind === 'n' ? 'Natives' : 'Invasives'} in ${rn(a.region)}.`;
+    default: return null;
+  }
+}
+
 module.exports = {
+  botSay,
   newGame, addPlayer, startGame, availableRoles, applyAction, legalCards, placeTargets, waitingOn, botAction,
   computeResults, trickWinner, cardMatches, MIN_PLAYERS, MAX_PLAYERS,
 };

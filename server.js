@@ -11,7 +11,11 @@ const G = require('./game.js');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, 'public');
-const BOT_DELAY_MS = +process.env.BOT_DELAY_MS || 1100;
+// Bot pacing (milliseconds). Bots wait about this long before each move, a bit longer after a trick ends
+// so everyone can read the result, and longer still at the start while the cards are dealt.
+const BOT_DELAY_MS = +process.env.BOT_DELAY_MS || 1900;
+const TRICK_PAUSE_MS = BOT_DELAY_MS * 1.4;
+const DEAL_PAUSE_MS = BOT_DELAY_MS * 2.7;
 const MIN_TABLE = 4; // bots fill seats up to this many players
 const BOT_NAMES = ['Gator Bot', 'Heron Bot', 'Manatee Bot', 'Otter Bot', 'Panther Bot', 'Stork Bot'];
 
@@ -26,7 +30,7 @@ function code() {
 const rid = () => crypto.randomBytes(12).toString('hex');
 
 function newRoom() {
-  const room = { code: code(), members: [], hostPid: null, game: G.newGame(), clients: new Set(), touched: Date.now(), botTimer: null };
+  const room = { code: code(), members: [], hostPid: null, game: G.newGame(), clients: new Set(), touched: Date.now(), botTimer: null, chatter: [], chatId: 0, pauseUntil: 0, tricksSeen: 0 };
   rooms.set(room.code, room);
   return room;
 }
@@ -65,6 +69,7 @@ function viewFor(room, member) {
     travel: s.travel, deckCount: s.biomeDeck.length, board: s.board, trick: s.trick,
     leader: s.leader, turn: s.turn, waiting: G.waitingOn(s), round: s.round,
     lastTrick: s.lastTrick, log: s.log.slice(-40),
+    chatter: room.chatter, // short in-character lines from bots: [{ id, seat, text }]
     step: s.step ? { type: s.step.type, card: s.step.card, left: s.step.left, line: s.step.line, regions: s.step.regions } : null,
     hand: myP ? myP.hand : [], pile: myP ? myP.pile : [], role: myP ? myP.role : null,
     legal: myTurn && s.phase === 'play' && !s.step ? G.legalCards(s, me) : [],
@@ -90,13 +95,23 @@ function scheduleBot(room) {
   if (room.botTimer || !['draft', 'choose', 'play'].includes(s.phase)) return;
   const w = G.waitingOn(s);
   if (w < 0 || !s.players[w].bot) return;
+  // a trick just finished: give people time to see who won
+  const done = s.players.reduce((a, p) => a + p.biomesWon.length, 0);
+  if (done !== room.tricksSeen) { room.tricksSeen = done; room.pauseUntil = Math.max(room.pauseUntil, Date.now() + TRICK_PAUSE_MS); }
+  const base = s.step ? BOT_DELAY_MS * 0.4 : BOT_DELAY_MS * (0.8 + Math.random() * 0.4); // token-by-token steps go quicker
+  const wait = Math.max(base, room.pauseUntil - Date.now());
   room.botTimer = setTimeout(() => {
     room.botTimer = null;
     const w2 = G.waitingOn(s);
     if (w2 < 0 || !s.players[w2].bot) return;
-    try { G.applyAction(s, w2, G.botAction(s, w2)); } catch (e) { console.error('bot error', e); return; }
+    try {
+      const a = G.botAction(s, w2);
+      const text = G.botSay(s, w2, a);
+      G.applyAction(s, w2, a);
+      if (text) { room.chatter.push({ id: ++room.chatId, seat: w2, text }); if (room.chatter.length > 12) room.chatter.shift(); }
+    } catch (e) { console.error('bot error', e); return; }
     broadcast(room);
-  }, BOT_DELAY_MS);
+  }, wait);
 }
 
 // ---------- HTTP plumbing ----------
@@ -185,6 +200,8 @@ const server = http.createServer(async (req, res) => {
             room.game = G.newGame();
             for (const x of room.members) G.addPlayer(room.game, { id: x.pid, name: x.name, bot: x.bot });
             G.startGame(room.game);
+            room.chatter = []; room.tricksSeen = 0;
+            room.pauseUntil = Date.now() + DEAL_PAUSE_MS; // let the shuffle-and-deal animation play first
           } else if (body.cmd === 'botify') {
             // Hand a seat to a bot (e.g. someone left mid-game).
             const i = seatOf(room, body.pid);

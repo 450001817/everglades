@@ -9,6 +9,8 @@ A website version of your Everglades trick-taking game. It uses your own card an
 3. Type your name, click **Start a new table**, and share the room code or link.
 4. Click **Start game**. Bots fill the table up to 4 players. The host can add more bots, up to 6 players.
 
+**About the bots:** bots play the same rules and use their role abilities. When a bot plays a card, travels, uses an ability, spreads or hunts, a short in-character speech bubble appears next to its name (for example, the Fisherman's "Reeling in a Manatee. That's a keeper!"). Bots wait about 2 seconds before each move, and a little longer after a trick so everyone can read the result. To change the pace, set `BOT_DELAY_MS` near the top of `server.js` (1900 is the default; a bigger number is slower).
+
 Keep the black window open while you play. Closing it stops the game.
 
 **Friends on the same Wi-Fi:** the black window shows a "Same Wi-Fi friends" address, like `http://192.168.1.20:3000`. Send them that address. Windows may ask whether Node can use the network; click Allow.
@@ -29,6 +31,7 @@ The whole game fits on one screen with no page scrolling. From left to right: th
 - **Once a biome is chosen**, the Travel Row shrinks to a small strip at the bottom. The current biome and the cards played to it take over the play area.
 - **Field notes** (the game log) is a drop-down in the top bar, next to the sound and Rules buttons. A red number shows how many new notes arrived since you last looked.
 
+- **Shuffle and deal:** when the game starts, the Ecology deck shuffles and the cards are dealt around the table. Click anywhere to skip.
 - **Role draft:** after the host starts, everyone's hand is dealt and players choose roles one at a time in turn order. The first player picks first, and taken roles are stamped with the owner's name. Bots pick when their turn comes. The first round starts once everyone has a role.
 - **Read any card:** hover over it for 1 second (on a phone, press and hold). This works everywhere: your hand, the travel row, played cards, role cards and the end screen.
 - **Lead player:** when it's your pick, the travel row glows and each biome says TRAVEL HERE. Click one.
@@ -48,7 +51,7 @@ The layout is built for laptop and desktop screens (1024×768 and up). It also f
 
 Your rulebook (Everglades 2.0), the reference card and the printed cards disagree in a few places. The game follows the **printed cards and reference card**, because they're the newest.
 
-1. **Invasive cards** match the lead suit when their Impact is **at or below the current Invasive Risk**. A **Keystone** card changes the Risk to its own Impact for the rest of the trick. This comes from the reference card. The rulebook's "risk plus invasive tokens in the region" version is not used.
+1. **Invasive cards** match the lead suit when their Impact is **at or below the current Invasive Risk**. A **Keystone** card **lowers the Risk by 1 for each Native token in the current region**, counted right after the Keystone card adds its own population (so its own tokens count), and never below 0. Several Keystones in one trick each lower it further. The lowered Risk applies to every card in that trick, including cards played earlier, and the next biome starts again at its printed Risk. Your reference card (`ReferenceCardFront.png`) was updated to read "Keystone: Invasive Risk -1 per native token in this region." The original is saved in `_backup_reference_cards`.
 2. **If nobody plays a matching card**, the highest-Impact card wins anyway. This is a house rule, because the rules don't cover it. It came up in about 9% of tricks in simulated games.
 3. **Ties:** an Invasive card beats a Native card with the same Impact. Otherwise the card played first wins.
 4. **Predatory** removes up to X tokens, and you always choose between **Native and Invasive** tokens in any region the card just populated, including the tokens that just arrived.
@@ -72,6 +75,7 @@ Every rule is in **game.js**, and all card stats are in **public/data.js**. Both
 | `public/assets/` | Your art. Biome cards are rotated to lie landscape. |
 | `public/fonts/` | EGDigits, a custom blocky pixel font used for every number (0–9) so 2 and 5 are easy to tell apart |
 | `tools/make_digits_font.py` | Rebuilds that font if you ever want to tweak a digit's pixels (needs Python + fontTools) |
+| `tools/make_refcard.py` | Rewrites the Keystone line on the reference card using letters cut from the card itself |
 | `test/sim.js` | Plays 500 bot-only games to check the rules never get stuck (`npm test`) |
 
 Nothing needs to be installed except Node.js. The server only uses what comes with Node.
