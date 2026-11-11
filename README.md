@@ -1,6 +1,6 @@
 # Everglades: Online Multiplayer
 
-A website version of your Everglades trick-taking game. It uses your own card and board art. Friends join from their browsers with a 4-letter room code, and bots fill any empty seats so every game has at least 4 players. The look matches your retro pixel art, and every sound is generated in the browser, so there are no audio files. Co-op mode (The Anaconda) is not included.
+A website version of your Everglades trick-taking game. It uses your own card and board art. Friends join from their browsers with a 4-letter room code, and bots fill any empty seats so every game has at least 4 players. The look matches your retro pixel art, and every sound is generated in the browser, so there are no audio files. It has three modes: everyone for themselves, Partners, and Co-op against The Anaconda.
 
 ## Play it on your computer (about 2 minutes)
 
@@ -8,6 +8,20 @@ A website version of your Everglades trick-taking game. It uses your own card an
 2. Double-click **start.bat** in this folder. A black window opens, and your browser opens to the game.
 3. Type your name, click **Start a new table**, and share the room code or link.
 4. Click **Start game**. Bots fill the table up to 4 players. The host can add more bots, up to 6 players.
+
+**Game modes:** in the lobby the host picks **Solo** (everyone for themselves), **Partners** or **Co-op**.
+
+**Partner mode:** with **Partners** selected, Players then pick a team (Mangrove, Sawgrass or Coral) next to their name; the host can also place other players and bots. Anyone without a team gets a random partner. A bot joins if needed to make an even table (4 or 6 players). Seats alternate teams (A B A B, or A B C A B C), so **teammates never take turns back to back**. Each player still drafts a role and scores their own objectives and tricks, then **partners add their scores together** and the highest team total wins. Both winning partners' role-card endings are shown. Bots avoid beating a partner who's already winning a trick.
+
+**Co-op vs The Anaconda:** with **Co-op** selected, everyone plays together against an automated boss, The Anaconda (`AnacondaBoss.png`; hover its name in the game to read it).
+- **Setup:** the Native cards are dealt evenly to the players. The 18 Invasive cards are shuffled into the Anaconda's deck. Players still draft roles in turn order.
+- **Each round:** after **each player's turn**, the Anaconda flips the top Invasive card and plays it. Normal trick rules apply, and an Anaconda win triggers an Invasive Crisis as usual.
+- **When the Anaconda wins a trick,** it travels to the highest Invasive Risk biome in the travel row (the rightmost one on a tie). The next player in rotation plays first.
+- **Its Predatory cards** always eat Native tokens. **Its Migratory cards** move all their tokens to the adjacent region with the most Native tokens (they stay put if no neighbour has any).
+- **The game ends** after the round in which the Anaconda plays its last card. Players always have cards left over.
+- **Scoring:** add up all players' scores (role objectives plus 5 per trick). You must **beat** the Anaconda; it wins ties. It scores **5 pts for each map objective the players miss** (this scales with player count), **5 pts per trick it wins**, and **3 pts per region with an Invasive majority**.
+- **Endings:** if the players win, the highest scorer reads their good ending. If the Anaconda wins, the lowest scorer reads the grim ending.
+- **Balance:** in simulated games with bot players, the players win roughly 35–55% at every table size from 1 to 6 (about 45% with 4). Real players should do better than the bots. Run `node test/coopsim.js` to re-check after rule changes. The point values live in `COOP` near the top of the co-op section of `game.js`.
 
 **About the bots:** bots play the same rules and use their role abilities. When a bot plays a card, travels, uses an ability, spreads or hunts, a short in-character speech bubble appears next to its name (for example, the Fisherman's "Reeling in a Manatee. That's a keeper!"). Bots wait about 2 seconds before each move, and a little longer after a trick so everyone can read the result. To change the pace, set `BOT_DELAY_MS` near the top of `server.js` (1900 is the default; a bigger number is slower).
 
@@ -55,7 +69,7 @@ Your rulebook (Everglades 2.0), the reference card and the printed cards disagre
 2. **If nobody plays a matching card**, the highest-Impact card wins anyway. This is a house rule, because the rules don't cover it. It came up in about 9% of tricks in simulated games.
 3. **Ties:** an Invasive card beats a Native card with the same Impact. Otherwise the card played first wins.
 4. **Predatory** removes up to X tokens, and you always choose between **Native and Invasive** tokens in any region the card just populated, including the tokens that just arrived.
-5. **Fisherman/Hunter swap:** the scoring-pile card has to be a Water/Land card (Native or Invasive) with **lower Impact than the hand card** you give up.
+5. **Fisherman/Hunter swap:** swap **any** card from your hand with **any** Water card (Fisherman) or Land card (Hunter), Native or Invasive, from your scoring pile. There's no Impact restriction; the role cards' printed text still mentions "lower Impact".
 6. **"Most / least tricks" goals** still count when you're tied. "Most" goals and the Tourist's "only objective regions" goal need at least 1 trick won.
 7. **Fisherman/Hunter endings** compare Native vs Invasive **Water/Land** cards in their scoring pile.
 8. **Setup:** the Ecology deck is dealt evenly and any leftover cards are discarded. Seating (turn order) is random. Players then **choose their roles in turn order** after seeing their hand, and roles are **public**. Both are changes from the rulebook's secret, randomly dealt roles. The rulebook's "1 impact card" at setup is skipped because no such card exists in the art.
@@ -76,6 +90,8 @@ Every rule is in **game.js**, and all card stats are in **public/data.js**. Both
 | `public/fonts/` | EGDigits, a custom blocky pixel font used for every number (0–9) so 2 and 5 are easy to tell apart |
 | `tools/make_digits_font.py` | Rebuilds that font if you ever want to tweak a digit's pixels (needs Python + fontTools) |
 | `tools/make_refcard.py` | Rewrites the Keystone line on the reference card using letters cut from the card itself |
+| `test/coopsim.js` | Simulates co-op games at 1–6 players and prints win rates and score breakdowns |
+| `tools/make_boss_card.py`, `tools/pixelfont.py` | Rebuild the Anaconda boss card (pixel lettering drawn in code) |
 | `test/sim.js` | Plays 500 bot-only games to check the rules never get stuck (`npm test`) |
 
 Nothing needs to be installed except Node.js. The server only uses what comes with Node.

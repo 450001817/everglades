@@ -55,14 +55,15 @@ function viewFor(room, member) {
   const base = {
     room: room.code, phase: s.phase, seq: s.seq,
     you: me, yourPid: member ? member.pid : null, isHost: !!member && member.pid === room.hostPid,
-    lobby: room.members.map(m => ({ pid: m.pid, name: m.name, bot: m.bot, host: m.pid === room.hostPid, online: m.bot || connected.has(m.pid) })),
+    mode: room.mode || 'solo', partners: room.mode === 'partners', coop: room.mode === 'coop',
+    lobby: room.members.map(m => ({ pid: m.pid, name: m.name, bot: m.bot, team: m.team ?? null, host: m.pid === room.hostPid, online: m.bot || connected.has(m.pid) })),
   };
   if (s.phase === 'lobby') return base;
   const myP = me >= 0 ? s.players[me] : null;
   const myTurn = me >= 0 && G.waitingOn(s) === me;
   return Object.assign(base, {
     players: s.players.map((p, i) => ({
-      name: p.name, bot: p.bot, handCount: p.hand.length, pileCount: p.pile.length, tricks: p.biomesWon.length,
+      name: p.name, bot: p.bot, boss: !!p.boss, team: p.team, handCount: p.hand.length, pileCount: p.pile.length, tricks: p.biomesWon.length,
       biomesWon: p.biomesWon, online: p.bot || connected.has(p.id),
       role: p.role, // roles are public
     })),
@@ -180,7 +181,14 @@ const server = http.createServer(async (req, res) => {
       const s = room.game;
       const isHost = m.pid === room.hostPid;
       if (op === 'lobby') {
-        if (body.cmd === 'leave' && s.phase === 'lobby') {
+        if (body.cmd === 'team' && s.phase === 'lobby') {
+          // Anyone can pick their own team; the host can also place other players and bots.
+          const target = room.members.find(x => x.pid === (body.pid || m.pid));
+          if (!target || (target !== m && !isHost)) return send(res, 403, { error: 'You can only choose your own team.' });
+          const t = body.team === null || body.team === undefined ? null : Math.max(0, Math.min(2, +body.team));
+          if (t !== null && room.members.filter(x => x !== target && x.team === t).length >= 2) return send(res, 400, { error: 'That team already has 2 players.' });
+          target.team = t;
+        } else if (body.cmd === 'leave' && s.phase === 'lobby') {
           room.members = room.members.filter(x => x !== m);
           if (isHost) room.hostPid = (room.members.find(x => !x.bot) || {}).pid || null;
         } else {
@@ -190,6 +198,9 @@ const server = http.createServer(async (req, res) => {
             addMember(room, BOT_NAMES.find(n => !used.has(n)) || 'Bot', true);
           } else if (body.cmd === 'remove' && s.phase === 'lobby') {
             room.members = room.members.filter(x => x.pid !== body.pid || x.pid === room.hostPid);
+          } else if (body.cmd === 'mode' && s.phase === 'lobby') {
+            // 'solo' = everyone for themselves, 'partners' = teams of 2, 'coop' = everyone vs The Anaconda
+            room.mode = ['solo', 'partners', 'coop'].includes(body.mode) ? body.mode : 'solo';
           } else if (body.cmd === 'start') {
             if (s.phase !== 'lobby') return send(res, 400, { error: 'Already started.' });
             // Always play with at least 4: fill empty seats with bots.
@@ -197,9 +208,24 @@ const server = http.createServer(async (req, res) => {
               const used = new Set(room.members.map(x => x.name));
               addMember(room, BOT_NAMES.find(n => !used.has(n)) || 'Bot', true);
             }
+            if (room.mode === 'partners') {
+              // Partner mode needs an even table: add a bot if someone would be left without a partner.
+              if (room.members.length % 2) {
+                if (room.members.length >= G.MAX_PLAYERS) return send(res, 400, { error: 'Partner mode needs an even number of players.' });
+                const used = new Set(room.members.map(x => x.name));
+                addMember(room, BOT_NAMES.find(n => !used.has(n)) || 'Bot', true);
+              }
+              const T = room.members.length / 2;
+              for (const x of room.members) if (x.team !== null && x.team >= T) x.team = null;
+              // Anyone without a team is paired at random (people before bots).
+              const open = () => [...Array(T).keys()].filter(t => room.members.filter(x => x.team === t).length < 2);
+              const loose = room.members.filter(x => x.team === null || x.team === undefined)
+                .sort((a, b) => (a.bot - b.bot) || (Math.random() - 0.5));
+              for (const x of loose) { const o = open(); x.team = o[Math.floor(Math.random() * o.length)]; }
+            }
             room.game = G.newGame();
-            for (const x of room.members) G.addPlayer(room.game, { id: x.pid, name: x.name, bot: x.bot });
-            G.startGame(room.game);
+            for (const x of room.members) G.addPlayer(room.game, { id: x.pid, name: x.name, bot: x.bot, team: room.mode === 'partners' ? x.team : null });
+            G.startGame(room.game, { partners: room.mode === 'partners', coop: room.mode === 'coop' });
             room.chatter = []; room.tricksSeen = 0;
             room.pauseUntil = Date.now() + DEAL_PAUSE_MS; // let the shuffle-and-deal animation play first
           } else if (body.cmd === 'botify') {
