@@ -1,6 +1,6 @@
 // Everglades — browser client. Renders whatever the server says the game looks like.
 'use strict';
-const { CARDS, REGIONS, BIOMES, ROLES, BOSS, CHAR_ANIM } = window.EG_DATA;
+const { CARDS, REGIONS, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES } = window.EG_DATA;
 const roleInfo = r => r === 'Anaconda' ? BOSS : (r ? ROLES[r] : null);
 const $app = document.getElementById('app');
 const $peek = document.getElementById('peek');
@@ -150,6 +150,304 @@ async function lobby(cmd, extra) {
   catch (e) { SFX.error(); showToast(esc(e.message)); }
 }
 
+// ---------- player accounts (see accounts.js on the server) ----------
+// acct.modal: null | 'profile' | 'store' | { buy: itemId }
+const acct = { session: null, me: null, config: null, loading: true, modal: null, msg: '' };
+try { acct.session = localStorage.getItem('eg_acct'); } catch {}
+function setSession(t) { acct.session = t; try { t ? localStorage.setItem('eg_acct', t) : localStorage.removeItem('eg_acct'); } catch {} }
+function deviceKey() { // identifies this browser for its guest account
+  let k = null; try { k = localStorage.getItem('eg_device'); } catch {}
+  if (!k) { k = [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2, '0')).join(''); try { localStorage.setItem('eg_device', k); } catch {} }
+  return k;
+}
+async function acctApi(op, body) {
+  const r = await fetch('/api/' + op, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ session: acct.session }, body)) });
+  const j = await r.json().catch(() => ({ error: 'Network error.' }));
+  if (r.status === 401) { setSession(null); acct.me = null; }
+  if (!r.ok) throw new Error(j.error || 'Something went wrong.');
+  return j;
+}
+async function initAccounts() {
+  try { acct.config = await acctApi('config', {}); } catch {}
+  if (acct.session) await refreshMe();
+  acct.loading = false; render();
+}
+async function refreshMe() { // also collects the daily log-in bonus, once per day
+  if (!acct.session) return;
+  try {
+    const r = await acctApi('me', {}); acct.me = r.me;
+    announceBonus(r.bonus);
+  } catch {}
+}
+// daily log-in bonus (paid by the server on the first sign-in or visit of the day)
+function announceBonus(n) {
+  if (n > 0) setTimeout(() => showToast(`Daily log-in bonus: +${n} EB!<small>Come back tomorrow for another ${n}.</small>`, false, 5000), 300);
+}
+async function signInGuest() {
+  try { const r = await acctApi('auth/guest', { deviceKey: deviceKey() }); setSession(r.session); acct.me = r.me; ui.err = ''; announceBonus(r.bonus); }
+  catch (e) { ui.err = e.message; }
+  render();
+}
+async function signInGoogle(credential) {
+  try { const r = await acctApi('auth/google', { credential }); setSession(r.session); acct.me = r.me; ui.err = ''; announceBonus(r.bonus); }
+  catch (e) { ui.err = e.message; }
+  render();
+}
+async function signOut() {
+  try { await acctApi('auth/signout', {}); } catch {}
+  setSession(null); acct.me = null; acct.modal = null;
+  if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
+  render();
+}
+// "Sign in with Google" button (only when the server has a Google client id set up)
+let gsiReady = false;
+function mountGoogleButton() {
+  const el = document.getElementById('gbtn');
+  const cid = acct.config && acct.config.googleClientId;
+  if (!el || !cid) return;
+  if (!(window.google && google.accounts && google.accounts.id)) {
+    if (!document.getElementById('gsi')) {
+      const s = document.createElement('script'); s.id = 'gsi'; s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
+      s.onload = mountGoogleButton; document.head.appendChild(s);
+    }
+    return;
+  }
+  if (!gsiReady) { google.accounts.id.initialize({ client_id: cid, callback: r => signInGoogle(r.credential) }); gsiReady = true; }
+  google.accounts.id.renderButton(el, { theme: 'filled_black', size: 'large', text: 'signin_with', shape: 'rectangular', width: 260 });
+}
+
+const fmtEB = n => `<span class="eb">${Number(n || 0).toLocaleString()}<i>EB</i></span>`;
+// bots have no accounts: give each one a fitting wildlife picture
+const BOT_AVATARS = { Gator: 'AmericanCrocodile', Heron: 'GreatBlueHeron', Manatee: 'Manatee', Otter: 'RiverOtter', Panther: 'FloridaPanther', Stork: 'WoodStork' };
+const botAvatar = name => `assets/avatars/animal_${BOT_AVATARS[String(name).split(' ')[0]] || 'Manatee'}.png`;
+// A player banner: profile picture, gamertag and (if they own one) a sparkling title
+function bannerHtml(p, { you = false, extra = '', size = '' } = {}) {
+  return `<div class="pbanner ${size}">
+    <img class="pavatar" src="${esc(p.avatarSrc)}" alt="">
+    <div class="pb-text">
+      <div class="pb-name">${esc(p.gamertag)}${you ? ' <span class="you">(you)</span>' : ''}</div>
+      ${p.titleName ? `<div class="pb-title sparkle">${esc(p.titleName)}</div>` : ''}
+      ${extra}
+    </div></div>`;
+}
+
+// Profile: gamertag, profile picture, stats
+function profileModal() {
+  const me = acct.me, C = acct.config; if (!me || !C) return '';
+  const need = C.econ.unlockWins;
+  const tile = (a, locked, label, sub) => `<button class="avtile ${me.avatar === a.id ? 'on' : ''} ${locked ? 'locked' : ''}" ${locked ? 'disabled' : `data-avatar="${a.id}"`} title="${esc(label)}">
+      <img src="${a.src}" alt="${esc(label)}">${locked ? `<span class="lock">${sub}</span>` : ''}</button>`;
+  const chars = C.avatars.characters.map(a => tile(a, false, a.id.split(':')[1].replace('LandDeveloper', 'Land Developer'))).join('');
+  const unlockedN = C.avatars.animals.filter(a => me.unlocked.includes(a.id)).length;
+  const animals = C.avatars.animals.map(a => {
+    const wins = me.cardWins[a.card] || 0, locked = !me.unlocked.includes(a.id);
+    return tile(a, locked, `${a.name}${locked ? ` — win ${need} tricks with this card (${wins}/${need})` : ''}`, `${wins}/${need}`);
+  }).join('');
+  return `<div class="modal"><div class="paper spiral acctmodal">
+    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Your profile</div><button class="btn small" data-close>Close</button></div>
+    ${bannerHtml(me, { size: 'big', extra: `<div class="pb-bal">${fmtEB(me.balance)}</div>` })}
+    <div class="row" style="flex-wrap:nowrap">
+      <input id="tagInput" class="field" maxlength="16" value="${esc(me.gamertag)}" aria-label="Gamertag">
+      <button class="btn brass" id="saveTag">Save gamertag</button>
+    </div>
+    <p class="hint" style="margin:0">Games ${me.stats.games} · First places ${me.stats.firsts} · Won ${Number(me.stats.ebWon).toLocaleString()} EB · Lost ${Number(me.stats.ebLost).toLocaleString()} EB${me.guest ? ' · Guest account (this browser only)' : ''}</p>
+    <div class="panel-title" style="margin:6px 0 0">Characters</div>
+    <div class="avgrid">${chars}</div>
+    <div class="panel-title" style="margin:6px 0 0">Wildlife <span class="hint" style="text-transform:none;letter-spacing:0">— ${unlockedN}/${C.avatars.animals.length} unlocked. Win ${need} tricks with an animal card to unlock its picture.</span></div>
+    <div class="avgrid">${animals}</div>
+    <div class="error">${esc(acct.msg)}</div>
+  </div></div>`;
+}
+// Store: spend Eco-bucks (items are defined in accounts.js)
+function storeModal() {
+  const me = acct.me, C = acct.config; if (!me || !C) return '';
+  if (acct.modal && acct.modal.buy) {
+    const it = C.store.find(i => i.id === acct.modal.buy);
+    const isSkin = it.type === 'skin';
+    return `<div class="modal"><div class="paper spiral" style="width:min(520px,100%)">
+      <div class="panel-title">Confirm purchase</div>
+      ${isSkin ? `<div class="row" style="flex-wrap:nowrap;align-items:center;gap:12px;margin:4px 0 10px"><div class="pthumb idle" style="background-image:url('${CHAR_ANIM.src(it.role, 'idle', it.skin)}')"></div>
+        <p style="font-size:18px;margin:0">Buy <b>${esc(it.name)}</b>, a ${esc(ROLES[it.role].name)} skin, for ${fmtEB(it.price)}?</p></div>`
+        : `<p style="font-size:18px;margin:4px 0 10px">Buy <b>${esc(it.name)}</b> for ${fmtEB(it.price)}?</p>`}
+      <p class="hint" style="margin:0 0 12px">Your balance: ${fmtEB(me.balance)} → ${fmtEB(me.balance - it.price)}. Purchases can't be refunded.${isSkin ? ' The skin is equipped as soon as you buy it.' : ''}</p>
+      <div class="row"><button class="btn primary" id="confirmBuy">Buy it</button>${isSkin ? `<button class="btn" data-skinshop="${it.role}" data-skinview="${it.skin}">Back</button>` : '<button class="btn" data-store>Back</button>'}</div>
+      <div class="error">${esc(acct.msg)}</div>
+    </div></div>`;
+  }
+  const items = C.store.filter(it => it.type !== 'skin' && it.type !== 'chat').map(it => {
+    const owned = me.owned.includes(it.id), wearing = me.title === it.id;
+    const action = owned
+      ? (it.type === 'title' ? `<button class="btn ${wearing ? '' : 'brass'}" data-wear="${wearing ? '' : it.id}">${wearing ? 'Take off' : 'Wear title'}</button>` : '<span class="tag">Owned</span>')
+      : `<button class="btn primary" data-buy="${it.id}" ${me.balance < it.price ? 'disabled' : ''}>Buy · ${Number(it.price).toLocaleString()} EB</button>`;
+    return `<div class="storeitem">
+      <div class="storeprev">${it.type === 'title' ? bannerHtml(Object.assign({}, me, { titleName: it.name })) : ''}</div>
+      <div class="storeinfo"><b>${esc(it.name)}</b><span class="hint">${esc(it.blurb)}</span>
+        <span>${fmtEB(it.price)}${owned ? ' · <span style="color:var(--native)">Owned</span>' : me.balance < it.price ? ` · <span class="hint">you need ${(it.price - me.balance).toLocaleString()} more</span>` : ''}</span></div>
+      <div>${action}</div></div>`;
+  }).join('');
+  return `<div class="modal"><div class="paper spiral acctmodal">
+    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Eco-buck store</div><div class="row">Balance ${fmtEB(me.balance)}<button class="btn small" data-close>Close</button></div></div>
+    <div class="storelist">${items}</div>
+    <div class="panel-title" style="margin:6px 0 0">Character skins <span class="hint" style="text-transform:none;letter-spacing:0">— ${fmtEB(SKINS[0].price)} each. New looks for each character. Everyone at the table sees them.</span></div>
+    <div class="skintabs">${Object.keys(ROLES).map(r => {
+      const n = SKINS.filter(s => s.role === r).length, have = SKINS.filter(s => s.role === r && me.owned.includes('skin:' + s.id)).length;
+      return `<button class="skintab" data-skinshop="${r}">${esc(ROLES[r].name)} <small>${have}/${n}</small></button>`;
+    }).join('')}</div>
+    ${chatStoreHtml(me)}
+    <p class="hint" style="margin:6px 0 0">Earn Eco-bucks by finishing in the top spots at a table. You can also open a character's skins by clicking them on the home page.</p>
+    <div class="error">${esc(acct.msg)}</div>
+  </div></div>`;
+}
+// ---------- chat lines (bought in the store, sent during a game) ----------
+const chatGroupName = g => CHAT_GROUP_NAMES[g] || (ROLES[g] ? ROLES[g].name : g);
+const CHAT_GROUP_ORDER = [...new Set(CHAT.map(c => c.group))];
+function chatDropHtml() {
+  const owned = new Set(((S.myAccount && S.myAccount.owned) || []).filter(x => x.startsWith('chat:')).map(x => x.slice(5)));
+  const mine = CHAT.filter(c => owned.has(c.id));
+  if (!mine.length) return `<div class="paper spiral chat-drop"><div class="panel-title">Chat</div>
+    <p class="hint" style="margin:0">You don't own any chat lines yet. Buy them in the <b>Store</b> on the home page or in the lobby: every line the bots say, ${CHAT[0].price} EB each.</p></div>`;
+  // your own character's lines first
+  const order = CHAT_GROUP_ORDER.slice().sort((a, b) => (b === S.role) - (a === S.role));
+  const groups = order.map(g => {
+    const lines = mine.filter(c => c.group === g);
+    return lines.length ? `<div class="chat-group"><div class="chat-gname">${esc(chatGroupName(g))}</div>${lines.map(c => `<button class="chat-line" data-chatline="${c.id}">${esc(c.text)}</button>`).join('')}</div>` : '';
+  }).join('');
+  return `<div class="paper spiral chat-drop"><div class="panel-title">Say something</div>${groups}</div>`;
+}
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-chatline]'); if (!t || !S) return;
+  ui.showChat = false; render();
+  try { await api('chat', { line: t.dataset.chatline }); }
+  catch (err) { SFX.error(); showToast(esc(err.message)); }
+});
+// Store section: every chat line, grouped, two clicks to buy (Buy → Confirm)
+function chatStoreHtml(me) {
+  const g = acct.chatGroup && CHAT_GROUP_ORDER.includes(acct.chatGroup) ? acct.chatGroup : CHAT_GROUP_ORDER[0];
+  const have = grp => CHAT.filter(c => c.group === grp && me.owned.includes('chat:' + c.id)).length;
+  const tabs = CHAT_GROUP_ORDER.map(x => `<button class="skintab ${x === g ? 'on' : ''}" data-chatgroup="${x}">${esc(chatGroupName(x))} <small>${have(x)}/${CHAT.filter(c => c.group === x).length}</small></button>`).join('');
+  const rows = CHAT.filter(c => c.group === g).map(c => {
+    const owned = me.owned.includes('chat:' + c.id), arming = acct.chatConfirm === c.id;
+    const btn = owned ? '<span class="tag equipped">Owned</span>'
+      : arming ? `<button class="btn small primary" data-chatbuy="${c.id}">Confirm · ${c.price} EB</button>`
+      : `<button class="btn small brass" data-chatarm="${c.id}" ${me.balance < c.price ? 'disabled' : ''}>Buy · ${c.price} EB</button>`;
+    return `<div class="chatitem ${owned ? 'owned' : ''}"><span class="chat-quote">“${esc(c.text)}”</span>${btn}</div>`;
+  }).join('');
+  return `<div class="panel-title" style="margin:6px 0 0">Chat lines <span class="hint" style="text-transform:none;letter-spacing:0">— ${CHAT[0].price} EB each. Everything the bots say. Send the lines you own from the 💬 Chat button during a game.</span></div>
+    <div class="skintabs">${tabs}</div><div class="chatlist">${rows}</div>`;
+}
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-chatgroup],[data-chatarm],[data-chatbuy]'); if (!t) return;
+  if (t.dataset.chatgroup) { acct.chatGroup = t.dataset.chatgroup; acct.chatConfirm = null; return render(); }
+  if (t.dataset.chatarm) { acct.chatConfirm = t.dataset.chatarm; acct.msg = ''; return render(); }
+  try {
+    acct.msg = '';
+    const r = await acctApi('store/buy', { item: 'chat:' + t.dataset.chatbuy });
+    acct.me = r.me; acct.chatConfirm = null; SFX.end();
+    showToast(`New chat line: <b>“${esc(r.item.name)}”</b>`);
+  } catch (err) { acct.msg = err.message; SFX.error(); }
+  render();
+});
+
+// ---------- character skin shops (open by clicking a character on the home page) ----------
+// The skin you have on for a character (null = original). Only skins you own count.
+function mySkin(role) {
+  const me = acct.me, id = me && me.skins && me.skins[role];
+  return id && me.owned.includes('skin:' + id) ? id : null;
+}
+function skinShopModal() {
+  const role = acct.modal.skins, R = ROLES[role]; if (!R) return '';
+  const me = acct.me, C = acct.config;
+  const skins = SKINS.filter(s => s.role === role);
+  const on = mySkin(role);
+  const view = acct.modal.view !== undefined ? acct.modal.view : on; // which look the big preview shows
+  const viewing = skins.find(s => s.id === view);
+  const owned = s => !!me && me.owned.includes('skin:' + s.id);
+  const tabs = Object.keys(ROLES).map(r => `<button class="skintab ${r === role ? 'on' : ''}" data-skinshop="${r}">${esc(ROLES[r].name)}</button>`).join('');
+  const tile = (s) => { // s = a skin, or null for the original look
+    const id = s ? s.id : null, isOn = on === id;
+    let action;
+    if (!s || owned(s)) action = isOn ? '<span class="tag equipped">Equipped</span>' : (me ? `<button class="btn small brass" data-equip="${role}:${id || ''}">Equip</button>` : '');
+    else if (!me) action = '<span class="hint">Sign in to buy</span>';
+    else action = `<button class="btn small primary" data-buy="skin:${s.id}" ${me.balance < s.price ? `disabled title="You need ${(s.price - me.balance).toLocaleString()} more EB"` : ''}>Buy · ${s.price.toLocaleString()} EB</button>`;
+    return `<div class="skintile ${view === id ? 'viewing' : ''} ${isOn ? 'on' : ''}">
+      <button class="skinpick" data-skinview="${id || ''}" title="Preview ${esc(s ? s.name : 'the original')}">
+        <div class="pthumb idle" style="background-image:url('${CHAR_ANIM.src(role, 'idle', id)}')"></div></button>
+      <b>${esc(s ? s.name : 'Original')}</b>${action}</div>`;
+  };
+  return `<div class="modal"><div class="paper spiral acctmodal skinshop">
+    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">${esc(R.name)} skins</div>
+      <div class="row">${me ? `Balance ${fmtEB(me.balance)}` : ''}<button class="btn small" data-close>Close</button></div></div>
+    <div class="skintabs">${tabs}</div>
+    <div class="skinstage">
+      <div class="skinprev"><canvas width="${CHAR_ANIM.w}" height="${CHAR_ANIM.h}" data-role="${role}" data-skin="${view || ''}"></canvas></div>
+      <div class="skininfo">
+        <h3>${esc(viewing ? viewing.name : 'The original')}</h3>
+        <p>${esc(viewing ? viewing.blurb : `The ${R.name} from the role card.`)}</p>
+        <p class="hint">Your skin shows in every game where you play the ${esc(R.name)}, for everyone at the table. It's only a new look; the role plays the same.</p>
+        <span class="btn small" ${peekAttrs(role, view)}>Hover here to read the role card</span>
+      </div>
+    </div>
+    <div class="skingrid">${tile(null)}${skins.map(tile).join('')}</div>
+    <div class="error">${esc(acct.msg)}</div>
+  </div></div>`;
+}
+// The big preview in a skin shop plays every animation in turn.
+const PREVIEW_ORDER = ['idle', 'signature', 'cheer', 'think', 'shock', 'idle', 'upset'];
+function drawSkinPreview() {
+  const cv = document.querySelector('.skinprev canvas'); if (!cv) return;
+  const role = cv.dataset.role, skin = cv.dataset.skin || null;
+  const now = performance.now();
+  if (!cv._start || cv._for !== role + skin) { cv._start = now; cv._for = role + skin; }
+  let t = now - cv._start, i = 0;
+  const total = PREVIEW_ORDER.reduce((x, a) => x + clipLength(a), 0);
+  t %= total;
+  while (t >= clipLength(PREVIEW_ORDER[i])) { t -= clipLength(PREVIEW_ORDER[i]); i++; }
+  let anim = PREVIEW_ORDER[i];
+  let frame = reducedMotion.matches ? 0 : Math.floor(t / 1000 * CHAR_ANIM.anims[anim].fps) % CHAR_ANIM.frames;
+  let im = sprite(role, anim, skin);
+  if (!im.complete || !im.naturalWidth) { frame = 0; im = sprite(role, 'idle', skin); }
+  if (!im.complete || !im.naturalWidth) return;
+  const key = role + skin + anim + frame;
+  if (cv.dataset.k === key) return;
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(im, frame * CHAR_ANIM.w, 0, CHAR_ANIM.w, CHAR_ANIM.h, 0, 0, cv.width, cv.height);
+  cv.dataset.k = key;
+}
+const acctModalHtml = () => !acct.modal ? '' : acct.modal === 'profile' ? profileModal() : acct.modal.skins ? skinShopModal() : storeModal();
+// clicks inside the profile / store / account panel
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-close],[data-store],[data-profile],[data-avatar],[data-buy],[data-wear],[data-skinshop],[data-skinview],[data-equip],#saveTag,#confirmBuy,#signout,#guest');
+  if (!t) return;
+  const run = async (fn) => { try { acct.msg = ''; await fn(); } catch (err) { acct.msg = err.message; SFX.error(); } render(); };
+  if (t.matches('[data-close]')) { acct.modal = null; acct.msg = ''; render(); }
+  else if (t.matches('[data-skinshop]')) {
+    acct.modal = { skins: t.dataset.skinshop }; acct.msg = '';
+    if (t.dataset.skinview) acct.modal.view = t.dataset.skinview;
+    if (acct.me) await refreshMe();
+    render();
+  }
+  else if (t.matches('[data-skinview]')) { acct.modal = Object.assign({}, acct.modal, { view: t.dataset.skinview || null }); render(); }
+  else if (t.matches('[data-equip]')) run(async () => {
+    const [role, id] = t.dataset.equip.split(':');
+    acct.me = (await acctApi('profile', { skin: { role, id: id || null } })).me;
+    acct.modal = { skins: role, view: id || null };
+  });  else if (t.matches('[data-store]')) { acct.modal = 'store'; acct.msg = ''; await refreshMe(); render(); }
+  else if (t.matches('[data-profile]')) { acct.modal = 'profile'; acct.msg = ''; await refreshMe(); render(); }
+  else if (t.matches('[data-avatar]')) run(async () => { acct.me = (await acctApi('profile', { avatar: t.dataset.avatar })).me; });
+  else if (t.matches('#saveTag')) run(async () => { acct.me = (await acctApi('profile', { gamertag: document.getElementById('tagInput').value })).me; showToast('Gamertag saved.'); });
+  else if (t.matches('[data-buy]')) { acct.modal = { buy: t.dataset.buy }; acct.msg = ''; render(); }
+  else if (t.matches('#confirmBuy')) run(async () => {
+    const r = await acctApi('store/buy', { item: acct.modal.buy }); acct.me = r.me;
+    acct.modal = r.item.type === 'skin' ? { skins: r.item.role, view: r.item.skin } : 'store';
+    SFX.end(); showToast(r.item.type === 'skin' ? `You bought <b>${esc(r.item.name)}</b>! Equipped for the ${esc(ROLES[r.item.role].name)}.` : `You bought <b>${esc(r.item.name)}</b>!`);
+  });
+  else if (t.matches('[data-wear]')) run(async () => { acct.me = (await acctApi('profile', { title: t.dataset.wear || null })).me; });
+  else if (t.matches('#signout')) signOut();
+  else if (t.matches('#guest')) signInGuest();
+});
+
 let toastTimer = null;
 function showToast(html, crisis = false, ms = 3200) {
   $toast.innerHTML = html; $toast.className = 'toast' + (crisis ? ' crisis' : '');
@@ -157,28 +455,37 @@ function showToast(html, crisis = false, ms = 3200) {
 }
 
 // ---------- hover (or press-and-hold) for 1 second to read any card ----------
-let peekTimer = null, peekSrc = null;
-function showPeek(src) { $peek.innerHTML = `<img src="${src}" alt="">`; $peek.classList.remove('hidden'); }
-function hidePeek() { clearTimeout(peekTimer); peekTimer = null; peekSrc = null; $peek.classList.add('hidden'); }
-function armPeek(src) {
-  if (src === peekSrc) return;
-  hidePeek(); peekSrc = src;
-  peekTimer = setTimeout(() => showPeek(src), 1000);
+let peekTimer = null, peekSrc = null, peekKey = null;
+// A role card (data-peekrole) is shown with its living portrait, in the skin given by data-peekskin.
+function showPeek(src, role, skin) {
+  $peek.innerHTML = role && ROLES[role] ? roleCardHtml(role, skin) : `<img src="${src}" alt="">`;
+  $peek.classList.remove('hidden');
+}
+function hidePeek() { clearTimeout(peekTimer); peekTimer = null; peekSrc = null; peekKey = null; $peek.classList.add('hidden'); }
+function armPeek(el) {
+  const src = el.dataset.peek, role = el.dataset.peekrole || null, skin = el.dataset.peekskin || null;
+  const key = src + '|' + (skin || '');
+  if (key === peekKey) return;
+  hidePeek(); peekSrc = src; peekKey = key;
+  peekTimer = setTimeout(() => showPeek(src, role, skin), 1000);
 }
 document.addEventListener('mouseover', e => {
   const el = e.target.closest('[data-peek]');
-  if (el) armPeek(el.dataset.peek); else if (peekSrc) hidePeek();
+  if (el) armPeek(el); else if (peekSrc) hidePeek();
 });
 document.addEventListener('pointerdown', e => {
   if (e.pointerType !== 'touch') return;
   const el = e.target.closest('[data-peek]');
-  if (el) armPeek(el.dataset.peek);
+  if (el) armPeek(el);
 });
 document.addEventListener('pointerup', e => { if (e.pointerType === 'touch') hidePeek(); });
 document.addEventListener('pointercancel', hidePeek);
 document.addEventListener('contextmenu', e => { if (e.target.closest('[data-peek]')) e.preventDefault(); });
-document.addEventListener('click', e => { if (ui.showLog && S && !e.target.closest('.notes-wrap')) { ui.showLog = false; render(); } });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { hidePeek(); if (ui.confirm) { ui.confirm = null; render(); } if (ui.showLog) { ui.showLog = false; render(); } if (ui.showRules) { ui.showRules = false; render(); } } });
+document.addEventListener('click', e => {
+  if (ui.showLog && S && !e.target.closest('.notes-wrap')) { ui.showLog = false; render(); }
+  if (ui.showChat && S && !e.target.closest('.chat-wrap')) { ui.showChat = false; render(); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { hidePeek(); if (ui.confirm) { ui.confirm = null; render(); } if (ui.showLog) { ui.showLog = false; render(); } if (ui.showChat) { ui.showChat = false; render(); } if (ui.showRules) { ui.showRules = false; render(); } } });
 
 // ---------- connection ----------
 function connect() {
@@ -192,10 +499,21 @@ function leave(msg) {
   if (es) es.close(); es = null; S = null; saveSess(null); hidePeek();
   ui.err = msg || ''; history.replaceState(null, '', location.pathname);
   render();
+  refreshMe().then(render);
 }
 const boardTotal = b => Object.values(b).reduce((a, t) => a + t.n + t.i, 0);
 
 function onUpdate(prev) {
+  // newly unlocked animal profile pictures (5 tricks won with that card)
+  const un = (S && S.unlocks) || [];
+  if (un.length < (ui.unlockSeen || 0)) ui.unlockSeen = 0;
+  if (prev && un.length > (ui.unlockSeen || 0)) {
+    const id = un[un.length - 1];
+    setTimeout(() => showToast(`New profile picture unlocked: <b>${esc(CARDS[id].name)}</b>!<small>Pick it in your Profile.</small>`, false, 5200), 1800);
+  }
+  ui.unlockSeen = un.length;
+  if (S && S.myAccount) acct.me = Object.assign(acct.me || {}, S.myAccount); // keep the wallet current
+  if (prev && S && S.phase === 'ended' && prev.phase !== 'ended') setTimeout(() => refreshMe(), 500);
   if (!S || S.phase === 'lobby') { ui.lastRound = null; return; }
   if (S.waiting !== S.you || (S.step && ui.mode)) ui.mode = null;
   // phones: scroll to the map when you must click it, or to the play area when you must pick a biome or role
@@ -236,7 +554,7 @@ function onUpdate(prev) {
   for (const r of reacts) if (r.id > ui.reactSeen && fresh) react(r.seat, r.anim, r.pri);
   if (reacts.length) ui.reactSeen = Math.max(ui.reactSeen, reacts[reacts.length - 1].id);
   // learn which characters are at the table so their animations are loaded before they're needed
-  for (const p of S.players || []) if (p.role && !p.boss) preloadChar(p.role);
+  for (const p of S.players || []) if (p.role && !p.boss) preloadChar(p.role, p.skin);
   // the game just started: shuffle and deal
   if (prev && prev.phase === 'lobby' && S.phase === 'draft') { ui.dealing = true; ui.chatSeen = 0; setTimeout(playDeal, 60); }
   if (prev && prev.phase === 'lobby') SFX.start();
@@ -276,6 +594,8 @@ function render() {
   updateMusic();
 }
 function renderScreen() {
+  // home page, loading screen and lobby sit on the animated backdrop (scenery.js)
+  document.body.classList.toggle('scenic', !sess || !S || S.phase === 'lobby');
   if (!sess) return renderLanding();
   if (!S) { $app.innerHTML = `<div class="landing">${musicBtnHtml()}<div class="paper spiral landing-card"><p class="tagline">Paddling out to the Everglades…</p></div></div>`; return; }
   if (S.phase === 'lobby') return renderLobby();
@@ -284,10 +604,11 @@ function renderScreen() {
 
 function renderLanding() {
   const qRoom = new URLSearchParams(location.search).get('room') || '';
-  // the six characters, gently idling (CSS steps through each one's idle strip)
-  const cast = Object.keys(ROLES).map((r, i) => `<figure class="castmember">
-      <div class="pthumb idle" style="background-image:url('${CHAR_ANIM.src(r, 'idle')}');animation-delay:-${(i * 0.83).toFixed(2)}s" data-peek="${ROLES[r].img}"></div>
-      <figcaption>${esc(ROLES[r].name)}</figcaption></figure>`).join('');
+  // the six characters, gently idling (CSS steps through each one's idle strip), in the skins you have on.
+  // Click one to open its skin shop.
+  const cast = Object.keys(ROLES).map((r, i) => `<button class="castmember" data-skinshop="${r}" title="${esc(ROLES[r].name)} skins">
+      <div class="pthumb idle" style="background-image:url('${CHAR_ANIM.src(r, 'idle', mySkin(r))}');animation-delay:-${(i * 0.83).toFixed(2)}s"></div>
+      <span class="castname">${esc(ROLES[r].name)}</span><span class="castshop">Skins</span></button>`).join('');
   $app.innerHTML = `
   <div class="landing home">
     ${musicBtnHtml()}
@@ -305,34 +626,48 @@ function renderLanding() {
     </section>
     <div class="paper spiral landing-card stack">
       <div class="panel-title" style="margin:0">Head into the swamp</div>
-      <label class="stack" style="gap:4px"><span class="panel-title" style="margin:0;color:var(--ink-soft)">Your name</span>
-        <input id="name" class="field" maxlength="16" placeholder="Ranger" value="${esc(savedName())}"></label>
-      <button id="create" class="btn primary">Start a new table</button>
+      ${accountPanelHtml()}
+      <button id="create" class="btn primary" ${acct.me ? '' : 'disabled'}>Start a new table</button>
       <div class="divider">— or join friends —</div>
       <div class="row" style="flex-wrap:nowrap">
         <input id="code" class="field" maxlength="4" placeholder="CODE" value="${esc(qRoom)}" style="text-transform:uppercase;letter-spacing:4px;width:150px">
-        <button id="join" class="btn brass" style="flex:1">Join table</button>
+        <button id="join" class="btn brass" style="flex:1" ${acct.me ? '' : 'disabled'}>Join table</button>
       </div>
       <div class="error">${esc(ui.err)}</div>
-      <p class="hint" style="margin:0">Start a table and share its 4-letter code or link. Bots fill empty seats, so every game has at least 4 players.</p>
+      <p class="hint" style="margin:0">Every table has an Eco-buck buy-in. Start a table and share its 4-letter code or link. Bots fill empty seats, so every game has at least 4 players.</p>
     </div>
     </div>
+    ${acctModalHtml()}
   </div>`;
-  const name = () => { const n = document.getElementById('name').value.trim(); saveName(n); return n; };
+  mountGoogleButton();
   const go = async (op, body) => {
-    try {
-      const r = await fetch('/api/' + op, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
-      if (r.error) throw new Error(r.error); enterRoom(r);
-    } catch (e) { ui.err = e.message; renderLanding(); }
+    try { const r = await acctApi(op, body); enterRoom(r); }
+    catch (e) { ui.err = e.message; renderLanding(); }
   };
-  document.getElementById('create').onclick = () => go('create', { name: name() });
+  document.getElementById('create').onclick = () => go('create', {});
   const join = () => {
     const code = document.getElementById('code').value.trim().toUpperCase();
     if (!code) { ui.err = 'Type the 4-letter room code.'; return renderLanding(); }
-    go('join', { name: name(), room: code });
+    go('join', { room: code });
   };
   document.getElementById('join').onclick = join;
-  document.getElementById('code').onkeydown = e => { if (e.key === 'Enter') join(); };
+  document.getElementById('code').onkeydown = e => { if (e.key === 'Enter' && acct.me) join(); };
+}
+// Sign-in, or your banner and wallet once you're signed in
+function accountPanelHtml() {
+  if (acct.loading) return '<p class="hint" style="margin:0">Checking your account…</p>';
+  const C = acct.config || {};
+  if (!acct.me) return `<div class="signin stack" style="gap:8px">
+      <span class="hint" style="margin:0">Sign in to keep your Eco-bucks, profile picture and unlocks.</span>
+      ${C.googleClientId ? '<div id="gbtn" class="gbtn"></div>' : ''}
+      ${C.guestsAllowed !== false ? `<button id="guest" class="btn">${C.googleClientId ? 'Play as a guest instead' : 'Play as guest'}</button>` : ''}
+      ${!C.googleClientId ? '<span class="hint" style="margin:0;font-size:16px">(Google sign-in isn’t set up on this server yet. Guest accounts are saved in this browser.)</span>' : ''}
+    </div>`;
+  const me = acct.me;
+  return `<div class="acctbox">
+    ${bannerHtml(me, { extra: `<div class="pb-bal">${fmtEB(me.balance)}</div>` })}
+    <div class="row" style="gap:6px"><button class="btn small" data-profile>Profile</button><button class="btn small brass" data-store>Store</button><button class="btn small" id="signout">Sign out</button></div>
+  </div>`;
 }
 function enterRoom(r) {
   ui.err = ''; saveSess({ room: r.room, token: r.token });
@@ -381,6 +716,17 @@ function renderLobby() {
         ${S.isHost ? `<div class="modepick">${SPEED_ORDER.map(sp =>
           `<button class="btn small ${S.speed === sp ? 'brass' : ''}" data-speed="${sp}">${SPEED_LABEL[sp]}</button>`).join('')}</div>` : ''}
       </div>
+      <div class="buyin">
+        <div class="row" style="justify-content:space-between">
+          <div><div class="panel-title" style="margin:0">Buy-in</div>
+            <span style="font-size:18px">${fmtEB(S.buyIn)} per player</span> <span class="hint">· pot ${fmtEB(S.buyIn * tableSize)} with ${tableSize} seats</span></div>
+          ${S.isHost ? `<div class="modepick">${S.buyIns.map(b => `<button class="btn small ${S.buyIn === b ? 'brass' : ''}" data-buyin="${b}">${b} EB</button>`).join('')}</div>` : ''}
+        </div>
+        <p class="hint" style="margin:2px 0 0">${S.mode === 'coop'
+          ? 'Co-op: beat the Anaconda and everyone gets double their bet back. Lose, and everyone loses it.'
+          : `1st takes the rest of the pot · 2nd gets their bet back · 3rd gets half back · ${tableSize >= 5 ? 'everyone below loses' : '4th loses'} their bet. The house covers the bots.`}</p>
+        ${S.myAccount ? `<p class="hint" style="margin:2px 0 0">Your balance: ${fmtEB(S.myAccount.balance)}${S.myAccount.balance < S.buyIn ? ' — <b style="color:var(--red)">not enough for this buy-in</b>' : ''}</p>` : ''}
+      </div>
       ${S.mode === 'partners' ? `<p class="hint" style="margin:-4px 0 0">Pick a team for yourself${S.isHost ? ' (as host you can also place others and bots)' : ''}. Anyone without a team gets a random partner. Teammates never take turns back to back.</p>` : ''}
       ${S.mode === 'coop' ? `<div class="row" style="flex-wrap:nowrap;gap:12px;align-items:flex-start;margin-top:-4px">
           <img src="${BOSS.portrait}" alt="" class="bossthumb" data-peek="${BOSS.img}">
@@ -390,8 +736,9 @@ function renderLobby() {
         ${S.lobby.map(m => `
           <div class="member">
             <span class="dot ${m.online ? '' : 'off'}"></span>
-            <span style="flex:1">${esc(m.name)}${m.pid === S.yourPid ? ' <span style="color:var(--red)">(you)</span>' : ''}</span>
+            <div style="flex:1;min-width:0">${bannerHtml(m.profile || { gamertag: m.name, avatarSrc: botAvatar(m.name) }, { you: m.pid === S.yourPid, size: 'small' })}</div>
             ${teamPicker(m)}
+            ${!m.bot && !m.canAfford ? `<span class="tag" style="background:var(--red);color:#fff" title="Can't cover the ${S.buyIn} EB buy-in">SHORT</span>` : ''}
             ${m.host ? '<span class="tag host">HOST</span>' : ''}${m.bot ? '<span class="tag bot">BOT</span>' : ''}
             ${S.isHost && m.pid !== S.yourPid ? `<button class="btn small" data-remove="${m.pid}">✕</button>` : ''}
           </div>`).join('')}
@@ -401,10 +748,11 @@ function renderLobby() {
           <button id="addbot" class="btn small" ${S.lobby.length >= 6 ? 'disabled' : ''}>+ Add bot</button>
           <span class="hint">${bots ? `${bots} bot${bots > 1 ? 's' : ''} will join when you start, to make ${tableSize} players.` : 'Ready when you are.'}</span>
         </div>
-        <button id="start" class="btn primary">Start game</button>`
+        <button id="start" class="btn primary" ${S.lobby.some(m => !m.bot && !m.canAfford) ? 'disabled title="Everyone needs enough Eco-bucks for the buy-in"' : ''}>Start game · ${S.buyIn} EB buy-in</button>`
       : `<p class="hint">Waiting for the host to start… ${humans} player${humans > 1 ? 's' : ''} here.</p>`}
-      <button id="leave" class="btn small" style="align-self:flex-start">Leave table</button>
+      <div class="row"><button id="leave" class="btn small">Leave table</button>${acct.me ? '<button class="btn small" data-profile>Profile</button><button class="btn small brass" data-store>Store</button>' : ''}</div>
     </div>
+    ${acctModalHtml()}
   </div>`;
   document.getElementById('copy').onclick = () => { navigator.clipboard?.writeText(link); showToast('Link copied — send it to your friends!'); };
   document.getElementById('leave').onclick = async () => { await lobby('leave'); leave(); };
@@ -416,6 +764,7 @@ function renderLobby() {
   if (S.isHost) {
     $app.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => lobby('mode', { mode: b.dataset.mode }));
     $app.querySelectorAll('[data-speed]').forEach(b => b.onclick = () => lobby('speed', { speed: b.dataset.speed }));
+    $app.querySelectorAll('[data-buyin]').forEach(b => b.onclick = () => lobby('buyin', { amount: +b.dataset.buyin }));
     document.getElementById('addbot').onclick = () => lobby('addBot');
     document.getElementById('start').onclick = () => lobby('start');
     $app.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => lobby('remove', { pid: b.dataset.remove }));
@@ -481,7 +830,7 @@ function playersHtml(mini) {
         <div class="nm">${arrow}<span class="name">${esc(p.name)}</span><span class="tag bosstag">BOSS</span></div>
         ${mini ? `<div class="mini-meta">Deck ${p.handCount} · ${p.tricks} won</div>` : `<div class="meta"><span>Invasive deck ${p.handCount}</span></div><div class="meta"><span>Tricks ${p.tricks}</span></div>`}
       </div></div>`;
-    return `<div class="pl ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" ${role ? `data-peek="${role.img}"` : ''}>${portraitHtml(i, p)}
+    return `<div class="pl ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" ${role ? peekAttrs(p.role, p.skin) : ''}>${portraitHtml(i, p)}
       <div class="info">
         <div class="nm">${arrow}<span class="name">${esc(p.name)}</span>${i === S.you ? '<span class="you">(you)</span>' : ''}${p.online ? '' : '<span class="dot off" title="offline"></span>'}</div>
         ${mini ? `<div class="mini-meta">${role ? esc(role.name) : 'choosing…'} · ${p.tricks} won</div>` : `<div class="meta">${role ? `<span class="rolename">${esc(role.name)}</span>` : '<span>choosing role…</span>'}${teamTag(p.team)}</div>
@@ -499,8 +848,9 @@ function draftHtml() {
     const R = ROLES[r];
     const free = !owner[r];
     const pick = myTurn && free;
-    return `<div class="rolepick ${pick ? 'choosable' : ''} ${free ? '' : 'taken'}" data-peek="${R.img}" ${pick ? `data-role="${r}"` : ''}>
-      <img src="${R.img}" alt="${esc(R.name)}">
+    const skin = tableSkin(r); // taken: the holder's skin; still free: yours
+    return `<div class="rolepick ${pick ? 'choosable' : ''} ${free ? '' : 'taken'}" ${peekAttrs(r, skin)} ${pick ? `data-role="${r}"` : ''}>
+      ${roleCardHtml(r, skin)}
       ${free ? '' : `<div class="takenby">${esc(owner[r])}</div>`}
     </div>`;
   }).join('');
@@ -606,6 +956,10 @@ function renderGame() {
     ${S.phase === 'draft' ? '<span class="chip">Role draft</span>' : S.phase !== 'ended' ? `<span class="chip">Round ${S.round}</span>` : ''}
     ${S.partners ? '<span class="chip">Partners</span>' : ''}${S.coop ? '<span class="chip" style="background:#f2d7c9">Co-op vs The Anaconda</span>' : ''}
     <span class="spacer"></span>
+    ${S.you >= 0 ? `<div class="chat-wrap">
+      <button class="btn small ${ui.showChat ? 'brass' : ''}" id="chatBtn" title="Send a chat line to the table">💬 Chat ▾</button>
+      ${ui.showChat ? chatDropHtml() : ''}
+    </div>` : ''}
     <div class="notes-wrap">
       <button class="btn small ${ui.showLog ? 'brass' : ''}" id="notesBtn">Field notes ${ui.unread && !ui.showLog ? `<span class="badge">${ui.unread > 9 ? '9+' : ui.unread}</span>` : ''}▾</button>
       ${ui.showLog ? `<div class="paper spiral notes-drop" id="log"><div class="panel-title">Field notes</div>${S.log.map(l => `<p class="${l.startsWith('INVASIVE') ? 'crisis' : ''}">${esc(l)}</p>`).join('')}</div>` : ''}
@@ -623,10 +977,10 @@ function renderGame() {
     <section class="tablecol">${tableHtml()}</section>
     <section class="handarea">
       ${promptHtml()}
-      <div class="hand-cap">${role ? `<span class="myrole" data-peek="${role.img}">You are the <b>${esc(role.name)}</b> <small>(hold to read)</small></span>` : ''}<span class="swipe">${hand.length} card${hand.length === 1 ? '' : 's'} · swipe ↔ · hold a card to read it</span></div>
+      <div class="hand-cap">${role ? `<span class="myrole" ${peekAttrs(S.role, tableSkin(S.role))}>You are the <b>${esc(role.name)}</b> <small>(hold to read)</small></span>` : ''}<span class="swipe">${hand.length} card${hand.length === 1 ? '' : 's'} · swipe ↔ · hold a card to read it</span></div>
       <div class="handrow">
         <div class="hand ${ui.dealing ? 'dealing' : ''} ${Date.now() - (ui.handIntro || 0) < 1400 ? 'intro' : ''}">${handHtml}</div>
-        ${role ? `<div class="rolebox"><div class="cap">You are the <b>${esc(role.name)}</b></div><div class="card" data-peek="${role.img}"><img src="${role.img}" alt="${esc(role.name)}"></div></div>` : ''}
+        ${role ? `<div class="rolebox"><div class="cap">You are the <b>${esc(role.name)}</b></div><div class="card" ${peekAttrs(S.role, tableSkin(S.role))}>${roleCardHtml(S.role, tableSkin(S.role))}</div></div>` : ''}
       </div>
     </section>
   </div>
@@ -678,7 +1032,7 @@ function promptHtml() {
   if (S.phase === 'choose') return box('You lead! Pick a biome in the glowing travel row.<small>Its type sets the lead suit, and its region is where everyone populates.</small>');
   const st = S.step;
   if (st?.type === 'place') return box(`Migratory: place ${st.left} more ${CARDS[st.card].kind} token${st.left > 1 ? 's' : ''}.<small>Click a glowing region on the map. Tokens spread in a continuous line from the current region.</small>`);
-  if (st?.type === 'predate') return box(`Predatory: remove up to ${st.left} token${st.left > 1 ? 's' : ''} — Native or Invasive.<small>Click a blinking green or red counter on the map.</small>`, `<button class="btn" id="predDone">Done</button>`);
+  if (st?.type === 'predate') return box(`Predatory: first remove up to ${st.left} token${st.left > 1 ? 's' : ''} — Native or Invasive.<small>Click a blinking green or red counter on the map. ${esc(CARDS[st.card].name)}'s own tokens are added after the hunt.</small>`, `<button class="btn" id="predDone">Done hunting</button>`);
   if (S.tourPeek) {
     const b = BIOMES[S.tourPeek];
     return box(`Top of the location deck: <b>${esc(b.name)}</b><small>${esc(REGIONS[b.region].name)} · ${b.suit} · Risk ${b.risk}</small>`,
@@ -734,6 +1088,23 @@ function rulesModal() {
     </div></div></div>`;
 }
 
+// Eco-buck payouts for a finished game (accounts.js settle)
+function settlementHtml() {
+  const st = S.settlement; if (!st) return '';
+  const rows = st.results.slice().sort((a, b) => a.place - b.place || b.payout - a.payout).map(r => {
+    const p = S.players[r.seat];
+    return `<tr class="${r.seat === S.you ? 'winner' : ''}"><td class="total" style="font-size:20px">${r.place}</td>
+      <td>${p.profile ? `<img class="pavatar tiny" src="${esc(p.profile.avatarSrc)}" alt="">` : ''}<b>${esc(p.name)}</b>${p.bot ? ' <span class="hint">(bot · house)</span>' : ''}</td>
+      <td>${fmtEB(r.payout)}</td><td class="${r.net >= 0 ? 'ebup' : 'ebdown'}">${r.net >= 0 ? '+' : '−'}${Math.abs(r.net).toLocaleString()} EB</td></tr>`;
+  }).join('');
+  const mine = st.results.find(r => r.seat === S.you);
+  return `<div class="ebresult">
+    <div class="panel-title" style="margin:0">Eco-bucks · ${st.bet} EB buy-in · pot ${Number(st.pot).toLocaleString()} EB</div>
+    ${mine && mine.balance !== undefined ? `<p style="margin:4px 0;font-size:18px">You ${mine.net >= 0 ? 'won' : 'lost'} <b class="${mine.net >= 0 ? 'ebup' : 'ebdown'}">${Math.abs(mine.net).toLocaleString()} EB</b>. Your balance is now ${fmtEB(mine.balance)}.</p>` : ''}
+    <table class="scores ebtable"><tr><th>Place</th><th>Player</th><th>Paid out</th><th>Net</th></tr>${rows}</table>
+  </div>`;
+}
+
 // A story ending, as text (the conditions and variants live in endings.js on the server)
 function storyHtml(e, who) {
   if (!e) return '';
@@ -745,14 +1116,14 @@ function storyHtml(e, who) {
   </div>`;
 }
 // small still portrait of a character (first frame of its idle animation)
-const portraitThumb = role => `<div class="pthumb" style="background-image:url('${CHAR_ANIM.src(role, 'idle')}')" data-peek="${ROLES[role].img}"></div>`;
+const portraitThumb = (role, skin) => `<div class="pthumb" style="background-image:url('${CHAR_ANIM.src(role, 'idle', skin)}')" ${peekAttrs(role, skin)}></div>`;
 
 function coopEndModal() {
   const R = S.results;
   const e = R.scores.find(x => x.p === R.ending.p);
   const role = ROLES[e.role];
   const row = sc => `<tr>
-        <td>${portraitThumb(sc.role)}</td>
+        <td>${portraitThumb(sc.role, (S.players[sc.p] || {}).skin)}</td>
         <td><b>${esc(sc.name)}</b><br><span class="hint">${esc(ROLES[sc.role].name)}</span></td>
         <td class="lines">${sc.lines.map(l => `${esc(l.label)}: <b style="color:var(--ink)">${l.pts}</b>`).join('<br>')}</td>
         <td class="total">${sc.total}</td></tr>`;
@@ -766,7 +1137,7 @@ function coopEndModal() {
       ${storyHtml(R.coopEnding, `${e.name} — the ${role.name}`)}
       ${storyHtml(R.bossEnding, "The Anaconda's epilogue")}
     </div>
-    <table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
+    ${settlementHtml()}<table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
       <tr class="teamrow"><td colspan="3">The players, together</td><td class="total">${R.playersTotal}</td></tr>
       ${R.scores.map(row).join('')}
       <tr class="teamrow bossrow"><td colspan="3">The Anaconda</td><td class="total">${R.anaconda.total}</td></tr>
@@ -786,7 +1157,7 @@ function endModal() {
     return storyHtml(sc.ending, `${sc.name} — the ${ROLES[sc.role].name}`);
   }).join('')}</div>`;
   const row = sc => `<tr class="${R.winners.includes(sc.p) ? 'winner' : ''}">
-        <td>${portraitThumb(sc.role)}</td>
+        <td>${portraitThumb(sc.role, (S.players[sc.p] || {}).skin)}</td>
         <td><b>${esc(sc.name)}</b><br><span class="hint">${esc(ROLES[sc.role].name)}</span></td>
         <td class="lines">${sc.lines.map(l => `${esc(l.label)}: <b style="color:var(--ink)">${l.pts}</b>`).join('<br>')}</td>
         <td class="total">${sc.total}</td></tr>`;
@@ -798,7 +1169,7 @@ function endModal() {
     <h2 class="logo" style="font-size:38px">${title}</h2>
     <p class="hint" style="margin:4px 0 8px">How the story ends for the winning partners:</p>
     ${endings}
-    <table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
+    ${settlementHtml()}<table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
       ${R.teams.map(t => `<tr class="teamrow"><td colspan="3">${teamTag(t.team)} ${t.members.map(m => esc(S.players[m].name)).join(' &amp; ')}</td><td class="total">${t.total}</td></tr>
         ${t.members.map(m => row(R.scores.find(x => x.p === m))).join('')}`).join('')}
     </table>
@@ -809,9 +1180,9 @@ function endModal() {
     <h2 class="logo" style="font-size:38px">${R.winners.length > 1 ? "IT'S A TIE!" : esc(S.players[R.winners[0]].name).toUpperCase() + ' WINS!'}</h2>
     <p class="hint" style="margin:4px 0 8px">How the story ends for the ${R.winners.length > 1 ? 'winners' : 'winner'}:</p>
     ${endings}
-    <table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
+    ${settlementHtml()}<table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
       ${sorted.map(sc => `<tr class="${R.winners.includes(sc.p) ? 'winner' : ''}">
-        <td>${portraitThumb(sc.role)}</td>
+        <td>${portraitThumb(sc.role, (S.players[sc.p] || {}).skin)}</td>
         <td><b>${esc(sc.name)}</b><br><span class="hint">${esc(ROLES[sc.role].name)}</span></td>
         <td class="lines">${sc.lines.map(l => `${esc(l.label)}: <b style="color:var(--ink)">${l.pts}</b>`).join('<br>')}</td>
         <td class="total">${sc.total}</td></tr>`).join('')}
@@ -852,21 +1223,73 @@ function confirmModal() {
   </div></div>`;
 }
 
+// ---------- role cards with a living portrait ----------
+// Every role card on screen gets an animated canvas over its photo ("art box"), drawn in the skin of the player
+// it belongs to. All role cards share one layout (1050x750); the photo sits at x 99-419, y 71-347.
+const ARTBOX = { left: 99 / 1050, top: 71 / 750, width: 321 / 1050, height: 277 / 750 };
+// The skin the person at this screen has on for a role (only owned skins are listed in a profile's skins).
+function viewerSkin(role) {
+  const me = (S && S.myAccount) || acct.me;
+  return (me && me.skins && me.skins[role]) || null;
+}
+// The skin a role card should show in this game: whoever holds the role, or your own if nobody does yet.
+function tableSkin(role) {
+  const holder = S && S.players ? S.players.find(p => p.role === role && !p.boss) : null;
+  return holder ? holder.skin || null : viewerSkin(role);
+}
+// A role card image with its animated art box. Boss and unknown roles fall back to the plain card.
+function roleCardHtml(role, skin, alt) {
+  const R = ROLES[role];
+  if (!R) return '';
+  return `<div class="rcard"><img src="${R.img}" alt="${esc(alt || R.name)}">${artboxCanvas(role, skin)}</div>`;
+}
+const artboxCanvas = (role, skin) => `<canvas class="artbox" width="${CHAR_ANIM.w}" height="${CHAR_ANIM.h}" data-role="${role}" data-skin="${skin || ''}"
+  style="left:${(ARTBOX.left * 100).toFixed(3)}%;top:${(ARTBOX.top * 100).toFixed(3)}%;width:${(ARTBOX.width * 100).toFixed(3)}%;height:${(ARTBOX.height * 100).toFixed(3)}%"></canvas>`;
+// data-peek attributes that make the enlarged hover card show the same living portrait
+const peekAttrs = (role, skin) => ROLES[role] ? `data-peek="${ROLES[role].img}" data-peekrole="${role}" data-peekskin="${skin || ''}"` : '';
+// Art boxes mostly breathe and blink, with the odd signature move. Each canvas keeps its own rhythm.
+function drawArtboxes() {
+  const now = performance.now();
+  for (const cv of document.querySelectorAll('canvas.artbox')) {
+    const role = cv.dataset.role, skin = cv.dataset.skin || null;
+    let st = cv._st;
+    if (!st || now >= st.until) {
+      const anim = !st ? 'idle' : reducedMotion.matches ? 'idle' : (Math.random() < 0.22 ? 'signature' : 'idle');
+      const hold = !st ? Math.random() * 2500 : 1200 + Math.random() * 3800; // stand still between clips
+      st = cv._st = { anim, start: now + hold, until: now + hold + clipLength(anim) };
+    }
+    const playingNow = now >= st.start && !reducedMotion.matches;
+    let anim = playingNow ? st.anim : 'idle';
+    let frame = playingNow ? Math.floor((now - st.start) / 1000 * CHAR_ANIM.anims[anim].fps) % CHAR_ANIM.frames : 0;
+    let im = sprite(role, anim, skin);
+    if (!im.complete || !im.naturalWidth) { anim = 'idle'; frame = 0; im = sprite(role, 'idle', skin); }
+    if (!im.complete || !im.naturalWidth) continue;
+    const key = (skin || '') + anim + frame;
+    if (cv.dataset.k === key) continue;
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(im, frame * CHAR_ANIM.w, 0, CHAR_ANIM.w, CHAR_ANIM.h, 0, 0, cv.width, cv.height);
+    cv.dataset.k = key;
+  }
+}
+
 // ---------- animated character portraits ----------
 // Each portrait plays one animation at a time. Reactions from the server (cheer, upset, shock, signature...)
 // interrupt anything weaker; in between, characters idle (breathe and blink), think while it's their turn,
 // and now and then do their signature move. Timing lives here, not in the DOM, so re-renders never restart a clip.
 const sprites = {};
-function sprite(role, anim) {
-  const k = role + '/' + anim;
-  if (!sprites[k]) { const im = new Image(); im.src = CHAR_ANIM.src(role, anim); sprites[k] = im; }
+function sprite(role, anim, skin) { // skin: a SKINS id, or null for the original look
+  const k = role + '/' + (skin || '') + '/' + anim;
+  if (!sprites[k]) { const im = new Image(); im.src = CHAR_ANIM.src(role, anim, skin); sprites[k] = im; }
   return sprites[k];
 }
 const preloaded = new Set();
-function preloadChar(role) {
-  if (preloaded.has(role)) return;
-  preloaded.add(role);
-  for (const a of Object.keys(CHAR_ANIM.anims)) sprite(role, a);
+function preloadChar(role, skin) {
+  const k = role + '/' + (skin || '');
+  if (preloaded.has(k)) return;
+  preloaded.add(k);
+  for (const a of Object.keys(CHAR_ANIM.anims)) sprite(role, a, skin);
 }
 const playing = {}; // seat -> { anim, pri, start, until }
 const passive = {}; // seat -> time of the next passive animation
@@ -910,10 +1333,12 @@ function drawPortraits(force) {
     if (!cv) continue;
     let anim = cur ? cur.anim : 'idle';
     let frame = cur ? Math.floor((now - cur.start) / 1000 * CHAR_ANIM.anims[anim].fps) % CHAR_ANIM.frames : 0;
-    let im = sprite(p.role, anim);
-    if (!im.complete || !im.naturalWidth) { anim = 'idle'; frame = 0; im = sprite(p.role, 'idle'); } // still loading
+    const skin = p.skin || null;
+    preloadChar(p.role, skin);
+    let im = sprite(p.role, anim, skin);
+    if (!im.complete || !im.naturalWidth) { anim = 'idle'; frame = 0; im = sprite(p.role, 'idle', skin); } // still loading
     if (!im.complete || !im.naturalWidth) continue;
-    const key = anim + frame;
+    const key = (skin || '') + anim + frame;
     if (!force && cv.dataset.k === key) continue;
     const ctx = cv.getContext('2d');
     ctx.imageSmoothingEnabled = false;
@@ -922,7 +1347,7 @@ function drawPortraits(force) {
     cv.dataset.k = key;
   }
 }
-(function loop() { drawPortraits(false); requestAnimationFrame(loop); })();
+(function loop() { drawPortraits(false); drawSkinPreview(); drawArtboxes(); requestAnimationFrame(loop); })();
 
 // ---------- bot speech bubbles ----------
 const $bubbles = document.getElementById('bubbles');
@@ -1029,7 +1454,8 @@ function wire() {
   q('#speed', () => lobby('speed', { speed: SPEED_ORDER[(SPEED_ORDER.indexOf(S.speed) + 1) % SPEED_ORDER.length] }));
   q('#mute', () => { muted = !muted; try { localStorage.setItem('eg_mute', muted ? '1' : '0'); } catch {} render(); });
   q('#rules', () => { ui.showRules = true; ui.showLog = false; render(); });
-  q('#notesBtn', () => { ui.showLog = !ui.showLog; ui.unread = 0; render(); });
+  q('#notesBtn', () => { ui.showLog = !ui.showLog; ui.showChat = false; ui.unread = 0; render(); });
+  q('#chatBtn', () => { ui.showChat = !ui.showChat; ui.showLog = false; render(); });
   q('#closeRules', () => { ui.showRules = false; render(); });
   q('#quit', () => { if (confirm('Leave this game?')) leave(); });
   q('#quit2', () => leave());
@@ -1080,3 +1506,4 @@ function wire() {
 
 connect();
 render();
+initAccounts();

@@ -145,7 +145,8 @@ function coopSequence(s, start) {
 }
 
 // The Anaconda populates on its own: Migratory moves all its tokens to the adjacent region with the most
-// Native tokens (if no neighbour has any, it stays put); Predatory always eats Native tokens there.
+// Native tokens (if no neighbour has any, it stays put); Predatory always eats Native tokens there first,
+// before its own tokens arrive (the same order as for players).
 function bossPopulate(s, c) {
   let region = trickRegion(s);
   if (c.migratory) {
@@ -158,7 +159,6 @@ function bossPopulate(s, c) {
       emit(s, { type: 'spread', p: s.bossIdx, card: c.id, regions: [region] });
     }
   }
-  s.board[region].i += c.pop;
   if (c.predatory > 0 && s.board[region].n > 0) {
     const eaten = Math.min(c.predatory, s.board[region].n);
     s.board[region].n -= eaten;
@@ -166,6 +166,7 @@ function bossPopulate(s, c) {
     log(s, `The Anaconda's ${c.name} devours ${eaten} Native token${eaten > 1 ? 's' : ''} in ${REGIONS[region].name}.`);
     emit(s, { type: 'eat', p: s.bossIdx, card: c.id, region, kind: 'n', count: eaten });
   }
+  s.board[region].i += c.pop;
 }
 
 function pickRole(s, p, role) {
@@ -264,6 +265,20 @@ function playCard(s, p, cardId, populate) {
   if (isBoss(s, p)) { bossPopulate(s, c); return endTurn(s); }
   const kind = c.kind === 'Invasive' ? 'i' : 'n';
   if (skip) { pl.stats.refused++; log(s, `${pname(s, p)} (Conservationist) chooses not to populate.`); return endTurn(s); }
+  // Predators hunt first: remove up to X tokens (Native or Invasive) from the region the card is played in,
+  // and only then add the card's own tokens (addTokens() below runs when the hunt is done).
+  const region = trickRegion(s);
+  if (c.predatory > 0 && s.board[region].n + s.board[region].i > 0) {
+    s.step = { type: 'predate', card: cardId, left: c.predatory, regions: [region] };
+    return;
+  }
+  addTokens(s, cardId);
+}
+
+// Add a played card's population tokens: all in the trick's region, or spread by the player if Migratory.
+function addTokens(s, cardId) {
+  const c = CARDS[cardId];
+  const kind = c.kind === 'Invasive' ? 'i' : 'n';
   const before = JSON.parse(JSON.stringify(s.board));
   const region = trickRegion(s);
   if (c.migratory && c.pop > 0) {
@@ -316,11 +331,6 @@ function applyKeystone(s, c) {
 function afterPlacement(s, cardId, regions, before) {
   const c = CARDS[cardId];
   if (c.keystone) applyKeystone(s, c);
-  if (c.predatory > 0) {
-    // Predators remove up to X tokens of either kind (Native or Invasive) from any region they populated.
-    const total = regions.reduce((a, r) => a + s.board[r].n + s.board[r].i, 0);
-    if (total > 0) { s.step = { type: 'predate', card: cardId, left: c.predatory, regions }; return; }
-  }
   endTurn(s);
 }
 
@@ -333,12 +343,13 @@ function predate(s, p, region, kind) {
   log(s, `${CARDS[st.card].name} removes 1 ${kind === 'n' ? 'Native' : 'Invasive'} token from ${REGIONS[region].name}.`);
   emit(s, { type: 'eat', p, card: st.card, region, kind, count: 1 });
   const remaining = st.regions.reduce((a, r) => a + s.board[r].n + s.board[r].i, 0);
-  if (st.left <= 0 || remaining <= 0) { s.step = null; endTurn(s); }
+  if (st.left <= 0 || remaining <= 0) { s.step = null; addTokens(s, st.card); } // hunt over: now the card's own tokens arrive
 }
 
 function predateDone(s, p) {
   if (!s.step || s.step.type !== 'predate' || p !== s.turn) err('Not removing tokens now.');
-  s.step = null; endTurn(s);
+  const card = s.step.card;
+  s.step = null; addTokens(s, card);
 }
 
 function endTurn(s) {

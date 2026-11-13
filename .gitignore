@@ -1,0 +1,8 @@
+node_modules/
+# player accounts and Eco-bucks (never upload these)
+data/
+# private settings and keys
+.env
+npm-debug.log*
+.DS_Store
+Thumbs.db

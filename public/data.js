@@ -184,10 +184,73 @@
       idle: { fps: 7 }, think: { fps: 6 }, signature: { fps: 8 },
       cheer: { fps: 9, loops: 2 }, upset: { fps: 7 }, shock: { fps: 8 },
     },
-    src: (role, anim) => 'assets/characters/' + role + '/' + anim + '.png',
+    // skin = a skin id from SKINS below (null or missing = the character's original look)
+    src: (role, anim, skin) => 'assets/characters/' + role + '/' + (skin ? 'skins/' + skin + '/' : '') + anim + '.png',
   };
 
-  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS, CHAR_ANIM };
+  // Character skins: alternate looks for each role, sold in the store. Purely cosmetic.
+  // Art: public/assets/characters/<role>/skins/<id>/<anim>.png, the same 6 animation strips as the original.
+  // The name only tells skins apart in the shop; it is never shown during a game.
+  const SKIN_PRICE = 500;
+  const SKINS = [
+    { id: 'rodney',  role: 'Hunter',          name: 'Rodney',  blurb: 'Big laugh, bigger heart. Never misses a cookout or a shot.' },
+    { id: 'maribel', role: 'Hunter',          name: 'Maribel', blurb: 'Tracks hogs through the hammocks before sunrise.' },
+    { id: 'kenji',   role: 'Fisherman',       name: 'Kenji',   blurb: 'Forty years on Florida Bay. Knows every channel by heart.' },
+    { id: 'dot',     role: 'Fisherman',       name: 'Dot',     blurb: 'Out-fishes the whole marina and lets them know it.' },
+    { id: 'tomas',   role: 'Conservationist', name: 'Tomás',   blurb: 'A young ranger with a speech for every occasion.' },
+    { id: 'leona',   role: 'Conservationist', name: 'Leona',   blurb: 'Speaks for the River of Grass, and people listen.' },
+    { id: 'earl',    role: 'LandDeveloper',   name: 'Earl',    blurb: 'Sold swampland once. Plans to do it again.' },
+    { id: 'desmond', role: 'LandDeveloper',   name: 'Desmond', blurb: 'Gold hard hat, gold watch, golden opportunities.' },
+    { id: 'amara',   role: 'Researcher',      name: 'Amara',   blurb: 'Her field notes are already a textbook.' },
+    { id: 'sven',    role: 'Researcher',      name: 'Sven',    blurb: 'Came for one season of fieldwork. Stayed for twelve.' },
+    { id: 'gus',     role: 'Tourist',         name: 'Gus',     blurb: 'SPF 4 and a Hawaiian shirt. What could go wrong?' },
+    { id: 'rosa',    role: 'Tourist',         name: 'Rosa',    blurb: 'Grandma has 3,000 gator photos and wants 3,001.' },
+  ].map(s => Object.assign({ price: SKIN_PRICE }, s));
+
+  // Chat lines: everything the bots say (see VOICE and REACT in game.js), rewritten to stand on their own,
+  // sold in the store. Players send the lines they own as speech bubbles during a game.
+  // Ids must never change once people have bought them (they are stored on accounts as 'chat:<id>').
+  const CHAT_PRICE = 50;
+  const CHAT_GROUPS = {
+    Conservationist: ['I’ll protect these wetlands!', 'This place needs protecting.', 'Let’s check on the wetlands.', 'This biome needs a champion!',
+      'Just what this place needs.', 'Every species counts.', 'Releasing this… under protest.', 'I’ll be watching closely.', 'Tread lightly, everyone.',
+      'Not in my wetlands!', 'Someone stop that!', 'Invasives? Unacceptable.', 'Keystone species! Risk is down.', 'That holds the whole system together!',
+      'It’s spreading!', 'Contain it!', 'Our natives…!', 'Not the natives!', 'Good riddance!', 'One less invader.', 'Bulldozing natives? Shameful.',
+      'Huh. Thanks, I suppose.', 'For the wetlands!', 'Protected, for now.', 'I caused a crisis… I’m so sorry.', 'INVASIVE CRISIS! No, no, no…',
+      'The natives are collapsing!'],
+    Fisherman: ['Where are the big ones biting?', 'Fish are biting!', 'Casting lines.', 'That’s a keeper!', 'Big one on the line!', 'Throwing that one back.',
+      'Oops, that fell off the boat.', 'Bait bucket special. Who’ll notice?', 'Water trip! Grabbing my rod.', 'Now THAT’s a catch!', 'Beauty of a fish.',
+      'Ugh, in my fishing grounds?', 'There goes the catch…', 'Hey, that was my water trick!', 'Lost one off the hook…', 'Landed it!',
+      'Hooked another one!', 'The fish stocks!', 'What’s happening to the water?!', 'Swapping catches.'],
+    Hunter: ['Let’s go track something.', 'Tracking game.', 'Fresh trail.', 'Taking the shot!', 'A trophy!', 'Not trophy material.', 'Passing on that.',
+      'Turn it loose. More game for me!', 'Good hunting ground.', 'Fresh tracks.', 'Open season!', 'On the prowl. Respect.', 'Now that’s a hunter.',
+      'Clean shot.', 'Nice hunting.', 'That was my land trick…', 'Missed the shot.', 'Bagged it!', 'Trophy!', 'The game’s all gone!',
+      'Whoa — what hit the woods?', 'Trading trophies.'],
+    LandDeveloper: ['Time to see some property.', 'Surveying for new lots.', 'Prime waterfront.', 'Great for the brochure.', 'Big returns!',
+      'Not my investment.', 'Minimal spend.', 'Clears space for development.', 'Free land clearing!', 'Prime real estate.',
+      'I can see the condos already.', 'Business as usual.', 'There go my lots.', 'More residents? Bad for zoning.', 'Lower risk? Bad for business.',
+      'Even I don’t like that snake.', 'Fewer residents, more room.', 'Clearing the lot nicely.', 'Sold!', 'Another parcel for the portfolio.',
+      'Bad for everyone’s property values!', 'A crisis? Cheaper land!', 'Market correction. Love it.', 'Bulldozing!'],
+    Researcher: ['Clipboards ready.', 'Field study time.', 'Collecting samples.', 'Strong data.', 'Documenting a fine specimen.', 'Low profile.',
+      'Purely for science.', 'Observing… from a distance.', 'Fascinating.', 'Taking notes.', 'That changes the whole study.', 'Noting that down.',
+      'Remarkable specimen.', 'Keystone effect observed.', 'Migration route logged.', 'Another trick? I wanted the fewest…',
+      'Too much attention. Bad for the data.', 'The data… it’s collapsing!', 'Population crash! Write this down!', 'Less glory, more data.'],
+    Tourist: ['I brought three cameras.', 'Sunscreen on.', 'Is this on the tour?', 'Best photo yet!', 'Look at that!', 'Saving film.',
+      'Cute. Moving on.', 'Was I supposed to keep my pet?', 'Oops… it got loose.', 'This is on my list!', 'I’ve always wanted to see this!',
+      'Ooh! *click*', 'Hold still!', 'Eek!', 'Nobody said there’d be one of those!', 'That’s ruining my photos.', 'Souvenir!', 'Best trip ever!',
+      'Is everything okay out there?!', 'This was NOT in the brochure!', 'Peeking at the travel brochure…', 'Too touristy.', 'That stays on my itinerary!'],
+    Table: ['You’ve got this one!', 'Backing you up.', 'Not stepping on your toes.', 'Nice one!', 'Go go go!', 'The Anaconda takes it…',
+      'We’ll get it back.', 'What a trip!', 'GG, everyone!', 'Next time…', 'Well played.', 'Invasive Risk drops!', 'That keeps the invaders in check.',
+      'It spreads!'],
+    Anaconda: ['Ssslithering in…', 'The risk there is delicious.', 'Hide your natives.', 'Releasing it into the wild!', 'Behold!', 'Ssspreading nicely.',
+      'A gift for the Everglades.', 'It feeds on the natives…', 'Ssso hungry.'],
+  };
+  const CHAT_GROUP_NAMES = { Table: 'Table talk', Anaconda: 'The Anaconda' };
+  const CHAT_PREFIX = { Conservationist: 'con', Fisherman: 'fsh', Hunter: 'hnt', LandDeveloper: 'dev', Researcher: 'res', Tourist: 'tur', Table: 'tbl', Anaconda: 'ana' };
+  const CHAT = [];
+  for (const [group, lines] of Object.entries(CHAT_GROUPS)) lines.forEach((text, i) => CHAT.push({ id: CHAT_PREFIX[group] + (i + 1), group, text, price: CHAT_PRICE }));
+
+  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES };
   if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
   else root.EG_DATA = DATA;
 })(typeof window !== 'undefined' ? window : globalThis);
