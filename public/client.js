@@ -106,6 +106,25 @@ const SFX = {
   end: () => notes([523, 659, 784, 1047, 784, 1047, 1319], 0.12, { vol: 0.06 }),
 };
 document.addEventListener('pointerdown', () => audio(), { once: true });
+document.addEventListener('keydown', () => audio(), { once: true });
+
+// ---------- title theme (music.js): loops on the home page, lobby and loading screen ----------
+const theme = window.EG_THEME ? EG_THEME.createTheme(() => audio()) : null;
+let musicOn = (() => { try { return localStorage.getItem('eg_music') !== '0'; } catch { return true; } })();
+function updateMusic() {
+  if (!theme) return;
+  const want = musicOn && (!sess || !S || S.phase === 'lobby');
+  if (want && !theme.playing) theme.start();
+  else if (!want && theme.playing) theme.stop();
+}
+const musicBtnHtml = () => `<button class="btn small musicbtn" id="musicBtn" title="Title music on/off">${musicOn ? '♪ Music: On' : '♪ Music: Off'}</button>`;
+document.addEventListener('click', e => {
+  if (!e.target.closest('#musicBtn')) return;
+  musicOn = !musicOn;
+  try { localStorage.setItem('eg_music', musicOn ? '1' : '0'); } catch {}
+  e.target.closest('#musicBtn').textContent = musicOn ? '♪ Music: On' : '♪ Music: Off';
+  updateMusic();
+});
 document.addEventListener('click', e => { if (e.target.closest('.btn')) SFX.click(); }, true);
 
 // ---------- utilities ----------
@@ -179,6 +198,12 @@ const boardTotal = b => Object.values(b).reduce((a, t) => a + t.n + t.i, 0);
 function onUpdate(prev) {
   if (!S || S.phase === 'lobby') { ui.lastRound = null; return; }
   if (S.waiting !== S.you || (S.step && ui.mode)) ui.mode = null;
+  // phones: scroll to the map when you must click it, or to the play area when you must pick a biome or role
+  if (prev && S.waiting === S.you && S.phase !== 'ended') {
+    const stepNow = S.step && S.step.type, stepBefore = prev.step && prev.waiting === S.you && prev.step.type;
+    if ((stepNow === 'place' || stepNow === 'predate') && stepNow !== stepBefore) ui.scrollTo = 'board';
+    else if (prev.waiting !== S.you && (S.phase === 'choose' || S.phase === 'draft')) ui.scrollTo = 'table';
+  }
   if (S.waiting !== S.you || S.phase !== 'play' || S.step) ui.confirm = null;
   if (S.hand && ui.sel && !S.hand.includes(ui.sel)) ui.sel = null;
   const live = prev && prev.phase !== 'lobby' && prev.board;
@@ -247,22 +272,40 @@ function onUpdate(prev) {
 
 // ---------- screens ----------
 function render() {
+  renderScreen();
+  updateMusic();
+}
+function renderScreen() {
   if (!sess) return renderLanding();
-  if (!S) { $app.innerHTML = `<div class="landing"><div class="paper spiral landing-card"><p class="tagline">Paddling out to the Everglades…</p></div></div>`; return; }
+  if (!S) { $app.innerHTML = `<div class="landing">${musicBtnHtml()}<div class="paper spiral landing-card"><p class="tagline">Paddling out to the Everglades…</p></div></div>`; return; }
   if (S.phase === 'lobby') return renderLobby();
   renderGame();
 }
 
 function renderLanding() {
   const qRoom = new URLSearchParams(location.search).get('room') || '';
+  // the six characters, gently idling (CSS steps through each one's idle strip)
+  const cast = Object.keys(ROLES).map((r, i) => `<figure class="castmember">
+      <div class="pthumb idle" style="background-image:url('${CHAR_ANIM.src(r, 'idle')}');animation-delay:-${(i * 0.83).toFixed(2)}s" data-peek="${ROLES[r].img}"></div>
+      <figcaption>${esc(ROLES[r].name)}</figcaption></figure>`).join('');
   $app.innerHTML = `
-  <div class="landing">
-    <div class="paper spiral landing-card stack">
-      <div>
-        <h1 class="logo">EVERGLADES</h1>
-        <p class="tagline">A trick-taking card game of the Florida wetlands</p>
+  <div class="landing home">
+    ${musicBtnHtml()}
+    <div class="landing-inner">
+    <section class="hero">
+      <h1 class="logo">EVERGLADES</h1>
+      <p class="tagline">A trick-taking card game for the River of Grass</p>
+      <div class="paper spiral blurb">
+        <p>South Florida's River of Grass is under siege. Burmese pythons slide through the sawgrass, lionfish strip the reefs, and climbing ferns smother whole tree islands. Six travelers head into the Everglades, each chasing a different future for the wetlands.</p>
+        <p>Travel the watershed, release wildlife into its habitats, and win tricks to claim what you find. Native species hold the ecosystem together. Let the invaders win, and an <b class="crisisword">Invasive Crisis</b> ripples across the map. When the last card falls, the state of the Everglades decides how each traveler's story ends.</p>
+        <p class="stakes"><b>What's at stake:</b> 1.5 million acres of wetland, dozens of endangered species, and the drinking water of 8 million Floridians.</p>
       </div>
-      <label class="stack" style="gap:4px"><span class="panel-title" style="margin:0">Your name</span>
+      <div class="cast">${cast}</div>
+      <div class="facts"><span>2–6 players</span><span>Solo · Partners · Co-op vs The Anaconda</span><span>Bots fill empty seats</span></div>
+    </section>
+    <div class="paper spiral landing-card stack">
+      <div class="panel-title" style="margin:0">Head into the swamp</div>
+      <label class="stack" style="gap:4px"><span class="panel-title" style="margin:0;color:var(--ink-soft)">Your name</span>
         <input id="name" class="field" maxlength="16" placeholder="Ranger" value="${esc(savedName())}"></label>
       <button id="create" class="btn primary">Start a new table</button>
       <div class="divider">— or join friends —</div>
@@ -271,7 +314,8 @@ function renderLanding() {
         <button id="join" class="btn brass" style="flex:1">Join table</button>
       </div>
       <div class="error">${esc(ui.err)}</div>
-      <p class="hint" style="margin:0">2–6 players. Bots fill empty seats so every game has at least 4.</p>
+      <p class="hint" style="margin:0">Start a table and share its 4-letter code or link. Bots fill empty seats, so every game has at least 4 players.</p>
+    </div>
     </div>
   </div>`;
   const name = () => { const n = document.getElementById('name').value.trim(); saveName(n); return n; };
@@ -320,6 +364,7 @@ function renderLobby() {
   };
   $app.innerHTML = `
   <div class="landing">
+    ${musicBtnHtml()}
     <div class="paper spiral landing-card stack" style="width:min(620px,100%)">
       <h1 class="logo" style="font-size:42px">EVERGLADES</h1>
       <div><div class="panel-title">Room code</div><span class="room-code">${S.room}</span></div>
@@ -434,12 +479,12 @@ function playersHtml(mini) {
     if (p.boss) return `<div class="pl boss ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" data-peek="${BOSS.img}">${portraitHtml(i, p)}
       <div class="info">
         <div class="nm">${arrow}<span class="name">${esc(p.name)}</span><span class="tag bosstag">BOSS</span></div>
-        ${mini ? '' : `<div class="meta"><span>Invasive deck ${p.handCount}</span></div><div class="meta"><span>Tricks ${p.tricks}</span></div>`}
+        ${mini ? `<div class="mini-meta">Deck ${p.handCount} · ${p.tricks} won</div>` : `<div class="meta"><span>Invasive deck ${p.handCount}</span></div><div class="meta"><span>Tricks ${p.tricks}</span></div>`}
       </div></div>`;
     return `<div class="pl ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" ${role ? `data-peek="${role.img}"` : ''}>${portraitHtml(i, p)}
       <div class="info">
         <div class="nm">${arrow}<span class="name">${esc(p.name)}</span>${i === S.you ? '<span class="you">(you)</span>' : ''}${p.online ? '' : '<span class="dot off" title="offline"></span>'}</div>
-        ${mini ? '' : `<div class="meta">${role ? `<span class="rolename">${esc(role.name)}</span>` : '<span>choosing role…</span>'}${teamTag(p.team)}</div>
+        ${mini ? `<div class="mini-meta">${role ? esc(role.name) : 'choosing…'} · ${p.tricks} won</div>` : `<div class="meta">${role ? `<span class="rolename">${esc(role.name)}</span>` : '<span>choosing role…</span>'}${teamTag(p.team)}</div>
         <div class="meta"><span>Hand ${p.handCount}</span><span>Tricks ${p.tricks}</span></div>`}
         ${!mini && S.isHost && !p.online && !p.bot && S.phase !== 'ended' ? `<button class="btn small" data-botify="${S.lobby.find(m => m.name === p.name)?.pid || ''}">Give seat to a bot</button>` : ''}
       </div></div>`;
@@ -550,7 +595,9 @@ function renderGame() {
     return `<div class="slot" style="--i:${hand.indexOf(id)}">${cardEl(id, `${cls} ${ui.sel === id ? 'sel' : ''}`, `data-hand="${id}"`, '', badge)}</div>`;
   }).join('') || '<span class="hint" style="color:var(--blush)">No cards in hand.</span>';
   const role = S.role ? ROLES[S.role] : null;
-  if (peekSrc && !document.querySelector(`[data-peek="${peekSrc}"]`)) { /* card may have left; checked after render */ }
+  // keep sideways scroll positions (hand, players strip) across re-renders
+  const keepScroll = {};
+  for (const sel of ['.hand', '.players-mini']) { const el = [...$app.querySelectorAll(sel)].find(e => e.offsetParent); if (el) keepScroll[sel] = el.scrollLeft; }
 
   $app.innerHTML = `
   <div class="topbar">
@@ -576,6 +623,7 @@ function renderGame() {
     <section class="tablecol">${tableHtml()}</section>
     <section class="handarea">
       ${promptHtml()}
+      <div class="hand-cap">${role ? `<span class="myrole" data-peek="${role.img}">You are the <b>${esc(role.name)}</b> <small>(hold to read)</small></span>` : ''}<span class="swipe">${hand.length} card${hand.length === 1 ? '' : 's'} · swipe ↔ · hold a card to read it</span></div>
       <div class="handrow">
         <div class="hand ${ui.dealing ? 'dealing' : ''} ${Date.now() - (ui.handIntro || 0) < 1400 ? 'intro' : ''}">${handHtml}</div>
         ${role ? `<div class="rolebox"><div class="cap">You are the <b>${esc(role.name)}</b></div><div class="card" data-peek="${role.img}"><img src="${role.img}" alt="${esc(role.name)}"></div></div>` : ''}
@@ -591,8 +639,25 @@ function renderGame() {
   const logEl = document.getElementById('log'); if (logEl) logEl.scrollTop = logEl.scrollHeight;
   wire();
   drawPortraits(true);
+  for (const [sel, x] of Object.entries(keepScroll)) { const el = [...$app.querySelectorAll(sel)].find(e => e.offsetParent); if (el) el.scrollLeft = x; }
+  if (isPhone()) {
+    // the hand bar is pinned to the bottom of the screen: leave room for it under the page
+    const ha = $app.querySelector('.handarea');
+    if (ha) document.documentElement.style.setProperty('--handH', ha.offsetHeight + 'px');
+    // when it's your move, bring the part of the screen you need into view
+    if (ui.scrollTo) {
+      const el = $app.querySelector(ui.scrollTo === 'board' ? '.boardwrap' : '.tablecol');
+      if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: ui.scrollTo === 'board' ? 'center' : 'start' }), 80);
+    }
+  }
+  ui.scrollTo = null;
   placeBubbles();
 }
+// phone layout (matches the phone media query in style.css)
+const phoneMQ = matchMedia('(max-width: 760px), (max-height: 520px) and (max-width: 1000px)');
+const isPhone = () => phoneMQ.matches;
+phoneMQ.addEventListener?.('change', () => { if (S && S.phase !== 'lobby') render(); });
+addEventListener('scroll', () => { if (Object.keys(ui.bubbles).length) placeBubbles(); }, { passive: true });
 
 function promptHtml() {
   const myTurn = isMine();
@@ -606,10 +671,10 @@ function promptHtml() {
     let what = S.phase === 'draft' ? 'to choose a role' : S.phase === 'choose' ? 'to choose where to travel' : 'to play';
     if (S.step?.type === 'place') what = `to spread ${CARDS[S.step.card].name}`;
     if (S.step?.type === 'predate') what = `to hunt with ${CARDS[S.step.card].name}`;
-    return `<div class="paper spiral prompt"><div class="msg">Waiting for ${esc(w ? w.name : '…')} ${what}…<small>Hover any card for a second to read it.</small></div></div>`;
+    return `<div class="paper spiral prompt"><div class="msg">Waiting for ${esc(w ? w.name : '…')} ${what}…<small>${isPhone() ? 'Press and hold any card or player' : 'Hover any card'} for a second to read it.</small></div></div>`;
   }
   const box = (msg, buttons = '') => `<div class="paper spiral prompt yours"><div class="msg">${msg}</div>${buttons}</div>`;
-  if (S.phase === 'draft') return box('Choose your role! Click a role card in the play area.<small>Hover a card for a second to read its objectives. Your hand is already dealt, so plan around it.</small>');
+  if (S.phase === 'draft') return box(`Choose your role! ${isPhone() ? 'Tap' : 'Click'} a role card in the play area.<small>${isPhone() ? 'Press and hold' : 'Hover over'} a card to read its objectives. Your hand is already dealt, so plan around it.</small>`);
   if (S.phase === 'choose') return box('You lead! Pick a biome in the glowing travel row.<small>Its type sets the lead suit, and its region is where everyone populates.</small>');
   const st = S.step;
   if (st?.type === 'place') return box(`Migratory: place ${st.left} more ${CARDS[st.card].kind} token${st.left > 1 ? 's' : ''}.<small>Click a glowing region on the map. Tokens spread in a continuous line from the current region.</small>`);
@@ -619,7 +684,7 @@ function promptHtml() {
     return box(`Top of the location deck: <b>${esc(b.name)}</b><small>${esc(REGIONS[b.region].name)} · ${b.suit} · Risk ${b.risk}</small>`,
       `${biomeEl(S.tourPeek)}<button class="btn" data-tour="0">Leave on top</button><button class="btn brass" data-tour="1">Put on bottom</button>`);
   }
-  if (ui.mode === 'landdev') return box('Land Developer: click any counter on the map to remove 1 token.', `<button class="btn" id="cancelMode">Cancel</button>`);
+  if (ui.mode === 'landdev') { return box('Land Developer: click any counter on the map to remove 1 token.', `<button class="btn" id="cancelMode">Cancel</button>`); }
   const suit = BIOMES[S.trick.biome].suit;
   const follow = S.legal.length < S.hand.length ? (S.coop ? `Follow ${suit} if you can.` : `Follow ${suit} or play an Invasive card.`) : `You can't follow ${suit}, so play anything.`;
   let buttons = '';
@@ -669,12 +734,25 @@ function rulesModal() {
     </div></div></div>`;
 }
 
+// A story ending, as text (the conditions and variants live in endings.js on the server)
+function storyHtml(e, who) {
+  if (!e) return '';
+  return `<div class="story ${e.good ? 'good' : 'grim'}">
+    <div class="story-kicker">${esc(who)} · ${e.good ? 'Good ending' : 'Grim ending'}</div>
+    <h3 class="story-title">${esc(e.title)}</h3>
+    <div class="story-cond">${esc(e.condition || '')}</div>
+    <p class="story-text">${esc(e.text)}</p>
+  </div>`;
+}
+// small still portrait of a character (first frame of its idle animation)
+const portraitThumb = role => `<div class="pthumb" style="background-image:url('${CHAR_ANIM.src(role, 'idle')}')" data-peek="${ROLES[role].img}"></div>`;
+
 function coopEndModal() {
   const R = S.results;
   const e = R.scores.find(x => x.p === R.ending.p);
   const role = ROLES[e.role];
   const row = sc => `<tr>
-        <td><img class="rolethumb" src="${ROLES[sc.role].img}" data-peek="${ROLES[sc.role].img}" alt=""></td>
+        <td>${portraitThumb(sc.role)}</td>
         <td><b>${esc(sc.name)}</b><br><span class="hint">${esc(ROLES[sc.role].name)}</span></td>
         <td class="lines">${sc.lines.map(l => `${esc(l.label)}: <b style="color:var(--ink)">${l.pts}</b>`).join('<br>')}</td>
         <td class="total">${sc.total}</td></tr>`;
@@ -682,14 +760,17 @@ function coopEndModal() {
     <h2 class="logo" style="font-size:38px;${R.playersWin ? '' : 'color:var(--red)'}">${R.playersWin ? 'THE EVERGLADES ARE SAVED!' : 'THE ANACONDA WINS!'}</h2>
     <p style="font-size:22px;margin:6px 0">Players <b>${R.playersTotal}</b> &nbsp;vs&nbsp; The Anaconda <b>${R.anaconda.total}</b>${R.playersTotal === R.anaconda.total ? ' <span class="hint">(the Anaconda wins ties)</span>' : ''}</p>
     <p class="hint" style="margin:0 0 6px">${R.playersWin
-      ? `${esc(e.name)}, the highest scorer, reads the good ending on the ${esc(role.name)} card:`
-      : `${esc(e.name)}, the lowest scorer, reads the grim ending on the ${esc(role.name)} card:`}</p>
-    <div class="ending" data-peek="${role.ending}"><img src="${role.ending}" alt="Ending"><div class="shade ${R.playersWin ? 'right' : 'left'}"></div></div>
+      ? `${esc(e.name)}, the highest scorer, tells how the story ends:`
+      : `${esc(e.name)}, the lowest scorer, tells how the story ends:`}</p>
+    <div class="stories">
+      ${storyHtml(R.coopEnding, `${e.name} — the ${role.name}`)}
+      ${storyHtml(R.bossEnding, "The Anaconda's epilogue")}
+    </div>
     <table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
       <tr class="teamrow"><td colspan="3">The players, together</td><td class="total">${R.playersTotal}</td></tr>
       ${R.scores.map(row).join('')}
       <tr class="teamrow bossrow"><td colspan="3">The Anaconda</td><td class="total">${R.anaconda.total}</td></tr>
-      <tr><td><img class="rolethumb" src="${BOSS.img}" data-peek="${BOSS.img}" alt=""></td><td><b>The Anaconda</b><br><span class="hint">Co-op boss</span></td>
+      <tr><td><div class="pthumb boss" style="background-image:url('${BOSS.portrait}')" data-peek="${BOSS.img}"></div></td><td><b>The Anaconda</b><br><span class="hint">Co-op boss</span></td>
         <td class="lines">${R.anaconda.lines.map(l => `${esc(l.label)}: <b style="color:var(--ink)">${l.pts}</b>`).join('<br>')}</td><td class="total">${R.anaconda.total}</td></tr>
     </table>
     <div class="row">${S.isHost ? '<button class="btn primary" id="rematch">Back to lobby</button>' : '<span class="hint">The host can start a new game.</span>'}<button class="btn" id="quit2">Leave</button></div>
@@ -700,14 +781,12 @@ function endModal() {
   const R = S.results;
   if (R.coop) return coopEndModal();
   const sorted = R.scores.slice().sort((a, b) => b.total - a.total);
-  const endings = R.winners.map(w => {
+  const endings = `<div class="stories">${R.winners.map(w => {
     const sc = R.scores.find(x => x.p === w);
-    const role = ROLES[sc.role];
-    return `<div class="ending-label">${esc(sc.name)}'s ending — the ${esc(role.name)} (${sc.good ? 'good' : 'grim'} ending)</div>
-      <div class="ending" data-peek="${role.ending}"><img src="${role.ending}" alt="Ending"><div class="shade ${sc.good ? 'right' : 'left'}"></div></div>`;
-  }).join('');
+    return storyHtml(sc.ending, `${sc.name} — the ${ROLES[sc.role].name}`);
+  }).join('')}</div>`;
   const row = sc => `<tr class="${R.winners.includes(sc.p) ? 'winner' : ''}">
-        <td><img class="rolethumb" src="${ROLES[sc.role].img}" data-peek="${ROLES[sc.role].img}" alt=""></td>
+        <td>${portraitThumb(sc.role)}</td>
         <td><b>${esc(sc.name)}</b><br><span class="hint">${esc(ROLES[sc.role].name)}</span></td>
         <td class="lines">${sc.lines.map(l => `${esc(l.label)}: <b style="color:var(--ink)">${l.pts}</b>`).join('<br>')}</td>
         <td class="total">${sc.total}</td></tr>`;
@@ -717,7 +796,7 @@ function endModal() {
     const title = tied ? "IT'S A TIE!" : `TEAM ${TEAMS[R.teams[0].team].name.toUpperCase()} WINS!`;
     return `<div class="modal"><div class="paper spiral">
     <h2 class="logo" style="font-size:38px">${title}</h2>
-    <p class="hint" style="margin:4px 0 8px">The winning partners read their role cards' backs aloud:</p>
+    <p class="hint" style="margin:4px 0 8px">How the story ends for the winning partners:</p>
     ${endings}
     <table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
       ${R.teams.map(t => `<tr class="teamrow"><td colspan="3">${teamTag(t.team)} ${t.members.map(m => esc(S.players[m].name)).join(' &amp; ')}</td><td class="total">${t.total}</td></tr>
@@ -728,11 +807,11 @@ function endModal() {
   }
   return `<div class="modal"><div class="paper spiral">
     <h2 class="logo" style="font-size:38px">${R.winners.length > 1 ? "IT'S A TIE!" : esc(S.players[R.winners[0]].name).toUpperCase() + ' WINS!'}</h2>
-    <p class="hint" style="margin:4px 0 8px">The winner reads their role card's back aloud:</p>
+    <p class="hint" style="margin:4px 0 8px">How the story ends for the ${R.winners.length > 1 ? 'winners' : 'winner'}:</p>
     ${endings}
     <table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
       ${sorted.map(sc => `<tr class="${R.winners.includes(sc.p) ? 'winner' : ''}">
-        <td><img class="rolethumb" src="${ROLES[sc.role].img}" data-peek="${ROLES[sc.role].img}" alt=""></td>
+        <td>${portraitThumb(sc.role)}</td>
         <td><b>${esc(sc.name)}</b><br><span class="hint">${esc(ROLES[sc.role].name)}</span></td>
         <td class="lines">${sc.lines.map(l => `${esc(l.label)}: <b style="color:var(--ink)">${l.pts}</b>`).join('<br>')}</td>
         <td class="total">${sc.total}</td></tr>`).join('')}
@@ -851,8 +930,11 @@ function placeBubbles() {
   if (!$bubbles) return;
   const now = Date.now();
   let html = '';
+  // phones have room for one speech bubble at a time: show only the newest
+  const newest = Math.max(0, ...Object.values(ui.bubbles).map(b => b.id));
   for (const [seat, b] of Object.entries(ui.bubbles)) {
     if (b.until < now || !S || !S.players || !S.players[seat]) { delete ui.bubbles[seat]; continue; }
+    if (isPhone() && b.id !== newest) continue;
     const rows = [...document.querySelectorAll(`.pl[data-seat="${seat}"]`)].filter(el => el.offsetParent);
     if (!rows.length) continue;
     const r = rows[0].getBoundingClientRect();
@@ -966,7 +1048,7 @@ function wire() {
   q('#cancelMode', () => { ui.mode = null; ui.swapHand = ui.swapPile = null; render(); });
   q('#ability', () => {
     if (S.role === 'Tourist') return act({ type: 'ability' });
-    if (S.role === 'LandDeveloper') { ui.mode = 'landdev'; return render(); }
+    if (S.role === 'LandDeveloper') { ui.mode = 'landdev'; ui.scrollTo = 'board'; return render(); }
     ui.mode = 'swap'; ui.swapHand = ui.swapPile = null; render();
   });
   q('[data-sh]', el => { ui.swapHand = el.dataset.sh; ui.swapPile = null; render(); });
@@ -991,7 +1073,7 @@ function wire() {
   q('#cfUse', () => {
     ui.confirm = null;
     if (S.role === 'Tourist') return act({ type: 'ability' });
-    if (S.role === 'LandDeveloper') { ui.mode = 'landdev'; return render(); }
+    if (S.role === 'LandDeveloper') { ui.mode = 'landdev'; ui.scrollTo = 'board'; return render(); }
     ui.mode = 'swap'; ui.swapHand = ui.swapPile = null; render();
   });
 }
