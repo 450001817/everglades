@@ -12,6 +12,16 @@
 </head>
 <body>
 <canvas id="scenery" aria-hidden="true"></canvas>
+<!-- the eye: hides everything on the home page / lobby so the animated scene can be watched on its own -->
+<button id="sceneEye" class="btn small scene-eye" type="button" title="Hide the menus and watch the Everglades" aria-label="Hide the menus and watch the Everglades" aria-pressed="false">
+  <svg viewBox="0 0 13 9" width="26" height="18" shape-rendering="crispEdges" aria-hidden="true">
+    <path fill="#fff" d="M4 1h5v1h2v1h1v3h-1v1h-2v1H4V7H2V6H1V3h1V2h2z"/>
+    <path fill="#2f8f7a" d="M5 2h3v1h1v3H8v1H5V6H4V3h1z"/>
+    <path fill="#1b1622" d="M6 3h1v1h1v1H7v1H6V5H5V4h1z"/>
+    <path fill="#fff" d="M5 3h1v1H5z"/>
+    <path fill="#1b1622" d="M4 0h5v1H4zM2 1h2v1H2zM9 1h2v1H9zM1 2h1v1H1zM11 2h1v1h-1zM0 3h1v3H0zM12 3h1v3h-1zM1 6h1v1H1zM11 6h1v1h-1zM2 7h2v1H2zM9 7h2v1H9zM4 8h5v1H4z"/>
+  </svg>
+</button>
 <div id="app"></div>
 <div id="peek" class="peek hidden"></div>
 <div id="toast" class="toast hidden"></div>

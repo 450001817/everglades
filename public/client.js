@@ -117,6 +117,20 @@ function updateMusic() {
   if (want && !theme.playing) theme.start();
   else if (!want && theme.playing) theme.stop();
 }
+// The eye button: hide everything so the animated backdrop can be watched on its own (Escape or the eye brings it back).
+function setSceneOnly(on) {
+  const root = document.documentElement, eye = document.getElementById('sceneEye');
+  if (root.classList.contains('scene-only') === on) return;
+  root.classList.toggle('scene-only', on);
+  if (on) hidePeek();
+  if (eye) {
+    eye.setAttribute('aria-pressed', on ? 'true' : 'false');
+    const label = on ? 'Bring the menus back' : 'Hide the menus and watch the Everglades';
+    eye.title = label; eye.setAttribute('aria-label', label);
+  }
+}
+document.getElementById('sceneEye')?.addEventListener('click', () => setSceneOnly(!document.documentElement.classList.contains('scene-only')));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') setSceneOnly(false); });
 const musicBtnHtml = () => `<button class="btn small musicbtn" id="musicBtn" title="Title music on/off">${musicOn ? '♪ Music: On' : '♪ Music: Off'}</button>`;
 document.addEventListener('click', e => {
   if (!e.target.closest('#musicBtn')) return;
@@ -595,7 +609,9 @@ function render() {
 }
 function renderScreen() {
   // home page, loading screen and lobby sit on the animated backdrop (scenery.js)
-  document.body.classList.toggle('scenic', !sess || !S || S.phase === 'lobby');
+  const scenic = !sess || !S || S.phase === 'lobby';
+  document.body.classList.toggle('scenic', scenic);
+  if (!scenic) setSceneOnly(false); // a game starting always brings the screen back
   if (!sess) return renderLanding();
   if (!S) { $app.innerHTML = `<div class="landing">${musicBtnHtml()}<div class="paper spiral landing-card"><p class="tagline">Paddling out to the Everglades…</p></div></div>`; return; }
   if (S.phase === 'lobby') return renderLobby();

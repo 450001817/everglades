@@ -82,6 +82,16 @@ input.field:focus { outline: 3px solid var(--brass); }
 .scenery-live #scenery { display: block; }
 .scenery-live .landing { background: none; }
 #app { position: relative; z-index: 1; }
+/* the eye button (top left, opposite the Music button): shown on the backdrop screens only */
+.scene-eye { position: fixed; top: 12px; left: 12px; z-index: 80; display: none; padding: 4px 7px; line-height: 0; }
+.scenic .scene-eye { display: inline-block; }
+.scene-eye svg { display: block; image-rendering: pixelated; }
+.scene-eye[aria-pressed="true"] { background: var(--brass); }
+/* scene-only view: everything but the backdrop and the eye steps away */
+.scene-only #app, .scene-only #peek, .scene-only #toast, .scene-only #bubbles { visibility: hidden; }
+/* without the animation (reduce motion), keep the still painting on screen */
+html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landing-wide.png') center 70% / cover no-repeat; image-rendering: pixelated; }
+@media (orientation: portrait) { html.scene-only:not(.scenery-live) body { background-image: url('assets/landing-tall.png'); background-position: center bottom; } }
 .landing::before { /* darken toward the bottom so the panels read well */
   content: ''; position: fixed; inset: 0; pointer-events: none;
   background: linear-gradient(180deg, rgba(25, 12, 30, .05) 0%, rgba(25, 12, 30, .25) 55%, rgba(20, 10, 18, .6) 100%);
