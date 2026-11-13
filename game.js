@@ -2,6 +2,7 @@
 // Every change to a game goes through applyAction(state, playerIndex, action).
 'use strict';
 const { CARDS, REGIONS, ADJ, BIOMES, ROLES } = require('./public/data.js');
+const ENDINGS = require('./endings.js'); // story endings shown on the end screen
 
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 6; // one per competitive role
@@ -42,10 +43,15 @@ function newGame() {
   };
 }
 
+// What each player did during the game (drives the ending variants).
+function newStats() {
+  return { crises: 0, crisisCards: [], abilities: 0, bulldozedN: 0, bulldozedI: 0, huntedN: 0, huntedI: 0, refused: 0, keystones: 0, eaten: 0 };
+}
+
 function addPlayer(s, info) {
   if (s.phase !== 'lobby') err('The game has already started.');
   if (s.players.length >= MAX_PLAYERS) err('The table is full (6 players max).');
-  s.players.push({ id: info.id, name: info.name, bot: !!info.bot, team: info.team ?? null, role: null, hand: [], pile: [], biomesWon: [], triggeredCrisis: false });
+  s.players.push({ id: info.id, name: info.name, bot: !!info.bot, team: info.team ?? null, role: null, hand: [], pile: [], biomesWon: [], triggeredCrisis: false, stats: newStats() });
 }
 
 // Partner mode: teams of 2 score together. Seats alternate teams (A B A B, or A B C A B C),
@@ -73,7 +79,7 @@ function startGame(s, opts = {}) {
   s.players.forEach((pl, i) => {
     pl.role = null; // chosen in the role draft
     pl.hand = deck.slice(i * per, (i + 1) * per);
-    pl.pile = []; pl.biomesWon = []; pl.triggeredCrisis = false;
+    pl.pile = []; pl.biomesWon = []; pl.triggeredCrisis = false; pl.stats = newStats();
   });
   s.discard = deck.slice(n * per); // leftover cards are discarded
   s.biomeDeck = shuffle(Object.keys(BIOMES));
@@ -110,11 +116,11 @@ function startCoop(s) {
   s.players.forEach((pl, i) => {
     pl.team = null; pl.role = null;
     pl.hand = natives.slice(i * per, (i + 1) * per);
-    pl.pile = []; pl.biomesWon = []; pl.triggeredCrisis = false;
+    pl.pile = []; pl.biomesWon = []; pl.triggeredCrisis = false; pl.stats = newStats();
   });
   s.discard = natives.slice(n * per);
   s.players.push({ id: 'anaconda', name: 'The Anaconda', bot: true, boss: true, team: null, role: BOSS,
-    hand: invasives, pile: [], biomesWon: [], triggeredCrisis: false });
+    hand: invasives, pile: [], biomesWon: [], triggeredCrisis: false, stats: newStats() });
   s.bossIdx = n; s.coopStart = 0;
   s.biomeDeck = shuffle(Object.keys(BIOMES));
   s.travel = s.biomeDeck.splice(0, 3);
@@ -156,6 +162,7 @@ function bossPopulate(s, c) {
   if (c.predatory > 0 && s.board[region].n > 0) {
     const eaten = Math.min(c.predatory, s.board[region].n);
     s.board[region].n -= eaten;
+    s.players[s.bossIdx].stats.eaten += eaten;
     log(s, `The Anaconda's ${c.name} devours ${eaten} Native token${eaten > 1 ? 's' : ''} in ${REGIONS[region].name}.`);
     emit(s, { type: 'eat', p: s.bossIdx, card: c.id, region, kind: 'n', count: eaten });
   }
@@ -256,7 +263,7 @@ function playCard(s, p, cardId, populate) {
 
   if (isBoss(s, p)) { bossPopulate(s, c); return endTurn(s); }
   const kind = c.kind === 'Invasive' ? 'i' : 'n';
-  if (skip) { log(s, `${pname(s, p)} (Conservationist) chooses not to populate.`); return endTurn(s); }
+  if (skip) { pl.stats.refused++; log(s, `${pname(s, p)} (Conservationist) chooses not to populate.`); return endTurn(s); }
   const before = JSON.parse(JSON.stringify(s.board));
   const region = trickRegion(s);
   if (c.migratory && c.pop > 0) {
@@ -299,6 +306,7 @@ function applyKeystone(s, c) {
   const natives = s.board[trickRegion(s)].n;
   const was = s.trick.risk;
   s.trick.risk = Math.max(0, was - natives);
+  if (s.players[s.turn].stats) s.players[s.turn].stats.keystones++;
   emit(s, { type: 'keystone', p: s.turn, card: c.id, from: was, to: s.trick.risk });
   log(s, natives > 0
     ? `Keystone: ${natives} Native token${natives > 1 ? 's' : ''} in ${REGIONS[trickRegion(s)].name} lower the Invasive Risk from ${was} to ${s.trick.risk}.`
@@ -321,6 +329,7 @@ function predate(s, p, region, kind) {
   if (!st || st.type !== 'predate' || p !== s.turn) err('Not removing tokens now.');
   if (!st.regions.includes(region) || !['n', 'i'].includes(kind) || s.board[region][kind] <= 0) err('You cannot remove that token.');
   s.board[region][kind] -= 1; st.left -= 1;
+  s.players[p].stats[kind === 'n' ? 'huntedN' : 'huntedI']++;
   log(s, `${CARDS[st.card].name} removes 1 ${kind === 'n' ? 'Native' : 'Invasive'} token from ${REGIONS[region].name}.`);
   emit(s, { type: 'eat', p, card: st.card, region, kind, count: 1 });
   const remaining = st.regions.reduce((a, r) => a + s.board[r].n + s.board[r].i, 0);
@@ -357,6 +366,7 @@ function resolveTrick(s) {
   log(s, `${w.name} wins the trick with ${card.name}${matched ? '' : ' (no card matched, so highest Impact wins)'}.`);
   if (crisis) {
     w.triggeredCrisis = true;
+    w.stats.crises++; w.stats.crisisCards.push(play.card);
     for (const r of REGION_IDS) {
       const t = s.board[r];
       if (t.i > 0 && t.n > 0) t.n = Math.max(0, t.n - t.i);
@@ -397,6 +407,7 @@ function useAbility(s, p, a) {
     if (!s.board[region] || !['n', 'i'].includes(kind) || s.board[region][kind] <= 0) err('There is no such token to remove.');
     s.board[region][kind] -= 1;
     s.abilityUsed = true;
+    pl.stats[kind === 'n' ? 'bulldozedN' : 'bulldozedI']++;
     log(s, `${pl.name} removes 1 ${kind === 'n' ? 'Native' : 'Invasive'} token from ${REGIONS[region].name}.`);
   } else if (role === 'Tourist') {
     if (!s.biomeDeck.length) err('The location deck is empty.');
@@ -404,6 +415,7 @@ function useAbility(s, p, a) {
     s.abilityUsed = true;
     log(s, `${pl.name} peeks at the top of the location deck.`);
   } else err('Your role has no start-of-turn action.');
+  pl.stats.abilities++;
   emit(s, { type: 'ability', p, role, region: a.region || null, kind: a.kind || null });
 }
 
@@ -500,6 +512,11 @@ function endGame(s) {
 function scoreGame(s) {
   s.phase = 'ended';
   const res = computeResults(s);
+  // every player's story ending (the end screen shows the winners'; co-op also shows the Anaconda's)
+  for (const r of res) {
+    r.ending = ENDINGS.endingFor(s, r, res);
+    r.ending.condition = ENDINGS.CONDITIONS[r.role][r.good ? 0 : 1];
+  }
   if (s.coop) {
     // Players add their scores together and must beat the Anaconda (it wins ties).
     const playersTotal = res.reduce((a, r) => a + r.total, 0);
@@ -507,7 +524,12 @@ function scoreGame(s) {
     const playersWin = playersTotal > ana.total;
     // Ending: players win -> highest scorer's good ending; Anaconda wins -> lowest scorer's grim ending.
     const pick = res.slice().sort((a, b) => playersWin ? b.total - a.total : a.total - b.total)[0];
-    s.results = { coop: true, scores: res, anaconda: ana, playersTotal, playersWin,
+    // co-op: the team result picks the side (good if the players won), told through the chosen player's role
+    const coopEnding = ENDINGS.endingFor(s, Object.assign({}, pick, { good: playersWin }), res);
+    coopEnding.condition = playersWin ? 'The players drove back the Anaconda' : 'The Anaconda beat the players';
+    const bossEnding = ENDINGS.anacondaEnding(s);
+    bossEnding.condition = ENDINGS.CONDITIONS.Anaconda[bossEnding.good ? 0 : 1];
+    s.results = { coop: true, scores: res, anaconda: ana, playersTotal, playersWin, bossEnding, coopEnding,
       winners: playersWin ? res.map(r => r.p) : [s.bossIdx], ending: { p: pick.p, good: playersWin } };
     log(s, playersWin ? `The players drive back the Anaconda, ${playersTotal} to ${ana.total}!` : `The Anaconda wins, ${ana.total} to ${playersTotal}.`);
     return;

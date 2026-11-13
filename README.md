@@ -20,7 +20,7 @@ A website version of your Everglades trick-taking game. It uses your own card an
 - **Its Predatory cards** always eat Native tokens. **Its Migratory cards** move all their tokens to the adjacent region with the most Native tokens (they stay put if no neighbour has any).
 - **The game ends** after the round in which the Anaconda plays its last card. Players always have cards left over.
 - **Scoring:** add up all players' scores (role objectives plus 5 per trick). You must **beat** the Anaconda; it wins ties. It scores **5 pts for each map objective the players miss** (this scales with player count), **5 pts per trick it wins**, and **3 pts per region with an Invasive majority**.
-- **Endings:** if the players win, the highest scorer reads their good ending. If the Anaconda wins, the lowest scorer reads the grim ending.
+- **Endings:** if the players win, the highest scorer's good ending is told. If the Anaconda wins, the lowest scorer's grim ending is told. The Anaconda gets its own epilogue either way.
 - **Balance:** in simulated games with bot players, the players win roughly 35–55% at every table size from 1 to 6 (about 45% with 4). Real players should do better than the bots. Run `node test/coopsim.js` to re-check after rule changes. The point values live in `COOP` near the top of the co-op section of `game.js`.
 
 **About the bots:** bots play the same rules and use their role abilities. When a bot plays a card, travels, uses an ability, spreads or hunts, a short in-character speech bubble appears next to its name (for example, the Fisherman's "Reeling in a Manatee. That's a keeper!"). 
@@ -73,10 +73,29 @@ The whole game fits on one screen with no page scrolling. From left to right: th
 - **Predatory:** click the blinking green or red counters on the map to remove Native or Invasive tokens, then click Done.
 - **Population** shows two ways: a counter under each region name, plus small green (Native) and red (Invasive) squares that drop in and spread across the region.
 - **Roles are public.** Everyone's role shows in the Players list; hover a player to read their role card.
+- **Title theme:** an original 8-bit song, "Sunset over the Sawgrass", loops on the home page, in the lobby and on the loading screen, and fades out when the game starts.
+  - It starts on your first click or key press, because browsers block sound until then.
+  - The **♪ Music** button in the top-right corner turns it off, and your browser remembers the choice.
+  - Like the sound effects, the music is synthesized live in the browser, so there are no audio files.
+  - The song is written out note by note in `public/music.js`, if you want to change it.
 - **Sound:** retro 8-bit effects for playing cards, travelling, placing and removing tokens, your turn, winning a trick, Invasive Crisis and game end. Use the ♪ button in the top bar to turn it off.
-- **At the end**, everyone sees the scores, and the winner's role-card back is shown with their ending highlighted.
+- **At the end**, everyone sees the scores and the winner's story ending, written out as text. Each role's ending is good or grim by the same rule as the back of its role card. Each side then has several variants, picked by what's in the winner's scoring pile and what they did during the game. For example:
+  - The Conservationist who refused to let invasives take root gets "The Line You Held".
+  - A Fisherman holding a Manatee gets "Company on the Water".
+  - A Hunter with a Florida Panther trophy gets "The Trophy".
+  - A Land Developer whose bulldozers flattened native habitat gets "Scorched Earth".
+  - A Tourist whose only photo was a python gets "Not in the Brochure".
 
-The layout is built for laptop and desktop screens (1024×768 and up). It also fits on a phone held upright, but everything is small there.
+  In all there are 40 endings. They live in `endings.js`, which is plain text and easy to edit. Run `node test/endings.js` to see how often each one comes up.
+
+The layout is built for laptop and desktop screens (1024×768 and up), and it has its own **phone layout**:
+- **Scrolling page:** the screen scrolls up and down. A row of player portraits sits at the top, then the play area, then the map at full screen width.
+- **Your hand:** pinned to the bottom of the screen, with big cards you swipe sideways. "You are the …" above the cards opens your role card when you press and hold it.
+- **Reading cards:** press and hold any card or player for a second to read it.
+- **Your move:** when you need to click the map (spreading or hunting) or pick a biome or role, the page scrolls there for you.
+- **Speech bubbles:** only the newest one shows, so the screen stays clear.
+
+This works with the phone held upright or sideways.
 
 ## Rule decisions I made (please check these)
 
@@ -101,9 +120,14 @@ Every rule is in **game.js**, and all card stats are in **public/data.js**. Both
 | `start.bat` | Double-click to run the game on Windows |
 | `server.js` | The multiplayer server: rooms, live updates, bots taking turns |
 | `game.js` | All the rules: tricks, populating, abilities, Invasive Crisis, scoring, bots |
+| `endings.js` | The story endings: good and grim variants for every role, plus the Anaconda's epilogues |
+| `test/endings.js` | Plays 1,500 bot games and checks every ending, then shows how often each variant comes up |
 | `public/data.js` | Every card's stats, the regions, adjacency and roles |
 | `public/client.js`, `style.css`, `index.html` | What players see in the browser |
+| `public/music.js` | The title theme: an original chiptune written as notes and chords, played by a small synthesizer |
 | `public/assets/` | Your art. Biome cards are rotated to lie landscape. |
+| `public/assets/landing-wide.png`, `landing-tall.png` | The pixel-art Everglades backdrop behind the home page and lobby (wide for computers, tall for phones), made with PixelLab |
+| `public/assets/ecology-back.png`, `biome-back.png` | The card backs: the green Ecology Journal (gold egret) and the teal Travel Log (compass and map), made with PixelLab and lettered with the original cards' pixel font |
 | `public/assets/characters/` | The animated character portraits: one 9-frame strip per animation, per role |
 | `public/fonts/` | EGDigits, a custom blocky pixel font used for every number (0–9) so 2 and 5 are easy to tell apart |
 | `tools/make_digits_font.py` | Rebuilds that font if you ever want to tweak a digit's pixels (needs Python + fontTools) |
