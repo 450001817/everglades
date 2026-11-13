@@ -25,12 +25,20 @@ function emptyBoard() {
 function err(msg) { const e = new Error(msg); e.userError = true; throw e; }
 function log(s, text) { s.log.push(text); if (s.log.length > 80) s.log.shift(); }
 function pname(s, p) { return s.players[p].name; }
+// Game events: a short record of what just happened, used to drive character reactions (see reactionsFor).
+function emit(s, ev) {
+  if (!s.events) s.events = [];
+  s.evSeq = (s.evSeq || 0) + 1;
+  ev.id = s.evSeq;
+  s.events.push(ev);
+  if (s.events.length > 60) s.events.shift();
+}
 
 function newGame() {
   return {
     phase: 'lobby', players: [], biomeDeck: [], travel: [], board: emptyBoard(),
     leader: 0, turn: 0, trick: null, step: null, abilityUsed: false, tourPeek: null,
-    lastTrick: null, log: [], round: 0, discard: [], seq: 0, results: null,
+    lastTrick: null, log: [], round: 0, discard: [], seq: 0, results: null, events: [], evSeq: 0,
   };
 }
 
@@ -141,6 +149,7 @@ function bossPopulate(s, c) {
       const best = opts.filter(r => s.board[r].n === most);
       region = best[Math.floor(Math.random() * best.length)];
       log(s, `The Anaconda's ${c.name} migrates to ${REGIONS[region].name}.`);
+      emit(s, { type: 'spread', p: s.bossIdx, card: c.id, regions: [region] });
     }
   }
   s.board[region].i += c.pop;
@@ -148,6 +157,7 @@ function bossPopulate(s, c) {
     const eaten = Math.min(c.predatory, s.board[region].n);
     s.board[region].n -= eaten;
     log(s, `The Anaconda's ${c.name} devours ${eaten} Native token${eaten > 1 ? 's' : ''} in ${REGIONS[region].name}.`);
+    emit(s, { type: 'eat', p: s.bossIdx, card: c.id, region, kind: 'n', count: eaten });
   }
 }
 
@@ -157,6 +167,7 @@ function pickRole(s, p, role) {
   if (!availableRoles(s).includes(role)) err('That role is not available.');
   s.players[p].role = role;
   log(s, `${pname(s, p)} becomes the ${ROLES[role].name}.`);
+  emit(s, { type: 'role', p, role });
   s.draftTurn += 1;
   if (s.draftTurn >= s.np) {
     s.phase = 'choose'; s.leader = 0; s.turn = 0;
@@ -225,6 +236,7 @@ function chooseBiome(s, p, biomeId) {
   }
   const b = BIOMES[biomeId];
   log(s, `${pname(s, p)} travels to ${b.name} (${REGIONS[b.region].name}) — ${b.suit}, Invasive Risk ${b.risk}.`);
+  emit(s, { type: 'travel', p, biome: biomeId });
 }
 
 function playCard(s, p, cardId, populate) {
@@ -239,10 +251,11 @@ function playCard(s, p, cardId, populate) {
   s.tourPeek = null;
   let msg = `${pname(s, p)} plays ${c.name} (${c.kind === 'Invasive' ? 'Invasive ' : ''}${c.habitat}, Impact ${c.impact}).`;
   log(s, msg);
+  const skip = populate === false && pl.role === 'Conservationist' && c.kind === 'Invasive';
+  emit(s, { type: 'play', p, card: cardId, region: trickRegion(s), populate: !skip });
 
   if (isBoss(s, p)) { bossPopulate(s, c); return endTurn(s); }
   const kind = c.kind === 'Invasive' ? 'i' : 'n';
-  const skip = populate === false && pl.role === 'Conservationist' && c.kind === 'Invasive';
   if (skip) { log(s, `${pname(s, p)} (Conservationist) chooses not to populate.`); return endTurn(s); }
   const before = JSON.parse(JSON.stringify(s.board));
   const region = trickRegion(s);
@@ -265,6 +278,7 @@ function placeToken(s, p, region) {
   if (st.left <= 0) {
     const regions = [...new Set(st.placed)];
     log(s, `${CARDS[st.card].name} spreads to ${regions.map(r => REGIONS[r].name).join(' → ')}.`);
+    emit(s, { type: 'spread', p, card: st.card, regions });
     s.step = null;
     afterPlacement(s, st.card, regions, st.before);
   }
@@ -285,6 +299,7 @@ function applyKeystone(s, c) {
   const natives = s.board[trickRegion(s)].n;
   const was = s.trick.risk;
   s.trick.risk = Math.max(0, was - natives);
+  emit(s, { type: 'keystone', p: s.turn, card: c.id, from: was, to: s.trick.risk });
   log(s, natives > 0
     ? `Keystone: ${natives} Native token${natives > 1 ? 's' : ''} in ${REGIONS[trickRegion(s)].name} lower the Invasive Risk from ${was} to ${s.trick.risk}.`
     : `Keystone: no Native tokens in ${REGIONS[trickRegion(s)].name}, so the Invasive Risk stays at ${was}.`);
@@ -307,6 +322,7 @@ function predate(s, p, region, kind) {
   if (!st.regions.includes(region) || !['n', 'i'].includes(kind) || s.board[region][kind] <= 0) err('You cannot remove that token.');
   s.board[region][kind] -= 1; st.left -= 1;
   log(s, `${CARDS[st.card].name} removes 1 ${kind === 'n' ? 'Native' : 'Invasive'} token from ${REGIONS[region].name}.`);
+  emit(s, { type: 'eat', p, card: st.card, region, kind, count: 1 });
   const remaining = st.regions.reduce((a, r) => a + s.board[r].n + s.board[r].i, 0);
   if (st.left <= 0 || remaining <= 0) { s.step = null; endTurn(s); }
 }
@@ -348,6 +364,7 @@ function resolveTrick(s) {
     }
     log(s, 'INVASIVE CRISIS! Native populations fall across the map.');
   }
+  emit(s, { type: 'trick', p: play.p, card: play.card, biome: s.trick.biome, crisis });
   s.lastTrick = { biome: s.trick.biome, plays: s.trick.plays, winner: play.p, card: play.card, crisis, risk: s.trick.risk, matched, round: s.round };
   s.trick = null; s.step = null;
   if (s.coop && (s.players[s.bossIdx].hand.length === 0 || s.players.slice(0, s.np).every(pl => pl.hand.length === 0))) return endGame(s);
@@ -387,6 +404,7 @@ function useAbility(s, p, a) {
     s.abilityUsed = true;
     log(s, `${pl.name} peeks at the top of the location deck.`);
   } else err('Your role has no start-of-turn action.');
+  emit(s, { type: 'ability', p, role, region: a.region || null, kind: a.kind || null });
 }
 
 function tourDecide(s, p, bottom) {
@@ -475,6 +493,11 @@ function anacondaResults(s) {
 }
 
 function endGame(s) {
+  scoreGame(s);
+  emit(s, { type: 'end', winners: s.results.winners.slice(), coop: !!s.coop, playersWin: !!s.results.playersWin });
+}
+
+function scoreGame(s) {
   s.phase = 'ended';
   const res = computeResults(s);
   if (s.coop) {
@@ -718,9 +741,173 @@ function botSay(s, p, a) {
   }
 }
 
+// ---------- character reactions ----------
+// Every game event (see emit) gives each character a chance to react, in keeping with their role:
+// the Conservationist mourns invasives, the Land Developer loves empty land, the Researcher hates winning tricks...
+// A reaction is an animation for the character portrait (idle / think / signature / cheer / upset / shock)
+// plus an optional line that a BOT may say out loud. Human players get the animation only.
+const PRI = { idle: 0, think: 0, signature: 1, cheer: 2, upset: 2, shock: 3 };
+// animals the Tourist can't help photographing
+const CHARISMATIC = new Set(['Manatee', 'Flamingo', 'FloridaPanther', 'AmericanCrocodile', 'LeatherBackSeaTurtle', 'FloridaBlackbear', 'GreatBlueHeron', 'WoodStork', 'MiamiBlueButterly', 'RiverOtter', 'Coral']);
+const SCARY = new Set(['BurmesePython', 'GreenAnaconda', 'NileMonitor', 'Lionfish', 'AsianSwampEel', 'WildBoar']);
+const GAME_ANIMALS = new Set(['WildBoar', 'FeralCat', 'BlackRat', 'MuscovyDuck']);
+
+// What each role thinks of each kind of event. Each handler gets a context object and returns
+// [animation, [lines...]] or null. Lines may use {c} card, {place} region, {w} trick winner, {to}/{from} risk.
+const REACT = {
+  Conservationist: {
+    travel: x => x.want === 'N' ? ['think', ['{place}. I’ll be watching closely.', 'Tread lightly in {place}, everyone.']] : null,
+    play: x => {
+      if (x.self) return null;
+      if (x.inv && x.c.impact >= 13) return ['shock', ['A {c}?! Not in my wetlands!', 'Someone stop that {c}!']];
+      if (x.inv && x.populate && x.want === 'N') return ['upset', ['Invasives in {place}? Unacceptable.', 'Get that {c} out of {place}!']];
+      return null;
+    },
+    keystone: x => x.to < x.from ? ['cheer', ['Keystone species! Risk down to {to}.', 'That {c} holds the whole system together!']] : null,
+    spread: x => x.inv ? ['upset', ['It’s spreading to {place}!', 'Contain that {c}!']] : null,
+    eat: x => x.kind === 'n' ? [x.boss ? 'shock' : 'upset', ['Our natives…!', 'Not the natives!']] : ['cheer', ['Good riddance!', 'One less invader.']],
+    ability: x => x.role === 'LandDeveloper' && !x.self ? (x.kind === 'n' ? ['upset', ['Bulldozing natives? Shameful.']] : ['cheer', ['Huh. Thanks, I suppose.']]) : null,
+    win: () => ['cheer', ['For the wetlands!', 'Protected, for now.']],
+    crisis: x => x.mine ? ['upset', ['I caused a crisis… I’m so sorry.']] : ['shock', ['INVASIVE CRISIS! No, no, no…', 'The natives are collapsing!']],
+  },
+  Fisherman: {
+    travel: x => x.suit === 'Water' ? ['signature', ['Water trip! Grabbing my rod.', 'Fish should be biting at {place}.']] : null,
+    play: x => {
+      if (x.self) return x.native && x.c.habitat === 'Water' && x.c.impact >= 7 ? ['signature', null] : null;
+      if (x.native && x.c.habitat === 'Water' && x.c.impact >= 7) return ['signature', ['Now THAT’s a {c}!', 'Beauty of a {c}.']];
+      if (x.inv && x.c.habitat === 'Water') return [SCARY.has(x.card) ? 'shock' : 'upset', ['{c} in my fishing grounds? Ugh.', 'There goes the catch…']];
+      return null;
+    },
+    lost: x => x.suit === 'Water' ? ['upset', ['Hey, that was my water trick!', 'Lost one off the hook…']] : null,
+    win: () => ['cheer', ['Landed it!', 'Hooked another one!']],
+    crisis: () => ['shock', ['The fish stocks!', 'What’s happening to the water?!']],
+  },
+  Hunter: {
+    travel: x => x.suit === 'Land' ? ['signature', ['Good hunting ground.', 'Fresh tracks near {place}.']] : null,
+    play: x => {
+      if (x.self) return x.c.predatory && x.c.habitat === 'Land' ? ['signature', null] : null;
+      if (x.inv && GAME_ANIMALS.has(x.card)) return ['cheer', ['{c}! Open season!', 'More game for me.']];
+      if (x.native && x.c.predatory >= 3) return ['signature', ['A {c} on the prowl. Respect.', 'Now that’s a hunter.']];
+      return null;
+    },
+    eat: x => x.kind === 'i' && !x.self ? ['signature', ['Clean shot.', 'Nice hunting.']] : null,
+    lost: x => x.suit === 'Land' ? ['upset', ['That was my land trick…', 'Missed the shot.']] : null,
+    win: () => ['cheer', ['Bagged it!', 'Trophy!']],
+    crisis: () => ['shock', ['The game’s all gone!', 'Whoa — what hit the woods?']],
+  },
+  LandDeveloper: {
+    travel: x => x.region === 'M' || x.risk >= 15 ? ['signature', ['{place}? Prime real estate.', 'I can see the condos already.']] : null,
+    play: x => {
+      if (x.self) return null;
+      if (x.inv && x.region === 'M') return ['cheer', ['{c} in Miami. Business as usual.']];
+      if (x.native && x.populate && x.c.pop >= 4) return ['upset', ['{c} everywhere… there go my lots.', 'More residents? Bad for zoning.']];
+      return null;
+    },
+    keystone: x => x.to < x.from && !x.self ? ['upset', ['Lower risk? Bad for business.']] : null,
+    eat: x => x.coop ? (x.kind === 'n' ? ['upset', ['Even I don’t like that snake.']] : null) : ['cheer', ['Fewer residents, more room.', 'Clearing the lot nicely.']],
+    win: () => ['cheer', ['Sold!', 'Another parcel for the portfolio.']],
+    crisis: x => x.coop ? ['shock', ['This is bad for everyone’s property values!']] : ['cheer', ['A crisis? Cheaper land!', 'Market correction. Love it.']],
+  },
+  Researcher: {
+    travel: x => x.risk >= 13 ? ['think', ['Invasive Risk {risk}. Fascinating.', 'High risk at {place}. Taking notes.']] : null,
+    play: x => {
+      if (x.self) return null;
+      if (x.inv && x.c.impact >= 15) return ['shock', ['A {c}?! That changes the whole study.']];
+      if (['Cnidaria', 'Insect', 'Mollusc'].includes(x.c.taxon) || x.c.keystone) return ['signature', ['A {taxon}! Noting that down.', 'Remarkable specimen.']];
+      return null;
+    },
+    keystone: x => ['signature', ['Keystone effect observed: {from} → {to}.']],
+    spread: x => ['signature', ['Migration route logged.', 'Tracking the {c} to {place}.']],
+    win: () => ['upset', ['Another trick? I wanted the fewest…', 'Too much attention. Bad for the data.']],
+    crisis: () => ['shock', ['The data… it’s collapsing!', 'Population crash! Write this down!']],
+  },
+  Tourist: {
+    travel: x => x.want === 'N' || x.want === 'I' ? ['cheer', ['{place} is on my list!', 'Ooh, I’ve always wanted to see {place}!']] : null,
+    play: x => {
+      if (CHARISMATIC.has(x.card)) return ['signature', x.self ? null : ['Ooh! A {c}! *click*', 'Hold still, {c}!']];
+      if (!x.self && SCARY.has(x.card)) return ['shock', ['Is that a {c}?! Eek!', 'Nobody said there’d be a {c}!']];
+      if (!x.self && x.inv && x.want === 'N') return ['upset', ['That {c} is ruining my photos.']];
+      return null;
+    },
+    win: () => ['cheer', ['Souvenir!', 'Best trip ever!']],
+    crisis: () => ['shock', ['Is everything okay out there?!', 'This was NOT in the brochure!']],
+  },
+};
+
+const fill = (line, x) => line.replace(/\{(\w+)\}/g, (m, k) => (x.words[k] !== undefined ? x.words[k] : m));
+
+// Reactions to one event: [{ seat, anim, pri, line }], at most one per seat.
+function reactionsFor(s, ev) {
+  const out = [];
+  const actor = ev.p;
+  const c = ev.card ? CARDS[ev.card] : null;
+  const biome = ev.biome ? BIOMES[ev.biome] : null;
+  const region = ev.region || (ev.regions && ev.regions[ev.regions.length - 1]) || (biome && biome.region) || null;
+  const winner = ev.type === 'trick' ? ev.p : null;
+  const sameSide = (a, b) => a === b || (s.coop && !isBoss(s, a) && !isBoss(s, b)) || (s.partners && s.players[a].team === s.players[b].team);
+  s.players.forEach((pl, seat) => {
+    if (pl.boss) {
+      // The Anaconda has no animations, just a rattle of its portrait when it wins or feeds.
+      if ((ev.type === 'trick' && seat === winner) || (ev.type === 'eat' && seat === actor)) out.push({ seat, anim: 'cheer', pri: 2, line: null });
+      return;
+    }
+    if (!pl.role || !REACT[pl.role]) return;
+    const R = REACT[pl.role];
+    const want = region ? ROLES[pl.role].map[region] : undefined;
+    const x = {
+      seat, self: seat === actor, card: ev.card, c, inv: c && c.kind === 'Invasive', native: c && c.kind === 'Native',
+      region, want, suit: biome ? biome.suit : null, risk: biome ? biome.risk : null, kind: ev.kind, role: ev.role,
+      populate: ev.populate !== false, boss: isBoss(s, actor), coop: !!s.coop, from: ev.from, to: ev.to,
+      mine: seat === winner,
+      words: { c: c ? c.name : '', place: region ? REGIONS[region].name : '', w: winner !== null ? s.players[winner].name : '',
+        to: ev.to, from: ev.from, risk: biome ? biome.risk : '', taxon: c ? c.taxon : '' },
+    };
+    let r = null;
+    switch (ev.type) {
+      case 'role': if (x.self) r = ['signature', null]; break;
+      case 'travel': r = R.travel ? R.travel(x) : null; break;
+      case 'play': r = R.play ? R.play(x) : null; break;
+      case 'keystone': r = R.keystone ? R.keystone(x) : null; break;
+      case 'spread': r = R.spread ? R.spread(x) : null; break;
+      case 'eat': r = R.eat ? R.eat(x) : null; break;
+      case 'ability': r = x.self ? ['signature', null] : (R.ability ? R.ability(x) : null); break;
+      case 'trick':
+        if (ev.crisis) r = R.crisis(x);
+        else if (seat === winner) r = R.win(x);
+        else if (sameSide(seat, winner)) r = ['cheer', [`Nice one, ${x.words.w}!`, `Go ${x.words.w}!`]];
+        else if (s.coop && isBoss(s, winner)) r = ['upset', ['The Anaconda takes it…', 'We’ll get it back.']];
+        else r = R.lost ? R.lost(x) : null;
+        break;
+      case 'end': {
+        const won = ev.coop ? ev.playersWin : ev.winners.includes(seat);
+        r = won ? ['cheer', ['What a trip!', 'GG, everyone!']] : ['upset', ['Next time…', 'Well played.']];
+        break;
+      }
+    }
+    if (!r) return;
+    const [anim, lines] = r;
+    out.push({ seat, anim, pri: PRI[anim], line: lines && lines.length ? fill(pickOne(lines), x) : null });
+  });
+  return out;
+}
+
+// Which bot (if any) says its reaction out loud. One line per event at most, so the table doesn't get noisy:
+// a bot never comments on its own move (it already spoke), big moments always get a line, small ones only sometimes.
+function reactionLine(s, ev, list) {
+  const big = ev.type === 'end' || (ev.type === 'trick' && ev.crisis);
+  const chance = big ? 1 : ev.type === 'trick' ? 0.75 : 0.4;
+  if (Math.random() >= chance) return null;
+  const cands = list.filter(r => r.line && s.players[r.seat] && s.players[r.seat].bot && !s.players[r.seat].boss
+    && (r.seat !== ev.p || ev.type === 'trick' || ev.type === 'end'));
+  if (!cands.length) return null;
+  const top = Math.max(...cands.map(r => r.pri));
+  const pick = pickOne(cands.filter(r => r.pri === top));
+  return { seat: pick.seat, text: pick.line };
+}
+
 module.exports = {
   anacondaResults, COOP,
-  botSay,
+  botSay, reactionsFor, reactionLine,
   newGame, addPlayer, startGame, availableRoles, partnerSeating, applyAction, legalCards, placeTargets, waitingOn, botAction,
   computeResults, trickWinner, cardMatches, MIN_PLAYERS, MAX_PLAYERS,
 };

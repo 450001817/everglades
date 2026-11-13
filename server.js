@@ -11,11 +11,17 @@ const G = require('./game.js');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, 'public');
-// Bot pacing (milliseconds). Bots wait about this long before each move, a bit longer after a trick ends
-// so everyone can read the result, and longer still at the start while the cards are dealt.
-const BOT_DELAY_MS = +process.env.BOT_DELAY_MS || 1900;
-const TRICK_PAUSE_MS = BOT_DELAY_MS * 1.4;
-const DEAL_PAUSE_MS = BOT_DELAY_MS * 2.7;
+// Bot pacing (milliseconds). The host picks a speed in the lobby or the game's top bar.
+// bot = how long a bot waits before each move; trick = how long a finished trick stays on screen
+// (winning card highlighted) before anyone moves on. BOT_DELAY_MS rescales them all (Normal = that value).
+const BOT_DELAY_MS = +process.env.BOT_DELAY_MS || 3200;
+const SPEEDS = {
+  slow: { label: 'Slow', bot: BOT_DELAY_MS * 1.6, trick: BOT_DELAY_MS * 2.2 },
+  normal: { label: 'Normal', bot: BOT_DELAY_MS, trick: BOT_DELAY_MS * 1.6 },
+  fast: { label: 'Fast', bot: BOT_DELAY_MS * 0.45, trick: BOT_DELAY_MS * 0.9 },
+};
+const pace = room => SPEEDS[room.speed] || SPEEDS.normal;
+const DEAL_PAUSE_MS = 5200; // the shuffle-and-deal animation
 const MIN_TABLE = 4; // bots fill seats up to this many players
 const BOT_NAMES = ['Gator Bot', 'Heron Bot', 'Manatee Bot', 'Otter Bot', 'Panther Bot', 'Stork Bot'];
 
@@ -30,7 +36,8 @@ function code() {
 const rid = () => crypto.randomBytes(12).toString('hex');
 
 function newRoom() {
-  const room = { code: code(), members: [], hostPid: null, game: G.newGame(), clients: new Set(), touched: Date.now(), botTimer: null, chatter: [], chatId: 0, pauseUntil: 0, tricksSeen: 0 };
+  const room = { code: code(), members: [], hostPid: null, game: G.newGame(), clients: new Set(), touched: Date.now(), botTimer: null, chatter: [], chatId: 0, pauseUntil: 0, tricksSeen: 0,
+    reactions: [], reactId: 0, evSeen: 0, speed: 'normal' };
   rooms.set(room.code, room);
   return room;
 }
@@ -56,6 +63,7 @@ function viewFor(room, member) {
     room: room.code, phase: s.phase, seq: s.seq,
     you: me, yourPid: member ? member.pid : null, isHost: !!member && member.pid === room.hostPid,
     mode: room.mode || 'solo', partners: room.mode === 'partners', coop: room.mode === 'coop',
+    speed: SPEEDS[room.speed] ? room.speed : 'normal', trickPauseMs: Math.round(pace(room).trick),
     lobby: room.members.map(m => ({ pid: m.pid, name: m.name, bot: m.bot, team: m.team ?? null, host: m.pid === room.hostPid, online: m.bot || connected.has(m.pid) })),
   };
   if (s.phase === 'lobby') return base;
@@ -71,6 +79,7 @@ function viewFor(room, member) {
     leader: s.leader, turn: s.turn, waiting: G.waitingOn(s), round: s.round,
     lastTrick: s.lastTrick, log: s.log.slice(-40),
     chatter: room.chatter, // short in-character lines from bots: [{ id, seat, text }]
+    reactions: room.reactions, // character portrait reactions: [{ id, seat, anim, pri }]
     step: s.step ? { type: s.step.type, card: s.step.card, left: s.step.left, line: s.step.line, regions: s.step.regions } : null,
     hand: myP ? myP.hand : [], pile: myP ? myP.pile : [], role: myP ? myP.role : null,
     legal: myTurn && s.phase === 'play' && !s.step ? G.legalCards(s, me) : [],
@@ -82,7 +91,29 @@ function viewFor(room, member) {
   });
 }
 
+// ---------- character reactions ----------
+function say(room, seat, text) {
+  room.chatter.push({ id: ++room.chatId, seat, text });
+  if (room.chatter.length > 12) room.chatter.shift();
+}
+// Turn new game events into portrait reactions (for every player) and the odd in-character bot line.
+function drainEvents(room) {
+  const s = room.game;
+  const evs = (s.events || []).filter(e => e.id > room.evSeen);
+  if (!evs.length) return;
+  room.evSeen = evs[evs.length - 1].id;
+  for (const ev of evs) {
+    const list = G.reactionsFor(s, ev);
+    for (const r of list) room.reactions.push({ id: ++room.reactId, seat: r.seat, anim: r.anim, pri: r.pri });
+    const line = G.reactionLine(s, ev, list);
+    if (line) say(room, line.seat, line.text);
+  }
+  if (room.reactions.length > 40) room.reactions.splice(0, room.reactions.length - 40);
+}
+function resetReactions(room) { room.reactions = []; room.evSeen = 0; }
+
 function broadcast(room) {
+  drainEvents(room);
   room.touched = Date.now();
   for (const c of room.clients) {
     const m = room.members.find(x => x.pid === c.pid);
@@ -93,13 +124,16 @@ function broadcast(room) {
 
 function scheduleBot(room) {
   const s = room.game;
-  if (room.botTimer || !['draft', 'choose', 'play'].includes(s.phase)) return;
+  if (!['draft', 'choose', 'play'].includes(s.phase)) return;
+  // a trick just finished: everyone sees the finished trick (winning card highlighted) for a moment.
+  // Tracked even when a person moves next, so the pause isn't applied a second time later.
+  const done = s.players.reduce((a, p) => a + p.biomesWon.length, 0);
+  if (done !== room.tricksSeen) { room.tricksSeen = done; room.pauseUntil = Math.max(room.pauseUntil, Date.now() + pace(room).trick); }
+  if (room.botTimer) return;
   const w = G.waitingOn(s);
   if (w < 0 || !s.players[w].bot) return;
-  // a trick just finished: give people time to see who won
-  const done = s.players.reduce((a, p) => a + p.biomesWon.length, 0);
-  if (done !== room.tricksSeen) { room.tricksSeen = done; room.pauseUntil = Math.max(room.pauseUntil, Date.now() + TRICK_PAUSE_MS); }
-  const base = s.step ? BOT_DELAY_MS * 0.4 : BOT_DELAY_MS * (0.8 + Math.random() * 0.4); // token-by-token steps go quicker
+  const B = pace(room).bot;
+  const base = s.step ? B * 0.4 : B * (0.8 + Math.random() * 0.4); // token-by-token steps go quicker
   const wait = Math.max(base, room.pauseUntil - Date.now());
   room.botTimer = setTimeout(() => {
     room.botTimer = null;
@@ -109,7 +143,7 @@ function scheduleBot(room) {
       const a = G.botAction(s, w2);
       const text = G.botSay(s, w2, a);
       G.applyAction(s, w2, a);
-      if (text) { room.chatter.push({ id: ++room.chatId, seat: w2, text }); if (room.chatter.length > 12) room.chatter.shift(); }
+      if (text) say(room, w2, text);
     } catch (e) { console.error('bot error', e); return; }
     broadcast(room);
   }, wait);
@@ -188,6 +222,11 @@ const server = http.createServer(async (req, res) => {
           const t = body.team === null || body.team === undefined ? null : Math.max(0, Math.min(2, +body.team));
           if (t !== null && room.members.filter(x => x !== target && x.team === t).length >= 2) return send(res, 400, { error: 'That team already has 2 players.' });
           target.team = t;
+        } else if (body.cmd === 'speed') {
+          // Bot speed: host only, any time (also mid-game)
+          if (!isHost) return send(res, 403, { error: 'Only the host can change the speed.' });
+          room.speed = SPEEDS[body.speed] ? body.speed : 'normal';
+          if (room.botTimer) { clearTimeout(room.botTimer); room.botTimer = null; } // re-time the pending bot move
         } else if (body.cmd === 'leave' && s.phase === 'lobby') {
           room.members = room.members.filter(x => x !== m);
           if (isHost) room.hostPid = (room.members.find(x => !x.bot) || {}).pid || null;
@@ -226,14 +265,14 @@ const server = http.createServer(async (req, res) => {
             room.game = G.newGame();
             for (const x of room.members) G.addPlayer(room.game, { id: x.pid, name: x.name, bot: x.bot, team: room.mode === 'partners' ? x.team : null });
             G.startGame(room.game, { partners: room.mode === 'partners', coop: room.mode === 'coop' });
-            room.chatter = []; room.tricksSeen = 0;
+            room.chatter = []; room.tricksSeen = 0; resetReactions(room);
             room.pauseUntil = Date.now() + DEAL_PAUSE_MS; // let the shuffle-and-deal animation play first
           } else if (body.cmd === 'botify') {
             // Hand a seat to a bot (e.g. someone left mid-game).
             const i = seatOf(room, body.pid);
             if (i >= 0) { s.players[i].bot = true; s.players[i].name += ' (bot)'; const x = room.members.find(y => y.pid === body.pid); if (x) x.bot = true; }
           } else if (body.cmd === 'rematch') {
-            room.game = G.newGame();
+            room.game = G.newGame(); resetReactions(room);
           } else return send(res, 400, { error: 'Unknown command.' });
         }
         broadcast(room);

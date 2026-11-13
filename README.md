@@ -23,14 +23,31 @@ A website version of your Everglades trick-taking game. It uses your own card an
 - **Endings:** if the players win, the highest scorer reads their good ending. If the Anaconda wins, the lowest scorer reads the grim ending.
 - **Balance:** in simulated games with bot players, the players win roughly 35–55% at every table size from 1 to 6 (about 45% with 4). Real players should do better than the bots. Run `node test/coopsim.js` to re-check after rule changes. The point values live in `COOP` near the top of the co-op section of `game.js`.
 
-**About the bots:** bots play the same rules and use their role abilities. When a bot plays a card, travels, uses an ability, spreads or hunts, a short in-character speech bubble appears next to its name (for example, the Fisherman's "Reeling in a Manatee. That's a keeper!"). Bots wait about 2 seconds before each move, and a little longer after a trick so everyone can read the result. To change the pace, set `BOT_DELAY_MS` near the top of `server.js` (1900 is the default; a bigger number is slower).
+**About the bots:** bots play the same rules and use their role abilities. When a bot plays a card, travels, uses an ability, spreads or hunts, a short in-character speech bubble appears next to its name (for example, the Fisherman's "Reeling in a Manatee. That's a keeper!"). 
+
+**Speed:** the host picks how fast the bots play: **Slow**, **Normal** or **Fast**. Pick it in the lobby, or click the **Speed** button in the game's top bar at any time; other players see the setting. Bots wait about 5 seconds before each move on Slow, 3 on Normal and 1.5 on Fast. To rescale all three, set `BOT_DELAY_MS` near the top of `server.js` (3200 is Normal; a bigger number is slower).
+
+**End of each trick:** the game pauses on the finished trick. The winning card is raised, outlined in gold and stamped WINNER (red for an Invasive Crisis), and the other cards are dimmed. A bar counts down to the next round. The pause lasts about 7 seconds on Slow, 5 on Normal and 3 on Fast. Bots wait for it too, and after the last trick the final scores appear when it ends.
+
+**Character reactions:** every player, human or bot, shows their role's animated portrait in the Players panel, and the portraits react to what happens in the game. Each of the 6 characters has 6 short pixel animations, made with PixelLab from the role-card portraits:
+
+| Animation | When it plays |
+|---|---|
+| idle | Now and then, a breath and a blink |
+| think | Often while it's that player's turn |
+| signature | Their themed move (podium speech, tipping a cap, aiming, pointing, writing notes, snapping a photo): when they pick their role, use their ability, or something on-theme happens, plus occasionally on its own |
+| cheer / upset / shock | Reactions to the game |
+
+Reactions follow each character's theme. For example, the Conservationist is upset when an Invasive card lands in her regions and shocked by an Invasive Crisis, which the Land Developer cheers ("Cheaper land!"). The Researcher groans when he wins a trick because he wants the fewest. The Fisherman and Hunter react to Water and Land cards and tricks, and the Tourist photographs charismatic animals and shrieks at pythons. Partners and co-op teammates cheer each other's tricks. A small badge on the portrait shows the mood (★ ! … ? ♪). Bots sometimes say a matching line in a speech bubble, and big moments always get one. Human players get the animation only. The Anaconda's portrait rattles when it wins a trick or feeds.
+
+All of these rules are in `REACT` near the end of `game.js`. Edit a line or a trigger there to change a reaction. The animation files are in `public/assets/characters/<Role>/`, and their playback speed is set in `CHAR_ANIM` in `public/data.js`.
 
 Keep the black window open while you play. Closing it stops the game.
 
 **Friends on the same Wi-Fi:** the black window shows a "Same Wi-Fi friends" address, like `http://192.168.1.20:3000`. Send them that address. Windows may ask whether Node can use the network; click Allow.
 
 **Friends anywhere on the internet:** the game has to run on a hosting service. The simplest option is Render (render.com, free tier):
-1. Put this folder in a GitHub repository.
+1. Put this folder in a GitHub repository. On github.com, create a new repository, click **uploading an existing file**, and drag in everything inside this `WebGame` folder (not the folder itself), so `package.json` sits at the top of the repository. `Everglades-WebGame.zip` next to this folder holds the same files.
 2. In Render, create a **Web Service** from that repository.
 3. Set the Build Command to `npm install` and the Start Command to `npm start`.
 4. Render gives you a link you can share with anyone.
@@ -39,7 +56,7 @@ The free tier sleeps when no one is using it, so the first visit can take about 
 
 ## How a turn works on screen
 
-The whole game fits on one screen with no page scrolling. From left to right: the players list, the map, and the play area. Your hand runs along the bottom. The play area changes with the moment:
+The whole game fits on one screen with no page scrolling. From left to right: the players list with everyone's animated character portrait, the map, and the play area. Your hand runs along the bottom. Portraits shrink to fit when there are more players. On narrower windows and phones, the players list moves to the top of the play area as a row of small portraits. The play area changes with the moment:
 
 - **While a biome is being picked**, the Travel Row fills the play area with big cards, and the last trick shows small underneath.
 - **Once a biome is chosen**, the Travel Row shrinks to a small strip at the bottom. The current biome and the cards played to it take over the play area.
@@ -87,12 +104,13 @@ Every rule is in **game.js**, and all card stats are in **public/data.js**. Both
 | `public/data.js` | Every card's stats, the regions, adjacency and roles |
 | `public/client.js`, `style.css`, `index.html` | What players see in the browser |
 | `public/assets/` | Your art. Biome cards are rotated to lie landscape. |
+| `public/assets/characters/` | The animated character portraits: one 9-frame strip per animation, per role |
 | `public/fonts/` | EGDigits, a custom blocky pixel font used for every number (0–9) so 2 and 5 are easy to tell apart |
 | `tools/make_digits_font.py` | Rebuilds that font if you ever want to tweak a digit's pixels (needs Python + fontTools) |
 | `tools/make_refcard.py` | Rewrites the Keystone line on the reference card using letters cut from the card itself |
 | `test/coopsim.js` | Simulates co-op games at 1–6 players and prints win rates and score breakdowns |
 | `tools/make_boss_card.py`, `tools/pixelfont.py` | Rebuild the Anaconda boss card (pixel lettering drawn in code) |
-| `test/sim.js` | Plays 500 bot-only games to check the rules never get stuck (`npm test`) |
+| `test/sim.js` | Plays 500 bot-only games (every 7th one co-op) to check the rules never get stuck and every character reaction is valid (`npm test`) |
 
 Nothing needs to be installed except Node.js. The server only uses what comes with Node.
 
