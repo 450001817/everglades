@@ -1,6 +1,6 @@
 // Everglades — browser client. Renders whatever the server says the game looks like.
 'use strict';
-const { CARDS, REGIONS, BIOMES, ROLES, BOSS } = window.EG_DATA;
+const { CARDS, REGIONS, BIOMES, ROLES, BOSS, CHAR_ANIM } = window.EG_DATA;
 const roleInfo = r => r === 'Anaconda' ? BOSS : (r ? ROLES[r] : null);
 const $app = document.getElementById('app');
 const $peek = document.getElementById('peek');
@@ -9,7 +9,7 @@ const $toast = document.getElementById('toast');
 let S = null;               // latest game view from the server
 let es = null;              // live connection
 let sess = loadSess();      // { room, token }
-const ui = { dealing: false, handIntro: 0, chatSeen: 0, bubbles: {}, confirm: null, showLog: false, unread: 0, sel: null, mode: null, swapHand: null, swapPile: null, err: '', lastRound: null, showRules: false, fresh: null };
+const ui = { dealing: false, handIntro: 0, chatSeen: 0, reactSeen: 0, bubbles: {}, confirm: null, showLog: false, unread: 0, sel: null, mode: null, swapHand: null, swapPile: null, err: '', lastRound: null, showRules: false, fresh: null };
 
 const ACTIVE_ABILITY = {
   Fisherman: 'Swap with scoring pile (Water)',
@@ -19,13 +19,18 @@ const ACTIVE_ABILITY = {
   Tourist: 'Peek at location deck',
 };
 const SUIT_ORDER = { Water: 0, Wetland: 1, Land: 2 };
+// Bot speed (set by the host; the server does the pacing)
+const SPEED_ORDER = ['slow', 'normal', 'fast'];
+const SPEED_LABEL = { slow: 'Slow', normal: 'Normal', fast: 'Fast' };
+// The finished trick stays on screen (winning card highlighted) until this time.
+const holding = () => !!(ui.trickHold && Date.now() < ui.trickHold.until && S && S.lastTrick);
 
 // ---------- map geometry (board art is 1926 x 1932 in these units) ----------
 // poly = region outline, label = where its name is printed, sum = where the N/I counter sits (just under the name)
 const GEO = {
   FSP: { poly: [[300, 0], [980, 0], [980, 220], [1110, 350], [655, 455], [610, 410], [530, 320], [380, 320], [300, 220]], label: [450, 75, 800, 205], sum: [625, 250] },
   LO: { poly: [[980, 0], [1640, 0], [1640, 90], [1510, 215], [1510, 350], [1110, 350], [1000, 220], [980, 220]], label: [1110, 30, 1420, 170], sum: [1265, 215] },
-  M: { poly: [[1640, 0], [1926, 0], [1926, 870], [1510, 870], [1520, 700], [1560, 450], [1510, 350], [1510, 215], [1640, 90]], label: [1730, 765, 1890, 820], sum: [1790, 862] },
+  M: { poly: [[1640, 0], [1926, 0], [1926, 870], [1510, 870], [1520, 700], [1560, 450], [1510, 350], [1510, 215], [1640, 90]], label: [1730, 765, 1890, 820], sum: [1800, 712] }, // counter sits above the name, inside the region
   BCNP: { poly: [[655, 455], [1110, 350], [1510, 350], [1560, 450], [1520, 700], [1510, 870], [900, 870], [870, 820], [655, 820]], label: [845, 550, 1400, 685], sum: [1122, 730] },
   NG: { poly: [[0, 0], [300, 0], [300, 220], [380, 320], [530, 320], [610, 410], [655, 455], [655, 820], [640, 820], [0, 680]], label: [50, 430, 405, 495], sum: [228, 540] },
   SG: { poly: [[0, 680], [640, 820], [870, 820], [900, 870], [895, 1415], [450, 1415], [0, 1340]], label: [145, 1060, 525, 1120], sum: [335, 1165] },
@@ -201,6 +206,12 @@ function onUpdate(prev) {
   }
   if (chat.length) ui.chatSeen = Math.max(ui.chatSeen, chat[chat.length - 1].id);
   if (!chat.length) ui.chatSeen = 0;
+  // character reactions (the server decides who reacts to what; see reactionsFor in game.js)
+  const reacts = S.reactions || [];
+  for (const r of reacts) if (r.id > ui.reactSeen && fresh) react(r.seat, r.anim, r.pri);
+  if (reacts.length) ui.reactSeen = Math.max(ui.reactSeen, reacts[reacts.length - 1].id);
+  // learn which characters are at the table so their animations are loaded before they're needed
+  for (const p of S.players || []) if (p.role && !p.boss) preloadChar(p.role);
   // the game just started: shuffle and deal
   if (prev && prev.phase === 'lobby' && S.phase === 'draft') { ui.dealing = true; ui.chatSeen = 0; setTimeout(playDeal, 60); }
   if (prev && prev.phase === 'lobby') SFX.start();
@@ -222,9 +233,14 @@ function onUpdate(prev) {
   const lt = S.lastTrick;
   const key = lt ? lt.round + ':' + lt.biome : null;
   if (live && key && key !== ui.lastRound) {
+    // hold the finished trick on screen before the next round (the server pauses the bots just as long)
+    const ms = S.trickPauseMs || 4000;
+    ui.trickHold = { key, start: Date.now(), until: Date.now() + ms, ms };
+    clearTimeout(ui.holdTimer); ui.holdTimer = setTimeout(render, ms + 30);
+    // the finished trick is shown in the play area; a crisis also gets a red banner
     const w = S.players[lt.winner];
-    showToast(`${esc(w.name)} wins ${esc(BIOMES[lt.biome].name)} with ${esc(CARDS[lt.card].name)}!` +
-      (lt.crisis ? '<small>INVASIVE CRISIS — native populations fall!</small>' : ''), lt.crisis, 4200);
+    if (lt.crisis) showToast(`${esc(w.name)} wins ${esc(BIOMES[lt.biome].name)} with ${esc(CARDS[lt.card].name)}!` +
+      '<small>INVASIVE CRISIS — native populations fall!</small>', true, Math.max(4200, ms));
   }
   ui.lastRound = key;
 }
@@ -314,6 +330,12 @@ function renderLobby() {
         ${S.isHost ? `<div class="modepick">${[['solo', 'Solo'], ['partners', 'Partners'], ['coop', 'Co-op']].map(([m, l]) =>
           `<button class="btn small ${(S.mode || 'solo') === m ? 'brass' : ''}" data-mode="${m}">${l}</button>`).join('')}</div>` : ''}
       </div>
+      <div class="row" style="justify-content:space-between">
+        <div><div class="panel-title" style="margin:0">Bot speed</div>
+          <span style="font-size:18px">${SPEED_LABEL[S.speed] || 'Normal'}</span> <span class="hint">${({ slow: '— relaxed, plenty of time to read', normal: '— steady pace', fast: '— quick games' })[S.speed] || ''}</span></div>
+        ${S.isHost ? `<div class="modepick">${SPEED_ORDER.map(sp =>
+          `<button class="btn small ${S.speed === sp ? 'brass' : ''}" data-speed="${sp}">${SPEED_LABEL[sp]}</button>`).join('')}</div>` : ''}
+      </div>
       ${S.mode === 'partners' ? `<p class="hint" style="margin:-4px 0 0">Pick a team for yourself${S.isHost ? ' (as host you can also place others and bots)' : ''}. Anyone without a team gets a random partner. Teammates never take turns back to back.</p>` : ''}
       ${S.mode === 'coop' ? `<div class="row" style="flex-wrap:nowrap;gap:12px;align-items:flex-start;margin-top:-4px">
           <img src="${BOSS.portrait}" alt="" class="bossthumb" data-peek="${BOSS.img}">
@@ -348,6 +370,7 @@ function renderLobby() {
   });
   if (S.isHost) {
     $app.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => lobby('mode', { mode: b.dataset.mode }));
+    $app.querySelectorAll('[data-speed]').forEach(b => b.onclick = () => lobby('speed', { speed: b.dataset.speed }));
     document.getElementById('addbot').onclick = () => lobby('addBot');
     document.getElementById('start').onclick = () => lobby('start');
     $app.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => lobby('remove', { pid: b.dataset.remove }));
@@ -397,18 +420,29 @@ function boardHtml() {
     <svg viewBox="0 0 ${BW} ${BH}" preserveAspectRatio="none">${polys}<g pointer-events="none">${toks}</g></svg>${sums}</div>`;
 }
 
+// A character portrait. Canvases are drawn by the animation loop (drawPortraits), so they survive re-renders.
+function portraitHtml(i, p) {
+  if (p.boss) return `<div class="portrait boss" data-seat="${i}"><img src="${BOSS.portrait}" alt="The Anaconda"><span class="emote"></span></div>`;
+  if (!p.role) return `<div class="portrait empty" data-seat="${i}" title="Choosing a role…"><span class="q">?</span></div>`;
+  return `<div class="portrait" data-seat="${i}"><canvas width="${CHAR_ANIM.w}" height="${CHAR_ANIM.h}"></canvas><span class="emote"></span></div>`;
+}
+
 function playersHtml(mini) {
   return S.players.map((p, i) => {
     const role = roleInfo(p.role);
-    if (p.boss) return `<div class="pl boss ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" data-peek="${BOSS.img}">
-      <div class="nm">${S.waiting === i ? '<span class="arrow">▶</span>' : ''}${mini ? '' : `<img class="bossthumb sm" src="${BOSS.portrait}" alt="">`}<span class="name">${esc(p.name)}</span><span class="tag bosstag">BOSS</span></div>
-      ${mini ? '' : `<div class="meta"><span>Invasive deck ${p.handCount}</span><span>Tricks ${p.tricks}</span></div>`}
-    </div>`;
-    return `<div class="pl ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" ${role ? `data-peek="${role.img}"` : ''}>
-      <div class="nm">${S.waiting === i ? '<span class="arrow">▶</span>' : ''}<span class="name">${esc(p.name)}</span>${i === S.you ? '<span class="you">(you)</span>' : ''}${teamTag(p.team)}${p.online ? '' : '<span class="dot off" title="offline"></span>'}</div>
-      ${mini ? '' : `<div class="meta">${role ? `<span class="rolename">${esc(role.name)}</span>` : '<span>choosing role…</span>'}<span>Hand ${p.handCount}</span><span>Tricks ${p.tricks}</span></div>`}
-      ${!mini && S.isHost && !p.online && !p.bot && S.phase !== 'ended' ? `<button class="btn small" data-botify="${S.lobby.find(m => m.name === p.name)?.pid || ''}">Give seat to a bot</button>` : ''}
-    </div>`;
+    const arrow = S.waiting === i ? '<span class="arrow">▶</span>' : '';
+    if (p.boss) return `<div class="pl boss ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" data-peek="${BOSS.img}">${portraitHtml(i, p)}
+      <div class="info">
+        <div class="nm">${arrow}<span class="name">${esc(p.name)}</span><span class="tag bosstag">BOSS</span></div>
+        ${mini ? '' : `<div class="meta"><span>Invasive deck ${p.handCount}</span></div><div class="meta"><span>Tricks ${p.tricks}</span></div>`}
+      </div></div>`;
+    return `<div class="pl ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" ${role ? `data-peek="${role.img}"` : ''}>${portraitHtml(i, p)}
+      <div class="info">
+        <div class="nm">${arrow}<span class="name">${esc(p.name)}</span>${i === S.you ? '<span class="you">(you)</span>' : ''}${p.online ? '' : '<span class="dot off" title="offline"></span>'}</div>
+        ${mini ? '' : `<div class="meta">${role ? `<span class="rolename">${esc(role.name)}</span>` : '<span>choosing role…</span>'}${teamTag(p.team)}</div>
+        <div class="meta"><span>Hand ${p.handCount}</span><span>Tricks ${p.tricks}</span></div>`}
+        ${!mini && S.isHost && !p.online && !p.bot && S.phase !== 'ended' ? `<button class="btn small" data-botify="${S.lobby.find(m => m.name === p.name)?.pid || ''}">Give seat to a bot</button>` : ''}
+      </div></div>`;
   }).join('');
 }
 
@@ -431,8 +465,32 @@ function draftHtml() {
   </div>`;
 }
 
+// The trick that just finished, with the winning card raised and highlighted, shown for a moment.
+function trickDoneHtml() {
+  const lt = S.lastTrick, b = BIOMES[lt.biome], w = S.players[lt.winner];
+  const elapsed = Date.now() - ui.trickHold.start;
+  const who = p => S.players[p].boss ? 'Anaconda' : S.players[p].name;
+  return `<div class="tabletop play trickdone ${lt.crisis ? 'crisis' : ''}"><div class="players-mini">${playersHtml(true)}</div>
+    <h3>Round ${lt.round} — trick complete</h3>
+    <div class="cur-row">
+      ${biomeEl(lt.biome)}
+      <div class="tt-info">
+        <div class="place">${esc(b.name)}<br><span style="color:var(--blush)">${esc(REGIONS[b.region].name)}</span></div>
+        <div class="winline">★ ${esc(w.name)} wins with ${esc(CARDS[lt.card].name)}!</div>
+        ${lt.crisis ? '<div class="crisisline">INVASIVE CRISIS!</div>' : ''}
+        ${lt.matched === false ? '<span class="lastline" style="color:var(--blush)">No card matched, so the highest Impact won.</span>' : ''}
+      </div>
+    </div>
+    <div class="played" style="--n:${lt.plays.length}">${lt.plays.map(pl => pl.card === lt.card
+      ? cardEl(pl.card, 'winner', '', who(pl.p), `<div class="winribbon">${lt.crisis ? 'CRISIS!' : 'WINNER'}</div>`)
+      : cardEl(pl.card, 'loser', '', who(pl.p))).join('')}</div>
+    <div class="holdbar"><span style="animation-duration:${ui.trickHold.ms}ms;animation-delay:-${elapsed}ms"></span></div>
+  </div>`;
+}
+
 function tableHtml() {
   if (S.phase === 'draft') return draftHtml();
+  if (holding()) return trickDoneHtml();
   const myTurn = isMine();
   const choosing = S.phase === 'choose' || !S.trick;
   const pickNow = S.phase === 'choose' && myTurn;
@@ -505,14 +563,14 @@ function renderGame() {
       <button class="btn small ${ui.showLog ? 'brass' : ''}" id="notesBtn">Field notes ${ui.unread && !ui.showLog ? `<span class="badge">${ui.unread > 9 ? '9+' : ui.unread}</span>` : ''}▾</button>
       ${ui.showLog ? `<div class="paper spiral notes-drop" id="log"><div class="panel-title">Field notes</div>${S.log.map(l => `<p class="${l.startsWith('INVASIVE') ? 'crisis' : ''}">${esc(l)}</p>`).join('')}</div>` : ''}
     </div>
+    <button class="btn small" id="speed" ${S.isHost ? '' : 'disabled'} title="${S.isHost ? 'How fast the bots play. Click to change.' : 'Bot speed (the host can change it)'}">Speed: ${SPEED_LABEL[S.speed] || 'Normal'}</button>
     <button class="btn small" id="mute" title="Sound on/off">${muted ? '♪ Off' : '♪ On'}</button>
     <button class="btn small" id="rules">Rules</button>
     <button class="btn small" id="quit">Leave</button>
   </div>
   <div class="game">
     <aside class="side">
-      <div class="paper spiral players"><div class="panel-title">Players</div>${playersHtml(false)}
-        <div class="hint" style="font-size:16px;line-height:1;margin-top:4px">Hover a player to read their role</div></div>
+      <div class="paper spiral players" style="--rows:${S.players.length}"><div class="panel-title" title="Hover a player to read their role card">Players <span class="hint">· hover to read roles</span></div>${playersHtml(false)}</div>
     </aside>
     <section class="boardwrap">${boardHtml()}</section>
     <section class="tablecol">${tableHtml()}</section>
@@ -527,17 +585,22 @@ function renderGame() {
   ${ui.confirm ? confirmModal() : ''}
   ${ui.mode === 'swap' ? swapModal() : ''}
   ${ui.showRules ? rulesModal() : ''}
-  ${S.phase === 'ended' ? endModal() : ''}`;
+  ${S.phase === 'ended' && !holding() ? endModal() : ''}`;
 
   if (peekSrc && !document.querySelector(`[data-peek="${CSS.escape(peekSrc)}"]`)) hidePeek();
   const logEl = document.getElementById('log'); if (logEl) logEl.scrollTop = logEl.scrollHeight;
   wire();
+  drawPortraits(true);
   placeBubbles();
 }
 
 function promptHtml() {
   const myTurn = isMine();
   const w = S.waiting >= 0 ? S.players[S.waiting] : null;
+  if (holding()) {
+    const lt = S.lastTrick;
+    return `<div class="paper spiral prompt"><div class="msg">${esc(S.players[lt.winner].name)} wins the trick!<small>${S.phase === 'ended' ? 'Final scores coming up…' : 'Next round in a moment…'}</small></div></div>`;
+  }
   if (S.phase === 'ended') return `<div class="paper spiral prompt"><div class="msg">Game over!</div></div>`;
   if (!myTurn) {
     let what = S.phase === 'draft' ? 'to choose a role' : S.phase === 'choose' ? 'to choose where to travel' : 'to play';
@@ -710,6 +773,78 @@ function confirmModal() {
   </div></div>`;
 }
 
+// ---------- animated character portraits ----------
+// Each portrait plays one animation at a time. Reactions from the server (cheer, upset, shock, signature...)
+// interrupt anything weaker; in between, characters idle (breathe and blink), think while it's their turn,
+// and now and then do their signature move. Timing lives here, not in the DOM, so re-renders never restart a clip.
+const sprites = {};
+function sprite(role, anim) {
+  const k = role + '/' + anim;
+  if (!sprites[k]) { const im = new Image(); im.src = CHAR_ANIM.src(role, anim); sprites[k] = im; }
+  return sprites[k];
+}
+const preloaded = new Set();
+function preloadChar(role) {
+  if (preloaded.has(role)) return;
+  preloaded.add(role);
+  for (const a of Object.keys(CHAR_ANIM.anims)) sprite(role, a);
+}
+const playing = {}; // seat -> { anim, pri, start, until }
+const passive = {}; // seat -> time of the next passive animation
+const EMOTE = { think: '?', signature: '♪', cheer: '★', upset: '…', shock: '!' };
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+function clipLength(anim) { const A = CHAR_ANIM.anims[anim]; return CHAR_ANIM.frames / A.fps * 1000 * (A.loops || 1); }
+function react(seat, anim, pri = 1) {
+  if (!CHAR_ANIM.anims[anim]) return;
+  const now = performance.now(), cur = playing[seat];
+  if (cur && now < cur.until && cur.pri > pri) return; // something more dramatic is still playing
+  playing[seat] = { anim, pri, start: now, until: now + clipLength(anim) };
+  passive[seat] = now + clipLength(anim) + 2500 + Math.random() * 3000;
+}
+function nowPlaying(seat, now) {
+  let cur = playing[seat];
+  if (cur && now >= cur.until) cur = playing[seat] = null;
+  if (!cur && !reducedMotion.matches) {
+    if (passive[seat] === undefined) passive[seat] = now + 800 + Math.random() * 4000; // stagger the table
+    if (now >= passive[seat]) {
+      const myTurn = S && S.waiting === +seat && ['draft', 'choose', 'play'].includes(S.phase);
+      const anim = myTurn ? (Math.random() < 0.65 ? 'think' : 'idle') : (Math.random() < 0.12 ? 'signature' : 'idle');
+      react(seat, anim, 0);
+      passive[seat] = now + clipLength(anim) + (myTurn ? 2500 : 4500) + Math.random() * 5000;
+      cur = playing[seat];
+    }
+  }
+  return cur;
+}
+function drawPortraits(force) {
+  if (!S || !S.players) return;
+  const now = performance.now();
+  for (const el of $app.querySelectorAll('.portrait[data-seat]')) {
+    const seat = el.dataset.seat, p = S.players[seat];
+    if (!p || (!p.role && !p.boss)) continue;
+    const cur = nowPlaying(seat, now);
+    const emote = el.querySelector('.emote');
+    const showEmote = cur && cur.anim !== 'idle' ? cur.anim : '';
+    if (emote && emote.dataset.a !== showEmote) { emote.dataset.a = showEmote; emote.textContent = EMOTE[showEmote] || ''; }
+    if (p.boss) { if (el.dataset.react !== showEmote) el.dataset.react = showEmote; continue; }
+    const cv = el.querySelector('canvas');
+    if (!cv) continue;
+    let anim = cur ? cur.anim : 'idle';
+    let frame = cur ? Math.floor((now - cur.start) / 1000 * CHAR_ANIM.anims[anim].fps) % CHAR_ANIM.frames : 0;
+    let im = sprite(p.role, anim);
+    if (!im.complete || !im.naturalWidth) { anim = 'idle'; frame = 0; im = sprite(p.role, 'idle'); } // still loading
+    if (!im.complete || !im.naturalWidth) continue;
+    const key = anim + frame;
+    if (!force && cv.dataset.k === key) continue;
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(im, frame * CHAR_ANIM.w, 0, CHAR_ANIM.w, CHAR_ANIM.h, 0, 0, cv.width, cv.height);
+    cv.dataset.k = key;
+  }
+}
+(function loop() { drawPortraits(false); requestAnimationFrame(loop); })();
+
 // ---------- bot speech bubbles ----------
 const $bubbles = document.getElementById('bubbles');
 function placeBubbles() {
@@ -809,6 +944,7 @@ async function playDeal() {
 // ---------- wiring ----------
 function wire() {
   const q = (sel, fn) => $app.querySelectorAll(sel).forEach(el => el.addEventListener('click', e => { e.stopPropagation(); fn(el, e); }));
+  q('#speed', () => lobby('speed', { speed: SPEED_ORDER[(SPEED_ORDER.indexOf(S.speed) + 1) % SPEED_ORDER.length] }));
   q('#mute', () => { muted = !muted; try { localStorage.setItem('eg_mute', muted ? '1' : '0'); } catch {} render(); });
   q('#rules', () => { ui.showRules = true; ui.showLog = false; render(); });
   q('#notesBtn', () => { ui.showLog = !ui.showLog; ui.unread = 0; render(); });

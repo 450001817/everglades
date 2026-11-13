@@ -27,7 +27,7 @@
   --top: 46px;
   --gap: 10px;
   --hand: clamp(150px, 27vh, 270px);
-  --side: clamp(180px, 15vw, 250px);
+  --side: clamp(220px, 19vw, 320px); /* wide enough for each player's animated portrait */
   --upperH: calc(100dvh - var(--top) - var(--hand) - 3 * var(--gap));
   --board: min(var(--upperH), 40vw); /* the map sits beside the players */
   font-family: 'EGDigits', 'Pixelify Sans', 'Courier New', monospace;
@@ -109,14 +109,47 @@ input.field:focus { outline: 3px solid var(--brass); }
 .tablecol { grid-area: table; min-height: 0; min-width: 0; container-type: size; }
 .handarea { grid-area: hand; min-height: 0; container-type: size; display: flex; flex-direction: column; gap: 8px; }
 
-/* players */
-.players { padding: 8px 8px 6px 28px; flex: 1; min-height: 0; overflow-y: auto; }
-.pl { padding: 3px 6px 4px; border: 3px solid transparent; cursor: pointer; }
+/* players: one row per player, each with its animated character portrait.
+   Portraits shrink with the number of players (--rows) so the whole table always fits without scrolling. */
+.players {
+  padding: 8px 8px 6px 28px; flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;
+  /* row = portrait + 13px padding/border + 4px gap; panel = ~46px of padding, border and title */
+  --ph: clamp(40px, calc((var(--upperH) - 50px) / var(--rows, 4) - 18px), 124px);
+}
+.players .panel-title .hint { font-size: 15px; text-transform: none; letter-spacing: 0; }
+.pl { padding: 3px 6px 4px 3px; border: 3px solid transparent; cursor: pointer; display: flex; gap: 8px; align-items: center; min-width: 0; }
+.pl .info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .pl:hover { background: var(--paper-2); }
 .pl.turn { border-color: var(--ink); background: #fff3c4; }
 .pl .nm { font-weight: 700; font-size: 16px; display: flex; gap: 5px; align-items: center; white-space: nowrap; overflow: hidden; }
 .pl .nm .name { overflow: hidden; text-overflow: ellipsis; }
 .pl .meta { font-family: 'EGDigits', 'VT323', monospace; font-size: 17px; color: var(--ink-soft); line-height: 1; display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* animated character portraits */
+.portrait {
+  position: relative; flex-shrink: 0; height: var(--ph, 56px); aspect-ratio: 128 / 110;
+  border: 3px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); background: #2b2735;
+}
+.portrait canvas, .portrait img { width: 100%; height: 100%; display: block; image-rendering: pixelated; object-fit: cover; }
+.pl.turn .portrait { outline: 3px solid var(--brass); outline-offset: 1px; }
+.portrait.empty { display: grid; place-items: center; background: repeating-linear-gradient(45deg, #3a3546 0 6px, #2b2735 6px 12px); }
+.portrait.empty .q { color: var(--paper); font-weight: 700; font-size: calc(var(--ph, 56px) * .45); line-height: 1; animation: blink 1.2s steps(2) infinite; }
+.portrait .emote {
+  position: absolute; right: -7px; top: -9px; min-width: 20px; padding: 0 4px; text-align: center;
+  background: var(--paper); color: var(--ink); border: 2px solid var(--ink); box-shadow: 2px 2px 0 var(--ink);
+  font-weight: 700; font-size: 14px; line-height: 16px; pointer-events: none;
+}
+.portrait .emote:empty { display: none; }
+.portrait .emote[data-a="cheer"] { background: var(--brass); }
+.portrait .emote[data-a="upset"] { background: #c9c3d6; }
+.portrait .emote[data-a="shock"] { background: var(--red); color: #fff; animation: emotepop .3s steps(3) infinite alternate; }
+.portrait .emote[data-a="signature"] { background: #bfe6d0; }
+.portrait .emote[data-a="think"] { background: #fff3c4; }
+@keyframes emotepop { to { transform: translateY(-3px); } }
+/* the Anaconda's portrait is a still image: it rattles when it wins a trick or feeds */
+.portrait.boss { border-color: var(--red); }
+.portrait.boss[data-react="cheer"] img { animation: rattle .35s steps(4) 3; }
+@keyframes rattle { 25% { transform: translate(-3px, 1px) rotate(-3deg); } 75% { transform: translate(3px, -1px) rotate(3deg); } }
 .pl .rolename { color: var(--leather-2); text-decoration: underline dotted; }
 .pl .you { color: var(--red); }
 .arrow { color: var(--red); }
@@ -178,6 +211,24 @@ input.field:focus { outline: 3px solid var(--brass); }
 .suitbadge { display: inline-block; padding: 0 8px; border: 3px solid var(--ink); color: #fff; font-weight: 700; align-self: flex-start; }
 .suit-Water { background: var(--water); } .suit-Wetland { background: var(--wetland); } .suit-Land { background: var(--land); }
 .lastline { font-family: 'EGDigits', 'VT323', monospace; font-size: 18px; line-height: 1.05; }
+
+/* a finished trick, held on screen for a moment: the winning card is raised, outlined and stamped */
+.trickdone .winline { font-weight: 700; font-size: clamp(16px, 3.6cqh, 22px); color: var(--brass); text-shadow: 2px 2px 0 var(--ink); line-height: 1.1; }
+.trickdone .crisisline { align-self: flex-start; background: var(--red); color: #fff; border: 3px solid var(--ink); padding: 0 8px; font-weight: 700; animation: blink .5s steps(2) infinite; }
+.trickdone .played { padding-top: 14px; }
+.card.winner { z-index: 2; outline: 5px solid var(--brass); outline-offset: 2px; transform: translateY(-12px) scale(1.06); animation: winglow .8s steps(2) infinite; }
+.trickdone.crisis .card.winner { outline-color: var(--red); }
+.card.loser { filter: grayscale(.55) brightness(.7); }
+.winribbon {
+  position: absolute; left: -8px; right: -8px; top: 38%; transform: rotate(-8deg); z-index: 3;
+  background: var(--brass); color: var(--ink); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink);
+  text-align: center; font-weight: 700; font-size: clamp(11px, 2.6cqh, 18px); letter-spacing: 1px; padding: 1px 0;
+}
+.trickdone.crisis .winribbon { background: var(--red); color: #fff; }
+@keyframes winglow { 50% { outline-color: #fff3c4; box-shadow: 0 0 0 8px rgba(214, 173, 85, .35), 3px 3px 0 var(--ink); } }
+.holdbar { margin-top: auto; height: 8px; border: 2px solid var(--ink); background: rgba(0,0,0,.25); }
+.holdbar span { display: block; height: 100%; background: var(--brass); animation-name: holddown; animation-timing-function: linear; animation-fill-mode: both; }
+@keyframes holddown { from { width: 100%; } to { width: 0; } }
 
 /* role draft */
 .rolegrid { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; align-content: flex-start; padding: 6px; }
@@ -285,9 +336,12 @@ input.field:focus { outline: 3px solid var(--brass); }
   .side { display: none; }
   .players-mini { display: flex !important; }
 }
-.players-mini { display: none; gap: 6px; flex-wrap: wrap; }
-.players-mini .pl { padding: 0 5px; border-width: 2px; }
+.players-mini { display: none; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+.players-mini .pl { padding: 2px 6px 2px 2px; border-width: 2px; gap: 5px; background: rgba(0,0,0,.18); --ph: clamp(34px, 8cqh, 52px); }
 .players-mini .pl.turn { color: var(--ink); }
+.players-mini .portrait { border-width: 2px; box-shadow: none; }
+.players-mini .portrait .emote { font-size: 11px; line-height: 12px; min-width: 15px; right: -6px; top: -7px; }
+.players-mini .pl .nm { font-size: 14px; }
 /* phones in portrait: everything shrinks to one column */
 @media (max-width: 700px) and (orientation: portrait) {
   :root { --hand: 26dvh; --board: 30dvh; }
@@ -354,7 +408,6 @@ input.field:focus { outline: 3px solid var(--brass); }
 /* co-op boss */
 .modepick { display: flex; gap: 4px; }
 .bossthumb { width: 64px; height: 64px; border: 3px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); flex-shrink: 0; cursor: help; }
-.bossthumb.sm { width: 22px; height: 22px; border-width: 2px; box-shadow: none; }
 .pl.boss { background: #f6e3dc; border-color: var(--red); border-style: dashed; }
 .pl.boss.turn { background: #ffd9cf; border-style: solid; }
 .tag.bosstag { background: var(--red); color: #fff; font-size: 14px; padding: 0 4px; }

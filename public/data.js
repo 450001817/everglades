@@ -175,7 +175,19 @@
     goals: ['5 pts for each map objective the players miss', '5 pts for each trick won', '3 pts for each region with an Invasive majority', 'Wins all ties'],
   };
 
-  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS };
+  // Animated character portraits (made with PixelLab from the role-card portraits).
+  // Each animation is one horizontal strip: `frames` frames of w x h, frame 0 = the role card's portrait.
+  // fps = playback speed, loops = how many times a reaction plays before going back to idle.
+  const CHAR_ANIM = {
+    frames: 9, w: 128, h: 110,
+    anims: {
+      idle: { fps: 7 }, think: { fps: 6 }, signature: { fps: 8 },
+      cheer: { fps: 9, loops: 2 }, upset: { fps: 7 }, shock: { fps: 8 },
+    },
+    src: (role, anim) => 'assets/characters/' + role + '/' + anim + '.png',
+  };
+
+  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS, CHAR_ANIM };
   if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
   else root.EG_DATA = DATA;
 })(typeof window !== 'undefined' ? window : globalThis);
