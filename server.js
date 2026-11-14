@@ -38,6 +38,12 @@ const SPEEDS = {
 };
 const pace = room => SPEEDS[room.speed] || SPEEDS.normal;
 const DEAL_PAUSE_MS = 5200; // the shuffle-and-deal animation
+// Turn timer: every person gets TURN_MS for each turn (a role pick, a biome choice, a card with its follow-up steps,
+// a Disruption pick or commit). When it runs out a bot plays that turn for them and they get a strike; at
+// MAX_STRIKES they are removed and a bot keeps their seat. Always on at public tables; private tables can turn it
+// off in the lobby. Never used in the tutorial.
+const TURN_MS = +process.env.TURN_MS || 60000; // (TURN_MS can be shortened for tests: see test/timer.js)
+const MAX_STRIKES = 3;
 const MIN_TABLE = 4; // bots fill seats up to this many players
 const BOT_NAMES = ['Gator Bot', 'Heron Bot', 'Manatee Bot', 'Otter Bot', 'Panther Bot', 'Stork Bot'];
 
@@ -54,6 +60,7 @@ const rid = () => crypto.randomBytes(12).toString('hex');
 function newRoom() {
   const room = { code: code(), members: [], hostPid: null, game: G.newGame(), clients: new Set(), touched: Date.now(), botTimer: null, chatter: [], chatId: 0, pauseUntil: 0, tricksSeen: 0,
     reactions: [], reactId: 0, evSeen: 0, speed: 'normal',
+    public: false, turnTimer: true, strikes: {}, deadline: null, deadlineTimer: null, // see TURN_MS
     buyIn: A.ECON.buyIns[0], gameId: null, settlement: null };
   rooms.set(room.code, room);
   return room;
@@ -81,7 +88,9 @@ function viewFor(room, member) {
   const base = {
     room: room.code, phase: s.phase, seq: s.seq,
     you: me, yourPid: member ? member.pid : null, isHost: !!member && member.pid === room.hostPid,
-    tutorial: !!room.tutorial, mode: room.mode || 'solo', partners: room.mode === 'partners', coop: room.mode === 'coop',
+    tutorial: !!room.tutorial, public: !!room.public, turnTimer: timerOn(room), turnLimitMs: TURN_MS, maxStrikes: MAX_STRIKES,
+    deadline: room.deadline ? { seats: room.deadline.seats, at: room.deadline.at } : null, serverNow: Date.now(),
+    mode: room.mode || 'solo', partners: room.mode === 'partners', coop: room.mode === 'coop',
     disruptions: s.phase === 'lobby' ? !!room.disruptions : !!s.disruptions,
     speed: SPEEDS[room.speed] ? room.speed : 'normal', trickPauseMs: Math.round(pace(room).trick),
     buyIn: room.buyIn, buyIns: A.ECON.buyIns,
@@ -100,7 +109,7 @@ function viewFor(room, member) {
     players: s.players.map((p, i) => {
       const a = memberAccount(room.members.find(x => x.pid === p.id));
       return {
-        name: p.name, bot: p.bot, boss: !!p.boss, team: p.team, handCount: p.hand.length, pileCount: p.pile.length, tricks: p.biomesWon.length,
+        name: p.name, bot: p.bot, boss: !!p.boss, team: p.team, handCount: p.hand.length, strikes: room.strikes[p.id] || 0, pileCount: p.pile.length, tricks: p.biomesWon.length,
         biomesWon: p.biomesWon, online: p.bot || connected.has(p.id),
         role: p.role, // roles are public
         skin: a && typeof p.role === 'string' ? A.skinFor(a, p.role) : null, // the look everyone sees for this player's character
@@ -181,8 +190,10 @@ function settleRoom(room) {
 }
 
 function broadcast(room) {
+  G.autoBots(room.game); // bots decide at once in the simultaneous parts, before everyone is told what's going on
   drainEvents(room);
   settleRoom(room);
+  updateTurnTimer(room); // so the view carries the current turn's deadline
   room.touched = Date.now();
   for (const c of room.clients) {
     const m = room.members.find(x => x.pid === c.pid);
@@ -191,9 +202,75 @@ function broadcast(room) {
   scheduleBot(room);
 }
 
+// ---------- turn timer (see TURN_MS) ----------
+const timerOn = room => !room.tutorial && (room.public || room.turnTimer !== false);
+// The people the game is waiting on right now (bots never time out).
+function humansPending(s) {
+  if (!['draft', 'choose', 'play', 'disrupt', 'ddraft'].includes(s.phase)) return [];
+  const w = G.waitingOn(s);
+  if (w >= 0) return s.players[w] && !s.players[w].bot ? [w] : [];
+  return G.pendingSimultaneous(s).filter(p => s.players[p] && !s.players[p].bot);
+}
+// What counts as "one turn": steps inside it (an ability, a hunt, placing tokens) don't restart the clock, and in the
+// simultaneous parts (Disruption draft and commits) everyone shares one clock.
+function turnKey(s, seats) {
+  const simultaneous = G.waitingOn(s) < 0;
+  return [s.phase, s.round, s.trick ? s.trick.pos : '-', s.draftTurn, s.ddraft ? s.ddraft.round : '', s.dqueue ? s.dqueue.length : '',
+    simultaneous ? 'all' : seats.join(',')].join('|');
+}
+function clearDeadline(room) { if (room.deadlineTimer) clearTimeout(room.deadlineTimer); room.deadlineTimer = null; room.deadline = null; }
+function updateTurnTimer(room) {
+  const s = room.game, seats = timerOn(room) ? humansPending(s) : [];
+  if (!seats.length) return clearDeadline(room);
+  const key = turnKey(s, seats);
+  if (room.deadline && room.deadline.key === key) { room.deadline.seats = seats; return; }
+  clearDeadline(room);
+  const at = Math.max(Date.now(), room.pauseUntil || 0) + TURN_MS; // the clock starts after the end-of-trick pause
+  room.deadline = { key, seats, at };
+  room.deadlineTimer = setTimeout(() => turnExpired(room, key), at - Date.now() + 100);
+}
+function turnExpired(room, key) {
+  room.deadlineTimer = null;
+  if (!room.deadline || room.deadline.key !== key) return;
+  const s = room.game;
+  room.deadline = null;
+  for (const p of humansPending(s)) {
+    const pl = s.players[p];
+    const n = room.strikes[pl.id] = (room.strikes[pl.id] || 0) + 1;
+    if (n >= MAX_STRIKES) { kickToBot(room, p); continue; }
+    s.log.push(`${pl.name} ran out of time, so a bot played that turn for them (${n}/${MAX_STRIKES}).`);
+    autoPlay(room, p);
+  }
+  broadcast(room);
+}
+// A bot finishes this player's current turn (they stay seated).
+function autoPlay(room, p) {
+  const s = room.game, pl = s.players[p];
+  try {
+    if (G.waitingOn(s) < 0) { pl.bot = true; G.autoBots(s); pl.bot = false; return; } // a draft pick or Disruption commit
+    for (let g = 0; g < 60 && G.waitingOn(s) === p && !pl.bot; g++) G.applyAction(s, p, G.botAction(s, p));
+  } catch (e) { pl.bot = false; console.error('auto-play error', e); }
+}
+// Third strike: the player is removed and a bot takes their seat for the rest of the game. Their buy-in stays in the
+// pot and they get no payout (the house keeps the bot's winnings, as for every bot).
+function kickToBot(room, p) {
+  const s = room.game, pl = s.players[p];
+  const oldPid = pl.id, name = pl.name;
+  const bot = { token: rid(), pid: rid().slice(0, 8), name: cleanName(name).slice(0, 10) + ' (bot)', bot: true, accountId: null, unlocks: [] };
+  room.members = room.members.filter(x => x.pid !== oldPid).concat([bot]);
+  pl.id = bot.pid; pl.name = bot.name; pl.bot = true;
+  if (room.hostPid === oldPid) room.hostPid = (room.members.find(x => !x.bot) || {}).pid || null;
+  s.log.push(`${name} ran out of time ${MAX_STRIKES} times and was removed. A bot plays their seat now.`);
+  for (const c of [...room.clients]) if (c.pid === oldPid) { // tell their browser, then hang up
+    try { c.res.write(`event: kicked\ndata: ${JSON.stringify({ strikes: MAX_STRIKES })}\n\n`); c.res.end(); } catch (e) {}
+    room.clients.delete(c);
+  }
+}
+
 function scheduleBot(room) {
   const s = room.game;
   G.autoBots(s); // bots decide at once in the simultaneous parts (Disruption draft and commits)
+  updateTurnTimer(room);
   if (!['draft', 'choose', 'play', 'disrupt'].includes(s.phase)) return;
   // a trick just finished: everyone sees the finished trick (winning card highlighted) for a moment.
   // Tracked even when a person moves next, so the pause isn't applied a second time later.
@@ -378,6 +455,23 @@ const server = http.createServer(async (req, res) => {
         room.hold = true; // the coach's welcome is on screen first
         return send(res, 200, { room: room.code, token: m.token });
       }
+      if (op === 'quickjoin') {
+        // Join a random public table that's still in its lobby, has room, has someone there, and whose buy-in you can
+        // cover. If there isn't one, start a new public table with you as host.
+        const account = A.requireAccount(body.session);
+        const open = [...rooms.values()].filter(r => r.public && !r.tutorial && r.game.phase === 'lobby' && r.members.length < G.MAX_PLAYERS
+          && r.clients.size > 0 && account.balance >= r.buyIn && !r.members.some(x => x.accountId === account.id));
+        if (open.length) {
+          const room = open[Math.floor(Math.random() * open.length)];
+          const m = addMember(room, null, false, account);
+          broadcast(room);
+          return send(res, 200, { room: room.code, token: m.token, created: false });
+        }
+        const room = newRoom();
+        room.public = true;
+        const m = addMember(room, null, false, account);
+        return send(res, 200, { room: room.code, token: m.token, created: true });
+      }
       if (op === 'join') {
         const account = A.requireAccount(body.session);
         const room = rooms.get(String(body.room || '').toUpperCase().trim());
@@ -405,6 +499,15 @@ const server = http.createServer(async (req, res) => {
           if (!isHost) return send(res, 403, { error: 'Only the host can change the speed.' });
           room.speed = SPEEDS[body.speed] ? body.speed : 'normal';
           if (room.botTimer) { clearTimeout(room.botTimer); room.botTimer = null; } // re-time the pending bot move
+        } else if (body.cmd === 'visibility' && s.phase === 'lobby') {
+          // public tables can be joined by anyone (Join a random public table); private ones only with the code
+          if (!isHost) return send(res, 403, { error: 'Only the host can change that.' });
+          room.public = !!body.public;
+          if (room.public) room.turnTimer = true; // public tables always use the turn timer
+        } else if (body.cmd === 'timer' && s.phase === 'lobby') {
+          if (!isHost) return send(res, 403, { error: 'Only the host can change that.' });
+          if (room.public && !body.on) return send(res, 400, { error: 'Public tables always use the turn timer.' });
+          room.turnTimer = !!body.on;
         } else if (body.cmd === 'hold' && room.tutorial) {
           // Tutorial: the bots wait while the coach is explaining something
           room.hold = !!body.on;
@@ -460,7 +563,7 @@ const server = http.createServer(async (req, res) => {
             room.game = G.newGame();
             for (const x of room.members) G.addPlayer(room.game, { id: x.pid, name: x.name, bot: x.bot, team: room.mode === 'partners' ? x.team : null });
             G.startGame(room.game, { partners: room.mode === 'partners', coop: room.mode === 'coop', disruptions: !!room.disruptions });
-            room.chatter = []; room.tricksSeen = 0; resetReactions(room);
+            room.chatter = []; room.tricksSeen = 0; resetReactions(room); room.strikes = {}; clearDeadline(room);
             room.pauseUntil = Date.now() + DEAL_PAUSE_MS; // let the shuffle-and-deal animation play first
           } else if (body.cmd === 'botify') {
             // Hand a seat to a bot (e.g. someone left mid-game).
@@ -468,7 +571,7 @@ const server = http.createServer(async (req, res) => {
             if (i >= 0) { s.players[i].bot = true; s.players[i].name += ' (bot)'; const x = room.members.find(y => y.pid === body.pid); if (x) x.bot = true; }
           } else if (body.cmd === 'rematch') {
             if (room.gameId) { A.refundEscrow(room.gameId); room.gameId = null; } // abandoned before the end: refund
-            room.game = G.newGame(); resetReactions(room); room.settlement = null;
+            room.game = G.newGame(); resetReactions(room); room.settlement = null; room.strikes = {}; clearDeadline(room);
             for (const x of room.members) x.unlocks = [];
           } else return send(res, 400, { error: 'Unknown command.' });
         }

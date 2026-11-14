@@ -800,7 +800,8 @@ function connect() {
   if (es) es.close();
   if (!sess) return render();
   es = new EventSource(`/api/events?room=${encodeURIComponent(sess.room)}&token=${encodeURIComponent(sess.token)}`);
-  es.onmessage = ev => { const prev = S; S = JSON.parse(ev.data); onUpdate(prev); render(); };
+  es.onmessage = ev => { const prev = S; S = JSON.parse(ev.data); if (S.serverNow) ui.clockSkew = S.serverNow - Date.now(); onUpdate(prev); render(); };
+  es.addEventListener('kicked', () => leave(`You ran out of time ${S && S.maxStrikes || 3} times, so a bot took over your seat.`));
   es.onerror = async () => { try { await api('lobby', { cmd: 'ping' }); } catch (e) { /* api() handles a vanished room */ } };
 }
 function leave(msg) {
@@ -945,6 +946,7 @@ function renderLanding() {
       ${accountPanelHtml()}
       <button id="create" class="btn primary" ${acct.me ? '' : 'disabled'}>Start a new table</button>
       <button id="tutorial" class="btn brass" ${acct.me ? '' : 'disabled'} title="A short guided game against two bots. Free, nothing at stake.">New here? Learn to play</button>
+      <button id="quickjoin" class="btn" ${acct.me ? '' : 'disabled'} title="Join a public table that's waiting for players (or start one)">Join a random public table</button>
       <div class="divider">— or join friends —</div>
       <div class="row" style="flex-wrap:nowrap">
         <input id="code" class="field codefield" maxlength="4" placeholder="CODE" value="${esc(qRoom)}" style="width:170px" autocomplete="off" autocapitalize="characters" spellcheck="false">
@@ -964,6 +966,12 @@ function renderLanding() {
   };
   document.getElementById('create').onclick = () => go('create', {});
   document.getElementById('tutorial').onclick = () => startTutorial();
+  document.getElementById('quickjoin').onclick = async () => {
+    try {
+      const r = await acctApi('quickjoin', {}); enterRoom(r);
+      setTimeout(() => showToast(r.created ? 'No public tables were open, so you started one. Anyone can join it now.' : 'You joined a public table!', false, 4200), 400);
+    } catch (e) { ui.err = e.message; renderLanding(); }
+  };
   const join = () => {
     const code = document.getElementById('code').value.trim().toUpperCase();
     if (!code) { ui.err = 'Type the 4-letter room code.'; return renderLanding(); }
@@ -1038,6 +1046,16 @@ function renderLobby() {
         ${S.isHost ? `<div class="modepick"><button class="btn small ${S.disruptions ? 'brass' : ''}" data-dis="1">On</button><button class="btn small ${S.disruptions ? '' : 'brass'}" data-dis="0">Off</button></div>` : ''}
       </div>
       <div class="row" style="justify-content:space-between">
+        <div><div class="panel-title" style="margin:0">Table</div>
+          <span style="font-size:18px">${S.public ? 'Public' : 'Private'}</span> <span class="hint">${S.public ? '— anyone can join with “Join a random public table”' : '— only people with the code or link can join'}</span></div>
+        ${S.isHost ? `<div class="modepick"><button class="btn small ${S.public ? '' : 'brass'}" data-public="0">Private</button><button class="btn small ${S.public ? 'brass' : ''}" data-public="1">Public</button></div>` : ''}
+      </div>
+      <div class="row" style="justify-content:space-between">
+        <div><div class="panel-title" style="margin:0">Turn timer</div>
+          <span style="font-size:18px">${S.turnTimer ? `${Math.round(S.turnLimitMs / 1000)} seconds` : 'Off'}</span> <span class="hint">${S.turnTimer ? `— run out of time and a bot plays that turn; ${S.maxStrikes} times and a bot takes your seat` : '— take as long as you like'}${S.public ? ' · always on at public tables' : ''}</span></div>
+        ${S.isHost && !S.public ? `<div class="modepick"><button class="btn small ${S.turnTimer ? 'brass' : ''}" data-timer="1">On</button><button class="btn small ${S.turnTimer ? '' : 'brass'}" data-timer="0">Off</button></div>` : ''}
+      </div>
+      <div class="row" style="justify-content:space-between">
         <div><div class="panel-title" style="margin:0">Bot speed</div>
           <span style="font-size:18px">${SPEED_LABEL[S.speed] || 'Normal'}</span> <span class="hint">${({ slow: '— relaxed, plenty of time to read', normal: '— steady pace', fast: '— quick games' })[S.speed] || ''}</span></div>
         ${S.isHost ? `<div class="modepick">${SPEED_ORDER.map(sp =>
@@ -1093,6 +1111,8 @@ function renderLobby() {
     $app.querySelectorAll('[data-speed]').forEach(b => b.onclick = () => lobby('speed', { speed: b.dataset.speed }));
     $app.querySelectorAll('[data-dis]').forEach(b => b.onclick = () => lobby('disruptions', { on: b.dataset.dis === '1' }));
     $app.querySelectorAll('[data-buyin]').forEach(b => b.onclick = () => lobby('buyin', { amount: +b.dataset.buyin }));
+    $app.querySelectorAll('[data-public]').forEach(b => b.onclick = () => lobby('visibility', { public: b.dataset.public === '1' }));
+    $app.querySelectorAll('[data-timer]').forEach(b => b.onclick = () => lobby('timer', { on: b.dataset.timer === '1' }));
     document.getElementById('addbot').onclick = () => lobby('addBot');
     document.getElementById('start').onclick = () => lobby('start');
     $app.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => lobby('remove', { pid: b.dataset.remove }));
@@ -1180,9 +1200,9 @@ function playersHtml(mini) {
       </div></div>`;
     return `<div class="pl ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" ${role ? peekAttrs(p.role, p.skin) : ''}>${portraitHtml(i, p)}
       <div class="info">
-        <div class="nm">${arrow}<span class="name">${esc(p.name)}</span>${i === S.you ? '<span class="you">(you)</span>' : ''}${p.online ? '' : '<span class="dot off" title="offline"></span>'}</div>
+        <div class="nm">${arrow}<span class="name">${esc(p.name)}</span>${i === S.you ? '<span class="you">(you)</span>' : ''}${p.online ? '' : '<span class="dot off" title="offline"></span>'}${mini ? clockFor(i) : ''}${p.strikes ? `<span class="idletag" title="Ran out of time ${p.strikes} of ${S.maxStrikes} times">idle ${p.strikes}/${S.maxStrikes}</span>` : ''}</div>
         ${mini ? `<div class="mini-meta">${role ? esc(role.name) : 'choosing…'} · ${p.tricks} won</div>` : `<div class="meta">${role ? `<span class="rolename">${esc(role.name)}</span>` : '<span>choosing role…</span>'}${teamTag(p.team)}</div>
-        <div class="meta"><span>Hand ${p.handCount}</span><span>Tricks ${p.tricks}</span></div>`}
+        <div class="meta"><span>Hand ${p.handCount}</span><span>Tricks ${p.tricks}</span>${clockFor(i)}</div>`}
         ${!mini && S.isHost && !p.online && !p.bot && S.phase !== 'ended' ? `<button class="btn small" data-botify="${S.lobby.find(m => m.name === p.name)?.pid || ''}">Give seat to a bot</button>` : ''}
       </div></div>`;
   }).join('');
@@ -1429,6 +1449,27 @@ const isPhone = () => phoneMQ.matches;
 phoneMQ.addEventListener?.('change', () => { if (S && S.phase !== 'lobby') render(); });
 addEventListener('scroll', () => { if (Object.keys(ui.bubbles).length) placeBubbles(); }, { passive: true });
 
+// ---------- turn timer display ----------
+// A countdown for seat i if the server's turn clock is running for it (see TURN_MS in server.js). The numbers are
+// updated every second by tickClocks() without redrawing the page.
+function clockFor(i, big = false) {
+  const d = S && S.deadline;
+  if (!d || i < 0 || !d.seats.includes(i) || S.phase === 'ended' || holding()) return '';
+  return `<span class="turnclock ${big ? 'big' : ''}" data-at="${d.at}" title="Time left for this turn">${clockText(d.at)}</span>`;
+}
+function clockText(at) {
+  const left = Math.max(0, Math.ceil((at - (Date.now() + (ui.clockSkew || 0))) / 1000));
+  return `⏱ ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+}
+function tickClocks() {
+  for (const el of document.querySelectorAll('.turnclock')) {
+    const at = +el.dataset.at, left = (at - (Date.now() + (ui.clockSkew || 0))) / 1000;
+    el.textContent = clockText(at);
+    el.classList.toggle('low', left <= 10);
+  }
+}
+setInterval(tickClocks, 500);
+
 function promptHtml() {
   const myTurn = isMine();
   const w = S.waiting >= 0 ? S.players[S.waiting] : null;
@@ -1437,7 +1478,7 @@ function promptHtml() {
     return `<div class="paper spiral prompt"><div class="msg">${esc(S.players[lt.winner].name)} wins the trick!<small>${S.phase === 'ended' ? 'Final scores coming up…' : 'Next round in a moment…'}</small></div></div>`;
   }
   if (S.phase === 'ended') return `<div class="paper spiral prompt"><div class="msg">Game over!</div></div>`;
-  const yours = (msg, buttons = '') => `<div class="paper spiral prompt yours"><div class="msg">${msg}</div>${buttons}</div>`;
+  const yours = (msg, buttons = '') => `<div class="paper spiral prompt yours">${clockFor(S.you, true)}<div class="msg">${msg}</div>${buttons}</div>`;
   const names = list => esc(list.map(p => S.players[p].name).join(', '));
   // Disruptions: the simultaneous parts (everyone decides at once)
   if (S.phase === 'ddraft' && S.ddraft) {
@@ -1456,7 +1497,7 @@ function promptHtml() {
     if (S.step?.type === 'dis') what = `to resolve ${DISRUPTIONS[S.step.card].name}`;
     return `<div class="paper spiral prompt"><div class="msg">Waiting for ${esc(w ? w.name : '…')} ${what}…<small>${isPhone() ? 'Press and hold any card or player' : 'Hover any card'} for a second to read it.</small></div></div>`;
   }
-  const box = (msg, buttons = '') => `<div class="paper spiral prompt yours"><div class="msg">${msg}</div>${buttons}</div>`;
+  const box = (msg, buttons = '') => `<div class="paper spiral prompt yours">${clockFor(S.you, true)}<div class="msg">${msg}</div>${buttons}</div>`;
   if (S.phase === 'draft') return box(`Choose your role! ${isPhone() ? 'Tap' : 'Click'} a role card in the play area.<small>${isPhone() ? 'Press and hold' : 'Hover over'} a card to read its objectives. Your hand is already dealt, so plan around it.</small>`);
   if (S.phase === 'choose') return box('You lead! Pick a biome in the glowing travel row.<small>Its type sets the lead suit, and its region is where everyone populates.</small>');
   const st = S.step;
