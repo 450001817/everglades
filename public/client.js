@@ -1135,8 +1135,7 @@ function ownsFoil(id) {
   const owned = (S && S.myAccount && S.myAccount.owned) || (acct.me && acct.me.owned) || [];
   return owned.includes('foil:' + id);
 }
-const ownsAllFoil = () => ((S && S.myAccount && S.myAccount.owned) || (acct.me && acct.me.owned) || []).includes('foilall:green'); // staff: green foil on every card
-const foil = id => ownsAllFoil() ? 'foil greenfoil' : ownsFoil(id) ? 'foil' : '';
+const foil = id => ownsFoil(id) ? 'foil' : '';
 function biomeEl(id, cls = '', extra = '') {
   const b = BIOMES[id];
   return `<div class="card bio ${cls}" data-peek="${b.img}" ${extra}><img src="${b.img}" alt="${esc(b.name)}"></div>`;

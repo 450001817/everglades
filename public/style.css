@@ -858,13 +858,6 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .pb-title.goblin::after { right: 6px; animation-delay: 1.2s; }
 @keyframes stinkpuff { 0% { opacity: 0; transform: translateY(4px) scale(.5); } 20% { opacity: .9; } 100% { opacity: 0; transform: translateY(-14px) scale(1.2); } }
 @media (prefers-reduced-motion: reduce) { .pb-title.goblin, .pb-title.goblin::before, .pb-title.goblin::after { animation: none; } .pb-title.goblin::before, .pb-title.goblin::after { opacity: 0; } }
-/* green foil (staff): the same foil sheen as bought foils, but in swamp greens */
-.card.foil.greenfoil::before {
-  opacity: .5;
-  background: linear-gradient(115deg, transparent 0%, transparent 32%, #1f7a2e 38%, #7dff5a 44%, #d9ffb0 50%, #3ce07a 56%, #0f5a2a 62%, transparent 68%, transparent 100%);
-  background-size: 300% 300%;
-}
-.card.foil.greenfoil { box-shadow: 0 0 0 2px #4fcf3a, 0 0 10px rgba(90, 220, 70, .55); }
 
 /* ---------- turn timer ---------- */
 .turnclock { display: inline-block; margin-left: 6px; padding: 0 5px; font-family: var(--font-small); font-size: 14px; line-height: 1.3; color: var(--ink); background: #fff3cf; border: 2px solid var(--ink); white-space: nowrap; }

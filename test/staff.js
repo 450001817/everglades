@@ -27,7 +27,7 @@ function idToken(sub, email, verified = true) {
   await A.ready;
   const EXCL = A.STORE.filter(i => i.exclusive).map(i => i.id);
   console.log('The items');
-  ok(EXCL.length === 9, `9 staff exclusives (6 goblin skins, stink splash, title, green foil): ${EXCL.join(', ')}`);
+  ok(EXCL.length === 8, `8 staff exclusives (6 goblin skins, stink splash, title): ${EXCL.join(', ')}`);
   ok(!A.config().store.some(i => i.exclusive), 'none of them are in the public store list');
 
   console.log('Ordinary players');
@@ -49,18 +49,20 @@ function idToken(sub, email, verified = true) {
 
   console.log('Staff account');
   const staff = (await A.googleLogin(idToken('sub-staff', 'staff.person@example.com'))).account;
-  ok(staff.staff && EXCL.every(id => staff.owned.includes(id)), 'the listed email (any capitals) unlocks all 9');
+  ok(staff.staff && EXCL.every(id => staff.owned.includes(id)), 'the listed email (any capitals) unlocks all 8');
   ok(staff.title === 'title_goblin' && staff.splash === 'stink', 'the title and stink cloud are switched on straight away');
   const pub = A.publicProfile(staff);
   ok(pub.titleName === 'Goblin Ink Game Staff' && pub.titleStyle === 'goblin' && pub.splash === 'stink', 'everyone else sees the green title and the stink cloud');
   A.setProfile(staff, { skin: { role: 'Hunter', id: 'gob_hunter' } });
   ok(A.skinFor(staff, 'Hunter') === 'gob_hunter', 'the goblin Hunter skin can be equipped and is what others see');
   ok(A.privateProfile(staff).unlocked.includes('skin:gob_hunter'), 'goblin profile pictures unlock too');
-  ok(A.privateProfile(staff).exclusiveStore.length === 9, "the staff member's own store lists the exclusives");
+  ok(A.privateProfile(staff).exclusiveStore.length === 8, "the staff member's own store lists the exclusives");
   A.setProfile(staff, { title: null, splash: null });
   const again = (await A.googleLogin(idToken('sub-staff', 'staff.person@example.com'))).account;
   ok(again === staff && again.title === null && again.splash === null, 'signing in again keeps their own choices (no re-equipping)');
   ok(!JSON.stringify(staff).includes('example.com'), 'the email address is never saved on the account');
+  staff.owned.push('foilall:green'); await A.googleLogin(idToken('sub-staff', 'staff.person@example.com'));
+  ok(!staff.owned.includes('foilall:green'), 'the retired green foil is removed from a staff account at its next sign-in');
 
   console.log(fails ? `\n${fails} staff check(s) FAILED.` : '\nAll staff checks passed.');
   process.exit(fails ? 1 : 0);

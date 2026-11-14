@@ -34,10 +34,9 @@ const STORE = [
   ...SPLASHES.map(s => ({ id: 'splash:' + s.id, type: 'splash', splash: s.id, name: s.name, price: s.price, blurb: s.blurb, exclusive: !!s.exclusive })),
   // ----- Goblin Ink staff exclusives (exclusive: true) -----
   // Never listed in the store or sold; unlocked only on staff accounts (STAFF_EMAILS below). Others still see the
-  // skins, title and splash effect in games; the green foil is only seen by its owner, like every foil.
+  // skins, title and splash effect in games.
   { id: 'title_goblin', type: 'title', style: 'goblin', name: 'Goblin Ink Game Staff', price: 0, exclusive: true,
     blurb: 'Goblin Ink staff exclusive: shimmering green, with a whiff of something awful.' },
-  { id: 'foilall:green', type: 'foilall', name: 'Green foil on every card', price: 0, exclusive: true, blurb: 'Goblin Ink staff exclusive.' },
 ];
 const EXCLUSIVE = STORE.filter(i => i.exclusive);
 const ownsChat = (a, id) => !!a && a.owned.includes('chat:' + id);
@@ -158,6 +157,7 @@ function grantStaff(a) {
   const first = !a.staff;
   a.staff = true;
   for (const it of EXCLUSIVE) if (!a.owned.includes(it.id)) a.owned.push(it.id);
+  a.owned = a.owned.filter(id => id !== 'foilall:green'); // the green foil was retired from the staff set
   if (first) { // wear the staff title and stink cloud straight away the first time
     a.title = 'title_goblin'; a.splash = 'stink';
     console.log(`Goblin Ink staff items unlocked for ${a.gamertag}`);
