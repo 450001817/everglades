@@ -799,7 +799,7 @@ function renderLanding() {
       <button id="tutorial" class="btn brass" ${acct.me ? '' : 'disabled'} title="A short guided game against two bots. Free, nothing at stake.">New here? Learn to play</button>
       <div class="divider">— or join friends —</div>
       <div class="row" style="flex-wrap:nowrap">
-        <input id="code" class="field" maxlength="4" placeholder="CODE" value="${esc(qRoom)}" style="text-transform:uppercase;letter-spacing:4px;width:150px">
+        <input id="code" class="field codefield" maxlength="4" placeholder="CODE" value="${esc(qRoom)}" style="width:170px" autocomplete="off" autocapitalize="characters" spellcheck="false">
         <button id="join" class="btn brass" style="flex:1" ${acct.me ? '' : 'disabled'}>Join table</button>
       </div>
       <div class="error">${esc(ui.err)}</div>
@@ -1207,7 +1207,7 @@ function renderGame() {
   $app.innerHTML = `
   <div class="topbar">
     <span class="logo-sm">EVERGLADES</span>
-    <span class="chip">${S.tutorial ? 'Tutorial' : 'Room ' + S.room}</span>
+    <span class="chip">${S.tutorial ? 'Tutorial' : 'Room <span class="code">' + S.room + '</span>'}</span>
     ${S.phase === 'draft' ? '<span class="chip">Role draft</span>' : S.phase !== 'ended' ? `<span class="chip">Round ${S.round}</span>` : ''}
     ${S.partners ? '<span class="chip">Partners</span>' : ''}${S.coop ? '<span class="chip" style="background:#f2d7c9">Co-op vs The Anaconda</span>' : ''}
     <span class="spacer"></span>
