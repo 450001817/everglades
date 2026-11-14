@@ -113,12 +113,12 @@ All the numbers (starting balance, daily bonus, buy-ins, unlock count) and the s
 
 1. Go to https://console.cloud.google.com, create a project, and open **APIs & Services → Credentials**. You'll be asked to fill in a basic **OAuth consent screen** first: an app name and your email.
 2. Click **Create credentials → OAuth client ID** and choose **Web application**.
-3. Under **Authorized JavaScript origins**, add every address the game is played from, for example `http://localhost:3000` and your Render address, like `https://your-game.onrender.com`. No redirect URIs are needed.
+3. Under **Authorized JavaScript origins**, add every address the game is played from, for example `http://localhost:3000` and your Render address, like `https://your-game.onrender.com`. Under **Authorized redirect URIs**, add `https://your-game.onrender.com/auth/google` (and `http://localhost:3000/auth/google` for local testing). iPhones, iPads and Safari sign in with a full-page redirect to that address, because Google's popup can get stuck on a blank white page there.
 4. Copy the **Client ID**, which ends in `.apps.googleusercontent.com`. Set it as the environment variable `GOOGLE_CLIENT_ID`:
    - On your computer, add `set GOOGLE_CLIENT_ID=...` to `start.bat` before the `node` line.
    - On Render, add it under **Environment**.
 
-The game only stores Google's anonymous user id, never your name or email. Once Google works you can turn off guest accounts with `ALLOW_GUEST_ACCOUNTS=0`.
+The game only stores Google's anonymous user id, never your name or email. If someone opens the game inside another app's built-in browser (Instagram, Facebook, TikTok and so on), Google refuses to sign them in, so the game shows a note asking them to open the page in Safari or their browser, with a Copy link button. On iPhone, iPad and Safari, guests are warned that Safari erases guest accounts after 7 days without a visit. Once Google works you can turn off guest accounts with `ALLOW_GUEST_ACCOUNTS=0`.
 
 ### Where accounts are saved (important when hosting)
 

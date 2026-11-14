@@ -805,3 +805,8 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
 
 .legal-links { margin: 0; font-size: 15px; text-align: center; }
 .legal-links a, .storepage .hint a { color: inherit; text-decoration: underline; }
+
+/* Google sign-in inside other apps' browsers, and the guest-account warning on Safari */
+.inapp { font-size: 16px; line-height: 1.35; padding: 8px 10px; background: #fff3cf; border: 2px dashed var(--brass); color: var(--ink); }
+.inapp .btn { margin-top: 6px; }
+.guestwarn { display: block; margin: 6px 0 0; font-size: 15px; color: var(--red); }

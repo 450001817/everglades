@@ -230,6 +230,32 @@ function readBody(req) {
     req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch (e) { reject(e); } });
   });
 }
+// Google sign-in, full-page redirect version (used on iPhone, iPad and Safari, where the popup can get stuck on a
+// blank white page). Google posts the sign-in here as a form. We check Google's anti-forgery token (the
+// g_csrf_token cookie must match the posted field), verify the sign-in, then hand the new session to the game
+// page and send the player back to the home page.
+async function googleRedirect(req, res) {
+  const page = (title, script, note) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+    res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title>
+<body style="margin:0;background:#2b2118;color:#fbf3df;font:18px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;text-align:center;padding:16px">
+<div><p>${note}</p><p><a href="/" style="color:#d6ad55">Back to Everglades</a></p></div>${script ? `<script>${script}</script>` : ''}</body>`);
+  };
+  try {
+    const form = new URLSearchParams(await readRaw(req));
+    const cookies = Object.fromEntries(String(req.headers.cookie || '').split(';').map(c => c.trim().split('=')).filter(p => p[0]).map(([k, ...v]) => [k, decodeURIComponent(v.join('='))]));
+    const csrf = form.get('g_csrf_token');
+    if (!csrf || csrf !== cookies.g_csrf_token) return page('Sign-in failed', '', 'That sign-in could not be checked. Please go back and try again.');
+    const r = await A.googleLogin(form.get('credential'));
+    A.dailyBonus(r.account);
+    // the game keeps its session token in localStorage under eg_acct (see setSession in client.js)
+    return page('Signing in…', `try{localStorage.setItem('eg_acct',${JSON.stringify(r.session)})}catch(e){}location.replace('/')`, 'Signed in! Taking you back to the game…');
+  } catch (e) {
+    if (!e.userError) console.error('google redirect sign-in', e);
+    return page('Sign-in failed', '', esc(e.userError ? e.message : 'Something went wrong signing in. Please try again.'));
+  }
+}
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function readRaw(req) {
   return new Promise((resolve, reject) => {
     const chunks = []; let n = 0;
@@ -273,6 +299,7 @@ const server = http.createServer(async (req, res) => {
       broadcast(room);
       return;
     }
+    if (req.method === 'POST' && url.pathname === '/auth/google') return googleRedirect(req, res);
     if (req.method === 'POST' && url.pathname === '/api/stripe/webhook') {
       // Stripe signs the exact bytes it sends, so this one reads the raw body (see payments.js)
       const raw = await readRaw(req);

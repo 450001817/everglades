@@ -214,12 +214,42 @@ async function signOut() {
   if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
   render();
 }
+// ---------- browsers that need special handling for Google sign-in ----------
+const UA = navigator.userAgent || '';
+const isIOS = /iPhone|iPad|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPads report as Macs
+const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; // saved to the home screen
+const isSafari = /Safari/.test(UA) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Edg\/|OPR\//.test(UA);
+// The built-in browsers of other apps, where Google refuses to sign anyone in ("Error 403: disallowed_useragent").
+const IN_APP = [['Instagram', /Instagram/], ['Facebook', /FBAN|FBAV|FB_IAB|FBIOS/], ['Messenger', /Messenger|MessengerForiOS/], ['TikTok', /TikTok|musical_ly|BytedanceWebview/],
+  ['Snapchat', /Snapchat/], ['LinkedIn', /LinkedInApp/], ['X', /Twitter/], ['Line', /\bLine\//], ['Discord', /Discord/], ['Reddit', /Reddit/]];
+function inAppBrowser() {
+  const hit = IN_APP.find(([, re]) => re.test(UA));
+  if (hit) return hit[0];
+  // any other app's built-in browser on iPhone/iPad (no "Safari" in its name, and not saved to the home screen)
+  if (isIOS && /AppleWebKit/.test(UA) && !/Safari/.test(UA) && !isStandalone && !/CriOS|FxiOS|EdgiOS|GSA\//.test(UA)) return 'this app';
+  return null;
+}
+// iPhone, iPad, Safari and home-screen mode: Google's sign-in popup can end on a blank white page, so these sign in
+// with a full-page redirect instead (Google posts the sign-in to /auth/google; see server.js).
+const googleRedirectMode = () => isIOS || isSafari || isStandalone;
+// Guest accounts live in browser storage, which Safari erases after 7 days without a visit.
+const guestAtRisk = () => (isIOS || isSafari) && !isStandalone;
+
 // "Sign in with Google" button (only when the server has a Google client id set up)
 let gsiReady = false;
 function mountGoogleButton() {
   const el = document.getElementById('gbtn');
   const cid = acct.config && acct.config.googleClientId;
   if (!el || !cid) return;
+  const app = inAppBrowser();
+  if (app) {
+    el.innerHTML = `<div class="inapp">Google doesn't allow signing in inside ${esc(app === 'this app' ? 'this app' : app)}'s built-in browser.
+      <b>Open this page in ${isIOS ? 'Safari' : 'your browser'}</b>: tap the <b>•••</b> or share menu and choose <i>Open in ${isIOS ? 'Safari' : 'browser'}</i>.
+      <button class="btn small" id="copyLink" type="button">Copy link</button></div>`;
+    const b = document.getElementById('copyLink');
+    if (b) b.onclick = async () => { try { await navigator.clipboard.writeText(location.href); b.textContent = 'Copied!'; } catch { b.textContent = location.href; } };
+    return;
+  }
   if (!(window.google && google.accounts && google.accounts.id)) {
     if (!document.getElementById('gsi')) {
       const s = document.createElement('script'); s.id = 'gsi'; s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
@@ -227,7 +257,16 @@ function mountGoogleButton() {
     }
     return;
   }
-  if (!gsiReady) { google.accounts.id.initialize({ client_id: cid, callback: r => signInGoogle(r.credential) }); gsiReady = true; }
+  if (!gsiReady) {
+    const opts = { client_id: cid, callback: r => signInGoogle(r.credential) };
+    if (googleRedirectMode()) {
+      Object.assign(opts, { ux_mode: 'redirect', login_uri: location.origin + '/auth/google' });
+      // the redirect lands on the home page: remember a room link the player came in with
+      const room = new URLSearchParams(location.search).get('room');
+      try { if (room) sessionStorage.setItem('eg_pending_room', room); } catch {}
+    }
+    google.accounts.id.initialize(opts); gsiReady = true;
+  }
   google.accounts.id.renderButton(el, { theme: 'filled_black', size: 'large', text: 'signin_with', shape: 'rectangular', width: 260 });
 }
 
@@ -731,7 +770,8 @@ function renderScreen() {
 }
 
 function renderLanding() {
-  const qRoom = new URLSearchParams(location.search).get('room') || '';
+  let qRoom = new URLSearchParams(location.search).get('room') || '';
+  if (!qRoom) try { qRoom = sessionStorage.getItem('eg_pending_room') || ''; if (qRoom && acct.me) sessionStorage.removeItem('eg_pending_room'); } catch {}
   // the six characters, gently idling (CSS steps through each one's idle strip), in the skins you have on.
   // Click one to open its skin shop.
   const cast = Object.keys(ROLES).map((r, i) => `<button class="castmember" data-skinshop="${r}" title="${esc(ROLES[r].name)} skins">
@@ -792,12 +832,14 @@ function accountPanelHtml() {
       <span class="hint" style="margin:0">Sign in to keep your Eco-bucks, profile picture and unlocks.</span>
       ${C.googleClientId ? '<div id="gbtn" class="gbtn"></div>' : ''}
       ${C.guestsAllowed !== false ? `<button id="guest" class="btn">${C.googleClientId ? 'Play as a guest instead' : 'Play as guest'}</button>` : ''}
+      ${C.guestsAllowed !== false && C.googleClientId && guestAtRisk() ? '<span class="hint" style="margin:0;font-size:15px">On iPhone, iPad and Safari, a guest account is erased if you don\'t play for 7 days. Sign in with Google to keep your Eco-bucks.</span>' : ''}
       ${!C.googleClientId ? '<span class="hint" style="margin:0;font-size:16px">(Google sign-in isn’t set up on this server yet. Guest accounts are saved in this browser.)</span>' : ''}
     </div>`;
   const me = acct.me;
   return `<div class="acctbox">
     ${bannerHtml(me, { extra: `<div class="pb-bal">${fmtEB(me.balance)}</div>` })}
     <div class="row" style="gap:6px"><button class="btn small" data-profile>Profile</button><button class="btn small brass" data-store>Store</button><button class="btn small" id="signout">Sign out</button></div>
+    ${me.guest && C.googleClientId && guestAtRisk() ? '<span class="hint guestwarn">You\'re on a guest account. Safari erases guest accounts after 7 days without a visit, so sign out and sign in with Google to keep your progress safe.</span>' : ''}
   </div>`;
 }
 function enterRoom(r) {
