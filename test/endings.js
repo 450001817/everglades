@@ -12,6 +12,7 @@ for (let g = 0; g < 1500; g++) {
   const n = 2 + (g % 5), coop = g % 4 === 0;
   const s = G.newGame();
   for (let i = 0; i < n; i++) G.addPlayer(s, { id: 'p' + i, name: 'P' + i, bot: true });
+  s.players.forEach(pl => { pl.simple = true; }); // the quick policy keeps 1500 games fast
   G.startGame(s, { coop });
   let guard = 0;
   while (s.phase !== 'ended') { if (++guard > 6000) throw new Error('stuck'); const p = G.waitingOn(s); G.applyAction(s, p, G.botAction(s, p)); }

@@ -42,7 +42,7 @@ const avatarSrc = id => {
 };
 
 // ---------- storage (see storage.js: Upstash Redis when configured, otherwise a local file) ----------
-const TABLES = ['accounts', 'sessions', 'google', 'guests', 'tags', 'escrows'];
+const TABLES = ['accounts', 'sessions', 'google', 'guests', 'tags', 'escrows', 'payments'];
 const store = require('./storage.js').pickStore();
 let db = Object.fromEntries(TABLES.map(t => [t, {}]));
 // Load everything before the server lets anyone in (server.js waits for `ready`).
@@ -301,8 +301,40 @@ function config() {
 }
 const get = id => db.accounts[id] || null;
 
+// ---------- Eco-bucks bought with real money (see payments.js) ----------
+// Adds a paid Stripe Checkout session's Eco-bucks once. db.payments keeps a record of every credited session
+// (so a session can never be credited twice) and doubles as the purchase history.
+function creditPurchase({ sessionId, accountId, packId, amount, currency, packs, livemode, paymentIntent }) {
+  if (db.payments[sessionId]) return { credited: false, already: true, eb: db.payments[sessionId].eb, accountId };
+  const pack = packs.find(p => p.id === packId);
+  if (!pack || amount !== pack.cents || String(currency).toLowerCase() !== 'usd') throw userErr('That payment does not match an Eco-buck pack.');
+  const a = db.accounts[accountId];
+  if (!a) throw userErr('No account for that purchase.');
+  a.balance += pack.eb;
+  a.stats.ebBought = (a.stats.ebBought || 0) + pack.eb;
+  db.payments[sessionId] = { accountId, pack: pack.id, eb: pack.eb, cents: amount, live: !!livemode, pi: paymentIntent || null, at: Date.now() };
+  saveNow(); // money: store it straight away
+  return { credited: true, eb: pack.eb, accountId, balance: a.balance };
+}
+// Refunds and disputes (Stripe webhooks): take back the Eco-bucks a payment bought, in proportion to what was
+// refunded, or all of them while it is disputed (given back if the dispute is won). The balance may go below 0.
+function adjustPurchase(paymentIntent, change) {
+  const rec = paymentIntent && Object.values(db.payments).find(r => r.pi === paymentIntent);
+  if (!rec) return { changed: false };
+  if (change.refundedFraction !== undefined) rec.refundedEb = Math.round(rec.eb * Math.max(0, Math.min(1, change.refundedFraction)));
+  if (change.disputed !== undefined) rec.disputed = !!change.disputed;
+  const target = rec.disputed ? rec.eb : (rec.refundedEb || 0);
+  const delta = target - (rec.reversed || 0);
+  if (!delta) return { changed: false, accountId: rec.accountId };
+  const a = db.accounts[rec.accountId];
+  if (a) a.balance -= delta;
+  rec.reversed = target;
+  saveNow();
+  return { changed: true, eb: -delta, accountId: rec.accountId, balance: a ? a.balance : null };
+}
+
 module.exports = {
   ECON, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
-  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, ownsChat,
+  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, ownsChat, creditPurchase, adjustPurchase,
 };

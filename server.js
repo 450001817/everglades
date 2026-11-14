@@ -21,6 +21,7 @@ const crypto = require('crypto');
 const os = require('os');
 const G = require('./game.js');
 const A = require('./accounts.js'); // player accounts, Eco-bucks, profile pictures, store
+const P = require('./payments.js'); // buying Eco-bucks with Stripe Checkout
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, 'public');
@@ -80,7 +81,7 @@ function viewFor(room, member) {
   const base = {
     room: room.code, phase: s.phase, seq: s.seq,
     you: me, yourPid: member ? member.pid : null, isHost: !!member && member.pid === room.hostPid,
-    mode: room.mode || 'solo', partners: room.mode === 'partners', coop: room.mode === 'coop',
+    tutorial: !!room.tutorial, mode: room.mode || 'solo', partners: room.mode === 'partners', coop: room.mode === 'coop',
     disruptions: s.phase === 'lobby' ? !!room.disruptions : !!s.disruptions,
     speed: SPEEDS[room.speed] ? room.speed : 'normal', trickPauseMs: Math.round(pace(room).trick),
     buyIn: room.buyIn, buyIns: A.ECON.buyIns,
@@ -149,7 +150,7 @@ function drainEvents(room) {
   room.evSeen = evs[evs.length - 1].id;
   for (const ev of evs) {
     // a trick won with an animal card counts toward unlocking that animal's profile picture
-    if (ev.type === 'trick' && s.players[ev.p] && !s.players[ev.p].bot) {
+    if (ev.type === 'trick' && s.players[ev.p] && !s.players[ev.p].bot && !room.tutorial) {
       const m = room.members.find(x => x.pid === s.players[ev.p].id);
       if (m && m.accountId) { const unlocked = A.recordCardWin(m.accountId, ev.card); if (unlocked) m.unlocks.push(unlocked); }
     }
@@ -197,7 +198,7 @@ function scheduleBot(room) {
   // Tracked even when a person moves next, so the pause isn't applied a second time later.
   const done = s.players.reduce((a, p) => a + p.biomesWon.length, 0);
   if (done !== room.tricksSeen) { room.tricksSeen = done; room.pauseUntil = Math.max(room.pauseUntil, Date.now() + pace(room).trick); }
-  if (room.botTimer) return;
+  if (room.botTimer || room.hold) return;
   const w = G.waitingOn(s);
   if (w < 0 || !s.players[w].bot) return;
   const B = pace(room).bot;
@@ -206,7 +207,7 @@ function scheduleBot(room) {
   room.botTimer = setTimeout(() => {
     room.botTimer = null;
     const w2 = G.waitingOn(s);
-    if (w2 < 0 || !s.players[w2].bot) return;
+    if (w2 < 0 || !s.players[w2].bot || room.hold) return;
     try {
       const a = G.botAction(s, w2);
       const text = G.botSay(s, w2, a);
@@ -227,6 +228,14 @@ function readBody(req) {
     let d = '';
     req.on('data', c => { d += c; if (d.length > 1e5) req.destroy(); });
     req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch (e) { reject(e); } });
+  });
+}
+function readRaw(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let n = 0;
+    req.on('data', c => { n += c.length; if (n > 1e6) req.destroy(); else chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
   });
 }
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.ttf': 'font/ttf' };
@@ -264,11 +273,29 @@ const server = http.createServer(async (req, res) => {
       broadcast(room);
       return;
     }
+    if (req.method === 'POST' && url.pathname === '/api/stripe/webhook') {
+      // Stripe signs the exact bytes it sends, so this one reads the raw body (see payments.js)
+      const raw = await readRaw(req);
+      const [status, out] = P.webhook(raw, req.headers['stripe-signature']);
+      return send(res, status, out);
+    }
     if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
       const body = await readBody(req);
       const op = url.pathname.slice(5);
       // ---------- accounts ----------
-      if (op === 'config') return send(res, 200, A.config());
+      if (op === 'config') return send(res, 200, Object.assign(A.config(), { payments: P.publicConfig(), supportEmail: process.env.SUPPORT_EMAIL || '' }));
+      // ---------- buying Eco-bucks (Stripe Checkout; see payments.js) ----------
+      if (op === 'pay/checkout') {
+        const a = A.requireAccount(body.session);
+        const origin = `${String(req.headers['x-forwarded-proto'] || 'http').split(',')[0]}://${req.headers.host}`;
+        return send(res, 200, await P.createCheckout(a, body.pack, origin));
+      }
+      if (op === 'pay/confirm') {
+        const a = A.requireAccount(body.session);
+        const result = await P.confirm(a, body.sessionId);
+        for (const r of rooms.values()) if (r.members.some(m => m.accountId === a.id)) broadcast(r); // wallet shows the new balance
+        return send(res, 200, { me: A.privateProfile(a), result });
+      }
       // signing in (or the first visit of the day, below) pays the daily log-in bonus
       if (op === 'auth/guest') { const r = A.guestLogin(body.deviceKey); const bonus = A.dailyBonus(r.account); return send(res, 200, { session: r.session, me: A.privateProfile(r.account), bonus }); }
       if (op === 'auth/google') { const r = await A.googleLogin(body.credential); const bonus = A.dailyBonus(r.account); return send(res, 200, { session: r.session, me: A.privateProfile(r.account), bonus }); }
@@ -300,6 +327,19 @@ const server = http.createServer(async (req, res) => {
         const m = addMember(room, null, false, account);
         return send(res, 200, { room: room.code, token: m.token });
       }
+      if (op === 'tutorial') {
+        // A private practice table: you and two gentle bots, no buy-in or payouts, the coach runs in the browser.
+        const account = A.requireAccount(body.session);
+        const room = newRoom();
+        room.tutorial = true; room.buyIn = 0;
+        const m = addMember(room, null, false, account);
+        addMember(room, 'Heron Bot', true); addMember(room, 'Otter Bot', true);
+        room.game = G.newGame();
+        for (const x of room.members) G.addPlayer(room.game, { id: x.pid, name: x.bot ? x.name : cleanName(account.gamertag), bot: x.bot, simple: x.bot });
+        G.startGame(room.game, { tutorial: true });
+        room.hold = true; // the coach's welcome is on screen first
+        return send(res, 200, { room: room.code, token: m.token });
+      }
       if (op === 'join') {
         const account = A.requireAccount(body.session);
         const room = rooms.get(String(body.room || '').toUpperCase().trim());
@@ -327,6 +367,9 @@ const server = http.createServer(async (req, res) => {
           if (!isHost) return send(res, 403, { error: 'Only the host can change the speed.' });
           room.speed = SPEEDS[body.speed] ? body.speed : 'normal';
           if (room.botTimer) { clearTimeout(room.botTimer); room.botTimer = null; } // re-time the pending bot move
+        } else if (body.cmd === 'hold' && room.tutorial) {
+          // Tutorial: the bots wait while the coach is explaining something
+          room.hold = !!body.on;
         } else if (body.cmd === 'leave' && s.phase === 'lobby') {
           room.members = room.members.filter(x => x !== m);
           if (isHost) room.hostPid = (room.members.find(x => !x.bot) || {}).pid || null;

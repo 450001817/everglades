@@ -51,7 +51,7 @@ function newStats() {
 function addPlayer(s, info) {
   if (s.phase !== 'lobby') err('The game has already started.');
   if (s.players.length >= MAX_PLAYERS) err('The table is full (6 players max).');
-  s.players.push({ id: info.id, name: info.name, bot: !!info.bot, team: info.team ?? null, role: null, hand: [], pile: [], biomesWon: [], triggeredCrisis: false, stats: newStats() });
+  s.players.push({ id: info.id, name: info.name, bot: !!info.bot, simple: !!info.simple, team: info.team ?? null, role: null, hand: [], pile: [], biomesWon: [], triggeredCrisis: false, stats: newStats() });
 }
 
 // Partner mode: teams of 2 score together. Seats alternate teams (A B A B, or A B C A B C),
@@ -68,6 +68,7 @@ function partnerSeating(players) {
 
 function startGame(s, opts = {}) {
   s.disruptions = !!opts.disruptions; // the Disruptions match modifier
+  if (opts.tutorial) return startTutorial(s);
   if (opts.coop) return startCoop(s);
   const n = s.players.length;
   if (n < MIN_PLAYERS) err('You need at least 2 players.');
@@ -92,6 +93,41 @@ function startGame(s, opts = {}) {
   log(s, `Game started. Each player holds ${per} cards. Choose roles in turn order — ${pname(s, 0)} picks first.`);
 }
 
+// ---------- TUTORIAL: a short guided game (5 rounds) against two gentle bots ----------
+// Fixed roles, a hand-picked deal and travel row, and a few tokens already on the map, so the lessons the
+// coach explains (following suit, Impact, populating, Invasive Risk, Keystone, Predatory, Crisis) come up.
+// The person is seat 0 and leads the first round; the coach itself lives in the client (client.js).
+const TUTORIAL = {
+  roles: ['Conservationist', 'Fisherman', 'LandDeveloper'],
+  hands: [
+    ['EvergladesCypress', 'FloridaPanther', 'Manatee', 'WoodStork', 'Hydrilla'],
+    ['TreeSnail', 'LeatherBackSeaTurtle', 'JewelFish', 'BurmesePython', 'GopherTortoise'],
+    ['Flamingo', 'MonkParakeet', 'BlackRat', 'Bowfin', 'FloridaBristleFern'],
+  ],
+  travel: ['BCNPFreshwaterSlough', 'FSPHardwoodHammock', 'KWCoralReef'],
+  next: ['ENPFreshwaterMarlPrairie', 'LOPineland', 'NGKelpForest', 'FSPFreshwaterMarlPrairie'],
+  board: { ENP: { n: 2, i: 1 }, BCNP: { n: 1, i: 1 }, FSP: { n: 1, i: 0 }, M: { n: 0, i: 2 }, SG: { n: 1, i: 1 }, KW: { n: 1, i: 0 } },
+};
+function startTutorial(s) {
+  if (s.players.length !== TUTORIAL.roles.length) err('The tutorial is for 1 player and 2 bots.');
+  s.coop = false; s.partners = false; s.disruptions = false; s.tutorial = true; s.np = s.players.length;
+  const dealt = new Set(TUTORIAL.hands.flat());
+  s.players.forEach((pl, i) => {
+    pl.team = null; pl.role = TUTORIAL.roles[i]; pl.hand = TUTORIAL.hands[i].slice();
+    pl.pile = []; pl.biomesWon = []; pl.triggeredCrisis = false; pl.stats = newStats();
+  });
+  s.discard = Object.keys(CARDS).filter(c => !dealt.has(c));
+  const fixed = new Set([...TUTORIAL.travel, ...TUTORIAL.next]);
+  s.travel = TUTORIAL.travel.slice();
+  s.biomeDeck = [...TUTORIAL.next, ...shuffle(Object.keys(BIOMES).filter(b => !fixed.has(b)))];
+  s.board = emptyBoard();
+  for (const [r, t] of Object.entries(TUTORIAL.board)) s.board[r] = { n: t.n, i: t.i };
+  s.leader = 0; s.turn = 0; s.round = 1;
+  s.phase = 'choose'; s.trick = null; s.step = null; s.lastTrick = null;
+  s.abilityUsed = false; s.tourPeek = null; s.results = null;
+  log(s, `Tutorial: you are the Conservationist. ${pname(s, 0)} leads the first round.`);
+}
+
 // ---------- role draft: each player picks a role in turn order ----------
 function availableRoles(s) {
   const taken = new Set(s.players.map(p => p.role).filter(Boolean));
@@ -103,8 +139,8 @@ function availableRoles(s) {
 // The Anaconda sits at the end of s.players with boss: true (s.np = number of real players).
 const BOSS = 'Anaconda';
 // Points the Anaconda scores (balanced with simulated games for 1-6 players; see README)
-// Bot-vs-Anaconda win rates with these values: 1p 44%, 2p 34%, 3p 37%, 4p 48%, 5p 55%, 6p 45% (humans should do better).
-const COOP = { unmetMap: 5, trick: 5, infestedRegion: 3 };
+// Bot-vs-Anaconda win rates with these values (logic-engine bots, test/coopsim.js 250): 1p 46%, 2p 48%, 3p 55%, 4p 62%, 5p 63%, 6p 41%.
+const COOP = { unmetMap: 9, trick: 8, infestedRegion: 5 };
 
 function startCoop(s) {
   const n = s.players.length;
@@ -239,9 +275,13 @@ function trickWinner(s) {
   });
   let matched = true;
   if (best < 0) {
-    // Nobody matched the biome. House rule: the highest Impact card played wins.
+    // Nobody matched the biome: the highest Impact off-suit card wins. Invasive cards whose Impact is above the
+    // Invasive Risk can't win this way (any Invasive at or below the Risk would already have matched).
     matched = false;
-    plays.forEach((pl, idx) => { if (best < 0 || impactOf(s, pl) > impactOf(s, plays[best])) best = idx; });
+    const eligible = pl => !(CARDS[pl.card].kind === 'Invasive' && impactOf(s, pl) > riskFor(s, pl.p));
+    plays.forEach((pl, idx) => { if (eligible(pl) && (best < 0 || impactOf(s, pl) > impactOf(s, plays[best]))) best = idx; });
+    // Only over-Risk Invasive cards were played (possible in co-op): the highest Impact still takes it.
+    if (best < 0) plays.forEach((pl, idx) => { if (best < 0 || impactOf(s, pl) > impactOf(s, plays[best])) best = idx; });
   }
   return { idx: best, matched };
 }
@@ -410,7 +450,7 @@ function resolveTrick(s) {
   w.pile.push(...s.trick.plays.map(x => x.card));
   w.biomesWon.push(s.trick.biome);
   const crisis = card.kind === 'Invasive';
-  log(s, `${w.name} wins the trick with ${card.name}${matched ? '' : ' (no card matched, so highest Impact wins)'}.`);
+  log(s, `${w.name} wins the trick with ${card.name}${matched ? '' : ' (no card matched, so the highest off-suit Impact wins)'}.`);
   if (crisis) {
     w.triggeredCrisis = true;
     w.stats.crises++; w.stats.crisisCards.push(play.card);
@@ -711,19 +751,23 @@ function autoBots(s) {
     let any = false;
     for (let p = 0; p < s.np; p++) if (s.players[p].bot && !s.ddraft.picks[p]) {
       const pack = s.ddraft.packs[p];
-      s.ddraft.picks[p] = pack[Math.floor(Math.random() * pack.length)]; any = true;
+      let pick = null;
+      if (smart(s, p)) try { pick = AI.draftPick(s, p); } catch (e) { console.error('bot draft error', e); }
+      s.ddraft.picks[p] = pick || pack[Math.floor(Math.random() * pack.length)]; any = true;
     }
     if (any) advanceDraft(s);
   } else if (s.phase === 'disrupt' && s.dcommit) {
     let any = false;
     for (let p = 0; p < s.np; p++) if (s.players[p].bot && s.dcommit.picks[p] === undefined) {
-      s.dcommit.picks[p] = botCommit(s, p); any = true;
+      let pick;
+      if (smart(s, p)) try { pick = AI.commit(s, p); } catch (e) { console.error('bot commit error', e); }
+      s.dcommit.picks[p] = pick === undefined ? simpleCommit(s, p) : pick; any = true;
     }
     if (any) maybeReveal(s);
   }
 }
-// Bots commit now and then, and only cards that would do something right now.
-function botCommit(s, p) {
+// The quick policy (used inside the bots' look-ahead): commit now and then, only cards that would do something now.
+function simpleCommit(s, p) {
   const pl = s.players[p], cur = trickRegion(s);
   const useful = (pl.dis || []).filter(id => {
     if (id === 'MassMigration' || id === 'FertilizerLeaching') return tokensIn(s, cur, ['n', 'i']) > 0;
@@ -849,6 +893,7 @@ function anacondaResults(s) {
 }
 
 function endGame(s) {
+  if (s.sim) { s.phase = 'ended'; return; } // a bot's look-ahead copy: no scoring or endings needed
   scoreGame(s);
   emit(s, { type: 'end', winners: s.results.winners.slice(), coop: !!s.coop, playersWin: !!s.results.playersWin });
 }
@@ -931,8 +976,17 @@ function pendingSimultaneous(s) {
   return [];
 }
 
-// ---------- simple bot ----------
+// ---------- bots ----------
+// Bots play with the logic engine in ai.js. The quick policy below (simpleBot) is what the engine assumes
+// everyone does while it looks ahead, and the fallback if the engine ever fails.
+const smart = (s, p) => !s.sim && !s.players[p].simple && !s.players[p].boss;
 function botAction(s, p) {
+  if (smart(s, p)) {
+    try { const a = AI.decide(s, p); if (a) return a; } catch (e) { console.error('bot engine error', e); }
+  }
+  return simpleBot(s, p);
+}
+function simpleBot(s, p) {
   const pl = s.players[p];
   if (pl.boss) {
     // The Anaconda: always travels to the highest Invasive Risk biome (rightmost on a tie), and flips its top card.
@@ -972,23 +1026,21 @@ function botAction(s, p) {
     return { type: 'predateDone' };
   }
   // Start of turn: use the role ability when it obviously helps.
-  if (s.phase === 'play' && !s.step && !s.abilityUsed) {
+  if (s.phase === 'play' && !s.step && !s.abilityUsed && !s.sim && !s.tutorial) {
     const a = botAbility(s, p, role, wantKind);
     if (a) return a;
   }
-  // Pick a card: win cheaply if possible, otherwise dump the lowest Impact card.
+  // Pick a card: win cheaply if possible (with a Native: an Invasive win sets off a Crisis), otherwise dump the
+  // lowest Impact card.
   const legal = legalCards(s, p);
-  const suit = leadSuit(s);
-  const risk = riskFor(s, p);
-  const currentBest = s.trick.plays.filter(x => playMatches(s, x)).reduce((m, x) => Math.max(m, impactOf(s, x)), -1);
-  const natives = s.board[trickRegion(s)].n;
-  const winners = legal.filter(c => cardMatches(c, suit, CARDS[c].keystone ? Math.max(0, risk - (s.trick.keystones + 1) * (natives + CARDS[c].pop)) : risk)
-      && impactOf(s, { card: c, p }) > currentBest)
-    .sort((a, b) => CARDS[a].impact - CARDS[b].impact);
+  const winsNow = c => { s.trick.plays.push({ p, card: c }); const w = trickWinner(s).idx === s.trick.plays.length - 1; s.trick.plays.pop(); return w; };
+  const byImpact = (a, b) => CARDS[a].impact - CARDS[b].impact || (CARDS[a].kind === 'Invasive') - (CARDS[b].kind === 'Invasive');
+  const winners = legal.filter(winsNow).sort(byImpact);
+  const nativeWin = winners.find(c => CARDS[c].kind === 'Native');
   const wantsFew = pl.role === 'Researcher' || partnerWinning(s, p);
   let card;
-  if (winners.length && !wantsFew) card = winners[0];
-  else card = legal.slice().sort((a, b) => CARDS[a].impact - CARDS[b].impact)[0];
+  if (!wantsFew && (nativeWin || (winners.length && pl.role !== 'Conservationist'))) card = nativeWin || winners[0];
+  else card = legal.slice().sort(byImpact)[0];
   const populate = !(pl.role === 'Conservationist' && CARDS[card].kind === 'Invasive') ? undefined : false;
   return { type: 'play', card, populate };
 }
@@ -1284,6 +1336,8 @@ function reactionLine(s, ev, list) {
   const pick = pickOne(cands.filter(r => r.pri === top));
   return { seat: pick.seat, text: pick.line };
 }
+
+const AI = require('./ai.js')({ applyAction, waitingOn, legalCards, placeTargets, availableRoles, autoBots, simpleBot, simpleCommit, trickRegion, COOP });
 
 module.exports = {
   anacondaResults, COOP,

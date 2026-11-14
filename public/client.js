@@ -185,6 +185,7 @@ async function initAccounts() {
   try { acct.config = await acctApi('config', {}); } catch {}
   if (acct.session) await refreshMe();
   acct.loading = false; render();
+  if (acct.me) finishPurchase();
 }
 async function refreshMe() { // also collects the daily log-in bonus, once per day
   if (!acct.session) return;
@@ -289,18 +290,20 @@ function storeModal() {
     </div></div>`;
   }
   // One page per kind of product; the header and tabs stay put and the page scrolls.
-  const tab = STORE_TABS[acct.storeTab] ? acct.storeTab : 'skins';
+  const payOn = !!(C.payments && C.payments.enabled);
+  const tab = STORE_TABS[acct.storeTab] && (acct.storeTab !== 'eb' || payOn) ? acct.storeTab : 'skins';
   const ownedOf = type => C.store.filter(it => it.type === type && me.owned.includes(it.id)).length;
   const totalOf = type => C.store.filter(it => it.type === type).length;
-  const tabs = Object.entries(STORE_TABS).map(([k, t]) =>
-    `<button class="storetab ${k === tab ? 'on' : ''}" data-storetab="${k}">${t.label} <small>${ownedOf(t.type)}/${totalOf(t.type)}</small></button>`).join('');
+  const tabs = Object.entries(STORE_TABS).filter(([k]) => k !== 'eb' || payOn).map(([k, t]) =>
+    `<button class="storetab ${k === tab ? 'on' : ''} ${k === 'eb' ? 'ebtab' : ''}" data-storetab="${k}">${t.label}${t.type ? ` <small>${ownedOf(t.type)}/${totalOf(t.type)}</small>` : ''}</button>`).join('');
   let page = '';
+  if (tab === 'eb') page = ebStoreHtml(me, C);
   if (tab === 'titles') page = titleStoreHtml(me, C);
   if (tab === 'skins') page = skinStoreHtml(me);
   if (tab === 'chat') page = chatStoreHtml(me);
   if (tab === 'foil') page = foilStoreHtml(me);
   return `<div class="modal"><div class="paper spiral acctmodal storemodal">
-    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Eco-buck store</div><div class="row">Balance ${fmtEB(me.balance)}<button class="btn small" data-close>Close</button></div></div>
+    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Eco-buck store</div><div class="row">Balance ${fmtEB(me.balance)}${payOn && tab !== 'eb' ? '<button class="btn small brass" data-storetab="eb">+ Get EB</button>' : ''}<button class="btn small" data-close>Close</button></div></div>
     <div class="storetabs">${tabs}</div>
     <div class="storepage">${page}</div>
     <div class="error">${esc(acct.msg)}</div>
@@ -308,6 +311,7 @@ function storeModal() {
   </div></div>`;
 }
 const STORE_TABS = {
+  eb: { label: 'Buy Eco-bucks', type: null },
   skins: { label: 'Character skins', type: 'skin' },
   chat: { label: 'Chat lines', type: 'chat' },
   foil: { label: 'Foil cards', type: 'foil' },
@@ -317,6 +321,47 @@ document.addEventListener('click', e => {
   const t = e.target.closest('[data-storetab]'); if (!t) return;
   acct.storeTab = t.dataset.storetab; acct.msg = ''; acct.chatConfirm = acct.foilConfirm = null; render();
 });
+// Eco-buck packs for real money (Stripe Checkout; see payments.js). The price shown is only for display:
+// the server sets the real price when it opens the Stripe page.
+function ebStoreHtml(me, C) {
+  const P = C.payments;
+  const guestBlocked = me.guest && C.googleClientId;
+  const packs = P.packs.map(p => `<div class="ebpack ${p.tag ? 'best' : ''}">
+      ${p.tag ? `<div class="ebtag">${esc(p.tag)}</div>` : ''}
+      <div class="ebamt">${fmtEB(p.eb)}</div>
+      <div class="hint ebper">${p.eb / p.cents >= 1.1 ? `${Math.round((p.eb / p.cents - 1) * 100)}% more per dollar` : '&nbsp;'}</div>
+      <button class="btn primary" data-buypack="${p.id}" ${guestBlocked || acct.paying ? 'disabled' : ''}>${acct.paying === p.id ? 'Opening checkout…' : '$' + (p.cents / 100).toFixed(2)}</button>
+    </div>`).join('');
+  return `<p class="hint" style="margin:0 0 8px">Top up your Eco-bucks. Payment is handled securely by Stripe, and the Eco-bucks are added as soon as it goes through.</p>
+    ${P.testMode ? '<p class="hint" style="margin:0 0 8px;color:var(--red)"><b>Test mode:</b> no real money is charged. Use Stripe\'s test card 4242 4242 4242 4242.</p>' : ''}
+    ${guestBlocked ? '<p class="hint" style="margin:0 0 8px;color:var(--red)">Sign in with Google to buy Eco-bucks, so your purchase is safe on every device. (Sign out, then use the Google button.)</p>' : ''}
+    <div class="ebpacks">${packs}</div>
+    <p class="hint" style="margin:8px 0 0;font-size:15px">Eco-bucks are in-game currency only. They have no cash value and can't be exchanged back for money. By buying, you agree to our <a href="terms.html" target="_blank" rel="noopener">Terms of Service</a> and <a href="refunds.html" target="_blank" rel="noopener">Refund Policy</a>. All sales are final except as the Refund Policy describes.</p>`;
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-buypack]'); if (!b || acct.paying) return;
+  acct.paying = b.dataset.buypack; acct.msg = ''; render();
+  try { const r = await acctApi('pay/checkout', { pack: acct.paying }); location.href = r.url; }
+  catch (err) { acct.paying = null; acct.msg = err.message; render(); }
+});
+// Coming back from Stripe: ?purchase=success&session_id=... (or ?purchase=cancel)
+async function finishPurchase() {
+  const q = new URLSearchParams(location.search), status = q.get('purchase');
+  if (!status) return;
+  const sid = q.get('session_id');
+  q.delete('purchase'); q.delete('session_id');
+  history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : ''));
+  if (status !== 'success' || !sid) return showToast('Purchase cancelled. You were not charged.');
+  for (let i = 0; i < 4; i++) { // the payment can take a moment to settle
+    try {
+      const r = await acctApi('pay/confirm', { sessionId: sid });
+      acct.me = r.me; render();
+      if (r.result.credited || r.result.already) { SFX.trickMine && SFX.trickMine(); return showToast(`<b>+${Number(r.result.eb).toLocaleString()} EB</b> added to your wallet. Thank you!`, false, 5200); }
+    } catch (err) { return showToast(esc(err.message), true, 6000); }
+    await new Promise(r => setTimeout(r, 2500));
+  }
+  showToast('Your payment is still processing. Your Eco-bucks will appear as soon as it clears.', false, 6000);
+}
 function titleStoreHtml(me, C) {
   const items = C.store.filter(it => it.type === 'title').map(it => {
     const owned = me.owned.includes(it.id), wearing = me.title === it.id;
@@ -711,6 +756,7 @@ function renderLanding() {
       <div class="panel-title" style="margin:0">Head into the swamp</div>
       ${accountPanelHtml()}
       <button id="create" class="btn primary" ${acct.me ? '' : 'disabled'}>Start a new table</button>
+      <button id="tutorial" class="btn brass" ${acct.me ? '' : 'disabled'} title="A short guided game against two bots. Free, nothing at stake.">New here? Learn to play</button>
       <div class="divider">— or join friends —</div>
       <div class="row" style="flex-wrap:nowrap">
         <input id="code" class="field" maxlength="4" placeholder="CODE" value="${esc(qRoom)}" style="text-transform:uppercase;letter-spacing:4px;width:150px">
@@ -718,6 +764,7 @@ function renderLanding() {
       </div>
       <div class="error">${esc(ui.err)}</div>
       <p class="hint" style="margin:0">Every table has an Eco-buck buy-in. Start a table and share its 4-letter code or link. Bots fill empty seats, so every game has at least 4 players.</p>
+      <p class="legal-links"><a href="terms.html" target="_blank" rel="noopener">Terms of Service</a> · <a href="refunds.html" target="_blank" rel="noopener">Refund Policy</a></p>
     </div>
     </div>
     ${acctModalHtml()}
@@ -728,6 +775,7 @@ function renderLanding() {
     catch (e) { ui.err = e.message; renderLanding(); }
   };
   document.getElementById('create').onclick = () => go('create', {});
+  document.getElementById('tutorial').onclick = () => startTutorial();
   const join = () => {
     const code = document.getElementById('code').value.trim().toUpperCase();
     if (!code) { ui.err = 'Type the 4-letter room code.'; return renderLanding(); }
@@ -982,7 +1030,7 @@ function trickDoneHtml() {
         <div class="place">${esc(b.name)}<br><span style="color:var(--blush)">${esc(REGIONS[b.region].name)}</span></div>
         <div class="winline">★ ${esc(w.name)} wins with ${esc(CARDS[lt.card].name)}!</div>
         ${lt.crisis ? '<div class="crisisline">INVASIVE CRISIS!</div>' : ''}
-        ${lt.matched === false ? '<span class="lastline" style="color:var(--blush)">No card matched, so the highest Impact won.</span>' : ''}
+        ${lt.matched === false ? '<span class="lastline" style="color:var(--blush)">No card matched, so the highest off-suit Impact won.</span>' : ''}
         ${(lt.dis || []).length ? `<span class="lastline" style="color:var(--blush)">Disruptions: ${lt.dis.map(d => `${esc(DISRUPTIONS[d.card].name)} (${esc(S.players[d.p].name)})`).join(', ')}</span>` : ''}
       </div>
     </div>
@@ -1111,12 +1159,13 @@ function renderGame() {
   const role = S.role ? ROLES[S.role] : null;
   // keep sideways scroll positions (hand, players strip) across re-renders
   const keepScroll = {};
+  const tip = coachTip();
   for (const sel of ['.hand', '.players-mini']) { const el = [...$app.querySelectorAll(sel)].find(e => e.offsetParent); if (el) keepScroll[sel] = el.scrollLeft; }
 
   $app.innerHTML = `
   <div class="topbar">
     <span class="logo-sm">EVERGLADES</span>
-    <span class="chip">Room ${S.room}</span>
+    <span class="chip">${S.tutorial ? 'Tutorial' : 'Room ' + S.room}</span>
     ${S.phase === 'draft' ? '<span class="chip">Role draft</span>' : S.phase !== 'ended' ? `<span class="chip">Round ${S.round}</span>` : ''}
     ${S.partners ? '<span class="chip">Partners</span>' : ''}${S.coop ? '<span class="chip" style="background:#f2d7c9">Co-op vs The Anaconda</span>' : ''}
     <span class="spacer"></span>
@@ -1156,8 +1205,11 @@ function renderGame() {
   ${ui.mode === 'swap' ? swapModal() : ''}
   ${ui.stealFrom !== null && ui.stealFrom !== undefined && S.stealPiles ? stealModal() : ''}
   ${ui.showRules ? rulesModal() : ''}
-  ${S.phase === 'ended' && !holding() ? endModal() : ''}`;
+  ${S.phase === 'ended' && !holding() ? endModal() : ''}
+  ${coachHtml(tip)}`;
 
+  if (tip && tip.focus) { const f = [...$app.querySelectorAll(tip.focus)].find(e => e.offsetParent); if (f) f.classList.add('coach-focus'); }
+  coachSync();
   if (peekSrc && !document.querySelector(`[data-peek="${CSS.escape(peekSrc)}"]`)) hidePeek();
   const logEl = document.getElementById('log'); if (logEl) logEl.scrollTop = logEl.scrollHeight;
   wire();
@@ -1288,6 +1340,84 @@ function swapModal() {
   </div></div>`;
 }
 
+// ---------- TUTORIAL COACH ----------
+// The tutorial is a real (short) game on the server (startTutorial in game.js). The coach watches the game and
+// explains each new idea the first time it comes up. While a tip is open the bots wait (lobby cmd 'hold').
+// A tip closes when you press Got it, or by itself once the moment it describes has passed.
+const NAT = t => `<b style="color:#2a9a4a">${t}</b>`, INV = t => `<b style="color:#c8323c">${t}</b>`;
+const tutSuit = () => S.trick ? (S.trick.suit || BIOMES[S.trick.biome].suit) : '';
+const tutMine = () => S.waiting === S.you && S.phase !== 'ended';
+const tutPlaying = () => tutMine() && S.phase === 'play' && !S.step && !S.tourPeek;
+const COACH = [
+  { id: 'welcome', when: () => S.phase !== 'ended', title: 'Welcome to the Everglades!',
+    body: () => `This is a short practice game: <b>5 rounds</b> against two friendly bots, with nothing at stake. Each time something new comes up, I'll pause the game and explain it.` },
+  { id: 'role', when: () => S.phase !== 'ended', focus: '.rolebox', title: 'You are the Conservationist',
+    body: () => `Your role card (bottom right) shows how you score. ${isPhone() ? 'Press and hold' : 'Hover'} it to read it.<ul>
+      <li><b>10 points</b> for each of Fakahatchee, Big Cypress and Everglades National Park that ends with more ${NAT('Native')} than ${INV('Invasive')} tokens</li>
+      <li><b>15</b> if ${NAT('Natives')} outnumber ${INV('Invasives')} across the whole map</li>
+      <li><b>5</b> if you never win a trick with an Invasive card</li>
+      <li><b>5</b> for every trick you win (this is true for every role)</li></ul>` },
+  { id: 'map', when: () => S.phase !== 'ended', focus: '.boardwrap', title: 'The map',
+    body: () => `Each region shows how many ${NAT('Native')} and ${INV('Invasive')} tokens live there. Every card you play adds its animals to the map, so each card changes who is ahead in a region.` },
+  { id: 'hand', when: () => S.phase !== 'ended', focus: '.hand', title: 'Your hand',
+    body: () => `Each card has a <b>type</b> (Wetland, Water or Land), an <b>Impact</b> (its strength in a trick) and a <b>population</b> (how many tokens it adds). Each card is either ${NAT('Native')} or ${INV('Invasive')}. ${isPhone() ? 'Press and hold' : 'Hover over'} any card for a second to read it up close.` },
+  { id: 'choose', when: () => tutMine() && S.phase === 'choose', focus: '.tablecol', title: 'Choose where to travel',
+    body: () => `You lead this round, so you choose a biome from the travel row:<ul>
+      <li>Its <b>type</b> is the suit everyone must follow.</li>
+      <li>Its <b>region</b> is where this round's cards add their tokens.</li>
+      <li>Its <b>Invasive Risk</b> decides whether Invasive cards can win.</li></ul>
+      ${S.round === 1 ? 'Tip: <b>Freshwater Slough</b> is a Wetland in Big Cypress, one of your objective regions, and you hold strong Wetland cards.' : ''}` },
+  { id: 'play', when: tutPlaying, focus: '.hand', title: 'Play a card',
+    body: () => `This round's suit is <b>${tutSuit()}</b>. If you hold a ${tutSuit()} Native card, you must play one (or an Invasive card). The cards you can play glow. The <b>highest-Impact card that matches the suit</b> wins the trick. Click a card, then press <b>Play</b>.` },
+  { id: 'invasive', when: () => tutPlaying() && S.legal.some(id => CARDS[id].kind === 'Invasive'), focus: '.hand', title: 'Invasive cards',
+    body: () => `Invasive cards can be played at any time. One matches the suit only if its Impact is at or below the round's <b>Invasive Risk</b> (now ${S.myRisk ?? S.trick.risk}). A <b>!</b> badge means the card is above the Risk and can't win. If an Invasive card wins a trick, it sets off an ${INV('Invasive Crisis')}. As the Conservationist, you may play one without adding its tokens: choose <b>Don't populate</b>.` },
+  { id: 'cantfollow', when: () => tutPlaying() && !S.hand.some(id => CARDS[id].kind === 'Native' && CARDS[id].habitat === tutSuit()), title: "Can't follow suit",
+    body: () => `You have no ${tutSuit()} Native card, so you may play anything. An off-suit card wins only when <b>nobody</b> matched the suit; then the highest-Impact off-suit card wins. An Invasive card above the Risk can never win this way. A weak card here saves your strong ones.` },
+  { id: 'predate', when: () => tutMine() && S.step && S.step.type === 'predate', focus: '.boardwrap', title: 'Predatory cards',
+    body: () => `<b>${esc(CARDS[S.step.card].name)}</b> is a predator. Before its own tokens arrive, it may remove up to ${S.step.left} token${S.step.left > 1 ? 's' : ''} from this region. Hunt the ${INV('red Invasive')} counters to protect your Native majority, then press <b>Done hunting</b>.` },
+  { id: 'place', when: () => tutMine() && S.step && S.step.type === 'place', focus: '.boardwrap', title: 'Migratory cards',
+    body: () => `This card is Migratory, so its tokens spread out in a line of neighbouring regions, starting here. Click the glowing regions to place them one at a time.` },
+  { id: 'keystone', when: () => S.trick && S.trick.keystones > 0 && S.phase === 'play', focus: '.boardwrap', title: 'Keystone species',
+    body: () => `A Keystone card is in this trick. Until the trick ends, every ${NAT('Native')} token in ${esc(REGIONS[BIOMES[S.trick.biome].region].name)} lowers the Invasive Risk by 1 (it's now <b>${S.trick.risk}</b>). Invasive cards then find it much harder to match.` },
+  { id: 'trick', when: () => !!S.lastTrick, focus: '.tablecol', title: 'Trick over!',
+    body: () => {
+      const lt = S.lastTrick, w = lt.winner === S.you ? 'You' : esc(S.players[lt.winner].name);
+      const why = !lt.matched ? 'Nobody matched the suit, so the highest off-suit card won.'
+        : lt.crisis ? `It was an Invasive card at or below the Risk (${lt.risk}), so it matched the suit.` : 'It was the highest-Impact card that matched the suit.';
+      return `${w} won ${esc(BIOMES[lt.biome].name)} with <b>${esc(CARDS[lt.card].name)}</b>. ${why} The winner takes every card played into their scoring pile, scores <b>5 points</b>, and leads the next round.`;
+    } },
+  { id: 'crisis', when: () => S.lastTrick && S.lastTrick.crisis, focus: '.boardwrap', title: 'Invasive Crisis!',
+    body: () => `An Invasive card won the trick. Across the whole map, each region loses 1 ${NAT('Native')} token for every ${INV('Invasive')} token there (a region with only Invasives loses 1 of those).${S.lastTrick.winner === S.you ? " Because you won with an Invasive card, you lose the Conservationist's 5-point bonus." : ''}` },
+  { id: 'offsuit', when: () => S.lastTrick && S.lastTrick.matched === false, title: 'Nobody matched',
+    body: () => 'When no card matches the suit, the highest-Impact <b>off-suit</b> card wins. Invasive cards above the Invasive Risk can never win this way.' },
+  { id: 'rivals', when: () => S.lastTrick && S.phase !== 'ended' && !S.trick, focus: '.players', title: 'Your rivals',
+    body: () => `Everyone's role is public. ${isPhone() ? 'Press and hold' : 'Hover'} a player to read their goals. ${S.players.map((p, i) => i === S.you ? '' : `<b>${esc(p.name)}</b> is the ${esc(ROLES[p.role].name)}.`).join(' ')} The Land Developer wants Invasives in Miami, empty regions and the most tricks. Get in their way when you can.` },
+  { id: 'end', when: () => S.phase === 'ended' && !holding(), title: 'Final scoring',
+    body: () => "The game ends when the cards run out. Each player scores 5 points per trick plus their role's objectives, and the table shows how every score was made. That's the whole game! Real tables have 2 to 6 players, a role draft, character abilities, Partners and Co-op modes, and optional Disruption cards." },
+];
+function coachTip() {
+  if (!S || !S.tutorial || ui.coachOff) return null;
+  ui.coachSeen = ui.coachSeen || new Set();
+  let t = ui.coach && COACH.find(x => x.id === ui.coach);
+  if (t && !t.when()) { ui.coachSeen.add(t.id); t = null; } // its moment has passed
+  if (!t) t = COACH.find(x => !ui.coachSeen.has(x.id) && x.when()) || null;
+  ui.coach = t ? t.id : null;
+  return t;
+}
+function coachHtml(t) {
+  if (!t) return '';
+  return `<div class="paper spiral coach ${t.focus === '.players' ? 'right' : ''}" role="dialog" aria-label="Tutorial tip">
+    <div class="coach-step">Tutorial tip</div>
+    <div class="panel-title">${t.title}</div>
+    <div class="coach-body">${t.body()}</div>
+    <div class="row"><button class="btn primary" id="coachOk">Got it</button><button class="btn small" id="coachOff">Hide tips</button></div>
+  </div>`;
+}
+// keep the bots waiting while a tip is open (the server only honours this at tutorial tables)
+function coachSync() {
+  const want = !!(S && S.tutorial && ui.coach && S.phase !== 'ended');
+  if (want !== ui.coachHold) { ui.coachHold = want; lobby('hold', { on: want }); }
+}
 function rulesModal() {
   return `<div class="modal"><div class="paper spiral">
     <div class="row" style="justify-content:space-between"><div class="panel-title">How to play</div><button class="btn small" id="closeRules">Close</button></div>
@@ -1296,7 +1426,7 @@ function rulesModal() {
       <img src="assets/ref-back.png" data-peek="assets/ref-back.png" alt="Playing tricks" style="width:min(240px,30%);border:3px solid var(--ink)">
       <div class="hint" style="flex:1;min-width:0;color:var(--ink)">
         <p style="margin-top:0"><b>Setup:</b> after the cards are dealt, players choose roles one at a time in turn order.</p>${S.coop ? `<p><b>Co-op vs The Anaconda:</b> you hold only Native cards. After each player's turn the Anaconda flips its top Invasive card. When it wins a trick it travels to the highest-Risk biome. Its Predatory cards eat Native tokens and its Migratory cards move next door to the most Natives. The game ends after the round it plays its last card. Add all players' scores together — you must beat the Anaconda's score (hover its name to read its boss card).</p>` : ''}<p><b>Each round:</b> the lead player picks a biome from the travel row. Everyone plays one card, in order.</p>
-        <p><b>Winning:</b> the highest-Impact card that matches the biome's type wins. Invasive cards match too if their Impact is at or below the current Invasive Risk. A <b>Keystone</b> card lowers the Risk by the number of Native tokens in the region. If nothing matches, the highest Impact card wins.</p>
+        <p><b>Winning:</b> the highest-Impact card that matches the biome's type wins. Invasive cards match too if their Impact is at or below the current Invasive Risk. A <b>Keystone</b> card lowers the Risk by the number of Native tokens in the region. If nothing matches, the highest-Impact off-suit card wins, but an Invasive card whose Impact is above the Invasive Risk can never win this way.</p>
         <p><b>Invasive Crisis:</b> if an Invasive card wins, each region loses 1 Native token per Invasive token there (or 1 Invasive token if it has only Invasives).</p>
         <p><b>Scoring:</b> 5 points per trick, plus the objectives on your role card. Everyone's role is public — hover a name to read it.</p>
       </div>
@@ -1366,6 +1496,7 @@ function coopEndModal() {
 function endModal() {
   const R = S.results;
   if (R.coop) return coopEndModal();
+  if (S.tutorial) return tutorialEndModal();
   const sorted = R.scores.slice().sort((a, b) => b.total - a.total);
   const endings = `<div class="stories">${R.winners.map(w => {
     const sc = R.scores.find(x => x.p === w);
@@ -1404,6 +1535,27 @@ function endModal() {
     </table>
     <div class="row">${S.isHost ? '<button class="btn primary" id="rematch">Back to lobby</button>' : '<span class="hint">The host can start a new game.</span>'}<button class="btn" id="quit2">Leave</button></div>
   </div></div>`;
+}
+
+function tutorialEndModal() {
+  const R = S.results, me = R.scores.find(x => x.p === S.you);
+  const won = R.winners.includes(S.you);
+  return `<div class="modal"><div class="paper spiral">
+    <h2 class="logo" style="font-size:34px">TUTORIAL COMPLETE!</h2>
+    <p class="hint" style="margin:4px 0 8px">${won ? 'You won your first game. Nice work, Conservationist!' : `You scored ${me ? me.total : 0} points. The bots got you this time, but now you know how it all works.`}</p>
+    <table class="scores"><tr><th>Role</th><th>Player</th><th>Breakdown</th><th>Total</th></tr>
+      ${R.scores.slice().sort((a, b) => b.total - a.total).map(sc => `<tr class="${R.winners.includes(sc.p) ? 'winner' : ''}">
+        <td>${portraitThumb(sc.role, (S.players[sc.p] || {}).skin)}</td>
+        <td><b>${esc(sc.name)}</b><br><span class="hint">${esc(ROLES[sc.role].name)}</span></td>
+        <td class="lines">${sc.lines.map(l => `${esc(l.label)}: <b style="color:var(--ink)">${l.pts}</b>`).join('<br>')}</td>
+        <td class="total">${sc.total}</td></tr>`).join('')}
+    </table>
+    <div class="row"><button class="btn primary" id="quit2">Back to the home page</button><button class="btn" id="tutAgain">Play the tutorial again</button></div>
+  </div></div>`;
+}
+async function startTutorial() {
+  try { const r = await acctApi('tutorial', {}); ui.coach = null; ui.coachSeen = new Set(); ui.coachOff = false; ui.coachHold = undefined; enterRoom(r); }
+  catch (e) { ui.err = e.message; render(); }
 }
 
 // ---------- "are you sure?" when a card play would waste your ability ----------
@@ -1675,6 +1827,9 @@ function wire() {
   q('#quit', () => { if (confirm('Leave this game?')) leave(); });
   q('#quit2', () => leave());
   q('#rematch', () => lobby('rematch'));
+  q('#coachOk', () => { ui.coachSeen.add(ui.coach); ui.coach = null; render(); });
+  q('#coachOff', () => { ui.coachOff = true; ui.coach = null; render(); });
+  q('#tutAgain', () => { leave(); startTutorial(); });
   q('[data-botify]', el => lobby('botify', { pid: el.dataset.botify }));
   q('[data-role]', el => { hidePeek(); act({ type: 'pickRole', role: el.dataset.role }); });
   q('[data-choose]', el => { hidePeek(); act({ type: 'chooseBiome', biome: el.dataset.choose }); });

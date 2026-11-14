@@ -21,9 +21,11 @@ A website version of your Everglades trick-taking game. It uses your own card an
 - **The game ends** after the round in which the Anaconda plays its last card. Players always have cards left over.
 - **Scoring:** add up all players' scores (role objectives plus 5 per trick). You must **beat** the Anaconda; it wins ties. It scores **5 pts for each map objective the players miss** (this scales with player count), **5 pts per trick it wins**, and **3 pts per region with an Invasive majority**.
 - **Endings:** if the players win, the highest scorer's good ending is told. If the Anaconda wins, the lowest scorer's grim ending is told. The Anaconda gets its own epilogue either way.
-- **Balance:** in simulated games with bot players, the players win roughly 35–55% at every table size from 1 to 6 (about 45% with 4). Real players should do better than the bots. Run `node test/coopsim.js` to re-check after rule changes. The point values live in `COOP` near the top of the co-op section of `game.js`.
+- **Balance:** with the logic-engine bots, the players win roughly 40–60% at every table size from 1 to 6 (about 60% with 4). The Anaconda scores 9 per unmet map objective, 5 per region with an Invasive majority and 8 per trick. Real players should do better than the bots. Run `node test/coopsim.js` to re-check after rule changes. The point values live in `COOP` near the top of the co-op section of `game.js`.
 
-**About the bots:** bots play the same rules and use their role abilities. When a bot plays a card, travels, uses an ability, spreads or hunts, a short in-character speech bubble appears next to its name (for example, the Fisherman's "Reeling in a Manatee. That's a keeper!").
+**Tutorial:** new players can press **New here? Learn to play** on the home page. It's a free, private 5-round game against two gentle bots. You play the Conservationist with a hand-picked deal, and a coach panel explains each idea the first time it comes up: roles, the map, choosing a biome, following suit, Invasive cards and the Risk, Keystone, Predatory and Migratory cards, the Invasive Crisis, and the final scoring. The bots wait while a tip is open. The deal is in `TUTORIAL` in `game.js` and the tips are in `COACH` in `public/client.js`.
+
+**About the bots:** bots play the same rules and use their role abilities. They think with a logic engine (`ai.js`). It estimates every player's final score from the current position: map objectives, tricks won and likely to be won, and each role's bonus goals. Before playing a card, choosing a biome, or committing a Disruption, a bot plays out the rest of the trick many times over guessed deals of the cards it can't see. It never peeks at hidden hands or face-down Disruptions. It then picks the move that best balances scoring its own points against holding back the leading opponent. Partners play for the team's combined score, and in co-op every bot plays for the whole table. Run `node test/bench.js` to measure one engine bot against tables of the old simple bots (add `--dis` or `--partners`). When a bot plays a card, travels, uses an ability, spreads or hunts, a short in-character speech bubble appears next to its name (for example, the Fisherman's "Reeling in a Manatee. That's a keeper!").
 
 **Chat lines:** players can say those lines too. Every bot line is in the Store as a **chat line for 50 EB** (159 in all, grouped by character, plus Table talk and the Anaconda). Lines that named a card or place were reworded to stand on their own, so "Reeling in a Manatee" became "That's a keeper!". During a game, click **💬 Chat** in the top bar and pick one of your lines: it pops up as a speech bubble over your seat for everyone at the table. Your own character's lines are listed first. You can send one line every 2.5 seconds. The lines live in CHAT_GROUPS in `public/data.js`; add new ones at the **end** of a group, because a line's id comes from its position and accounts store those ids.
 
@@ -97,6 +99,13 @@ Everyone signs in before they sit down at a table. An account keeps your **gamer
   **Adding a skin:** add a line to `SKINS` in `public/data.js`, then put its 6 animation strips (`idle`, `think`, `signature`, `cheer`, `upset`, `shock`) in `public/assets/characters/<Role>/skins/<id>/`. Each strip is 9 frames of 128×110, the same as the originals. The skins were made with PixelLab: the original portrait was edited into a new person, then each animation was generated from that portrait.
 - **Foil cards (100 EB each):** every Ecology and Disruption card has a foil version in the Store. Whenever that card is dealt to you, it shows with a moving rainbow sheen, and only you see it: in your hand, in your Disruption draft, and when you play it.
 - **Safety:** a game cut short by a server restart, or abandoned before the end, refunds everyone's buy-in.
+
+**Buying Eco-bucks (real money, through Stripe):** the store's **Buy Eco-bucks** tab sells 100 EB for $1, 500 EB for $5 and 1,000 EB for $9. Players pay on Stripe's own Checkout page, so card details never reach this server. The Eco-bucks are added once Stripe confirms the payment, either through the webhook or when the player returns to the site, and each payment is only ever credited once. Guest accounts must sign in with Google before buying, so a purchase can't be lost with a browser. Every credited payment is recorded in the `payments` table, and the packs are `EB_PACKS` in `payments.js`. Run `node test/payments.js` to check the flow against a pretend Stripe. Setup:
+1. In the Stripe dashboard, open **Developers > API keys** and copy the **secret key**. Use the `sk_test_...` key while testing and switch to `sk_live_...` when you're ready for real money.
+2. Open **Developers > Webhooks > Add endpoint**. Set the URL to `https://<your-site>/api/stripe/webhook` and choose the events `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `charge.refunded`, `charge.dispute.created` and `charge.dispute.closed`. Refunds and disputes take the Eco-bucks back automatically, and they're restored if you win a dispute. Copy the endpoint's **signing secret** (`whsec_...`).
+3. In Render, under **Environment**, add `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (and optionally `PUBLIC_URL`, your site's address). Without `STRIPE_SECRET_KEY`, the tab is hidden.
+4. Test keys and live keys each need their own webhook endpoint and secret.
+5. The **Terms of Service** (`public/terms.html`) and **Refund Policy** (`public/refunds.html`) are linked from the home page and the store. Set `SUPPORT_EMAIL` in Render to show your support address on them. Without it, they point to the contact on the Stripe receipt. In Stripe, under **Settings > Business > Public details**, add the two page URLs and your support email.
 
 All the numbers (starting balance, daily bonus, buy-ins, unlock count) and the store's items are at the top of `accounts.js`. To add a cosmetic, add it to `STORE` there. Skins and their price (`SKIN_PRICE`) are in `public/data.js`. Run `node test/economy.js` to check the payouts, store, unlocks and sign-in after changes.
 
@@ -200,7 +209,8 @@ Every rule is in **game.js**, and all card stats are in **public/data.js**. Both
 |---|---|
 | `start.bat` | Double-click to run the game on Windows |
 | `server.js` | The multiplayer server: rooms, live updates, bots taking turns |
-| `game.js` | All the rules: tricks, populating, abilities, Invasive Crisis, scoring, bots |
+| `game.js` | All the rules: tricks, populating, abilities, Invasive Crisis, scoring, the bots' quick policy |
+| `ai.js` | The bots' logic engine: position evaluation and look-ahead search |
 | `accounts.js` | Player accounts: Google and guest sign-in, gamertags, profile pictures, Eco-bucks, buy-ins and payouts, the store |
 | `storage.js` | Where account data is kept: Upstash Redis when its settings are present, otherwise a local file |
 | `test/storage.js` | Checks that accounts survive a restart with Upstash (uses a pretend Upstash, no internet needed) |
@@ -223,6 +233,9 @@ Every rule is in **game.js**, and all card stats are in **public/data.js**. Both
 | `tools/make_boss_card.py`, `tools/pixelfont.py` | Rebuild the Anaconda boss card (pixel lettering drawn in code) |
 | `test/disruptions.js` | Plays 600 bot games with Disruptions on (solo, partners, co-op), checks every card gets played, and tests Keystone and each Disruption's effect |
 | `public/assets/cards/disruption/` | The 18 Disruption cards and their face-down back. The art is also saved in `GeneratedArt/DisruptionDeck/art` |
+| `payments.js` | Buying Eco-bucks with Stripe Checkout (packs, checkout, webhook) |
+| `test/payments.js` | Checks Eco-buck purchases against a pretend Stripe (prices, crediting once, webhook signatures) |
+| `test/bench.js` | Measures one logic-engine bot against tables of the old simple bots (`--dis`, `--partners`) |
 | `test/predatory.js` | Checks that Predatory cards hunt before their own tokens are added (including Done early, empty regions and the Great Barracuda) |
 | `test/sim.js` | Plays 500 bot-only games (every 7th one co-op) to check the rules never get stuck and every character reaction is valid (`npm test`) |
 

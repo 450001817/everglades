@@ -772,3 +772,36 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
   .bubble { max-width: 70vw; font-size: 17px; }
   .pickrow .card.eco { width: 26vw; }
 }
+
+/* ---------- tutorial coach ---------- */
+.coach { position: fixed; z-index: 72; left: 16px; top: 64px; width: min(400px, calc(100vw - 32px)); max-height: calc(100vh - 90px); overflow-y: auto;
+  padding: 14px 16px 12px; box-shadow: 6px 6px 0 rgba(20, 12, 8, .45); animation: coachin .25s steps(3); }
+.coach.right { left: auto; right: 16px; }
+.coach .coach-step { font-family: 'EGDigits', 'VT323', monospace; font-size: 15px; letter-spacing: 1px; color: #7a6a58; text-transform: uppercase; }
+.coach .panel-title { margin: 2px 0 6px; }
+.coach .coach-body { font-size: 18px; line-height: 1.3; color: var(--ink); }
+.coach .coach-body ul { margin: 6px 0 0; padding-left: 20px; }
+.coach .coach-body li { margin: 2px 0; }
+.coach .row { margin-top: 10px; gap: 8px; }
+@keyframes coachin { from { transform: translateY(-8px); opacity: 0; } }
+.coach-focus { outline: 4px dashed var(--brass) !important; outline-offset: 4px; animation: coachpulse 1s steps(2) infinite; }
+@keyframes coachpulse { 50% { outline-color: transparent; } }
+@media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) {
+  .coach, .coach.right { left: 8px; right: 8px; top: 52px; width: auto; max-height: 46vh; padding: 10px 12px; }
+  .coach .coach-body { font-size: 16px; }
+}
+
+/* ---------- Eco-buck packs (store) ---------- */
+.ebpacks { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.ebpack { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 10px 12px;
+  background: #fffaf0; border: var(--px, 3px) solid var(--ink); box-shadow: 4px 4px 0 rgba(20, 12, 8, .3); }
+.ebpack.best { background: #fff3cf; border-color: var(--brass); }
+.ebpack .ebamt { font-size: 28px; }
+.ebpack .ebper { margin: -4px 0 0; font-size: 14px; min-height: 1em; }
+.ebpack .btn { width: 100%; }
+.ebpack .ebtag { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 1px 8px;
+  background: var(--brass); color: var(--ink); border: 2px solid var(--ink); font-family: 'EGDigits', 'VT323', monospace; font-size: 15px; text-transform: uppercase; }
+.storetab.ebtab { background: #fff3cf; }
+
+.legal-links { margin: 0; font-size: 15px; text-align: center; }
+.legal-links a, .storepage .hint a { color: inherit; text-decoration: underline; }
