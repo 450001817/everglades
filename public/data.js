@@ -281,7 +281,15 @@
   // Foil cards: a shiny version of any Ecology or Disruption card, seen only by the player who owns it.
   const FOIL_PRICE = 100;
 
-  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES, DISRUPTIONS, FOIL_PRICE };
+  // Splash effects: a burst that plays over your card whenever you play one (everyone at the table sees it).
+  // Bought in the store's Splash effects tab and equipped like a title; drawn by playSplash() in client.js.
+  const SPLASH_PRICE = 250;
+  const SPLASHES = [
+    { id: 'sparkle', name: 'Sparkle', price: SPLASH_PRICE, blurb: 'Golden stars burst from your card and twinkle away.' },
+    { id: 'splash', name: 'Water splash', price: SPLASH_PRICE, blurb: 'Your card lands with a splash of swamp water and a ripple.' },
+  ];
+
+  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES, DISRUPTIONS, FOIL_PRICE, SPLASHES, SPLASH_PRICE };
   if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
   else root.EG_DATA = DATA;
 })(typeof window !== 'undefined' ? window : globalThis);

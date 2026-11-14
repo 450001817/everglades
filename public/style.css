@@ -830,3 +830,12 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .inapp { font-size: 16px; line-height: 1.35; padding: 8px 10px; background: #fff3cf; border: 2px dashed var(--brass); color: var(--ink); }
 .inapp .btn { margin-top: 6px; }
 .guestwarn { display: block; margin: 6px 0 0; font-size: 15px; color: var(--red); }
+
+/* ---------- splash effects (playSplash in client.js) ---------- */
+.splashfx { position: fixed; z-index: 58; pointer-events: none; image-rendering: pixelated; image-rendering: crisp-edges; }
+.splashprev { display: flex; justify-content: center; }
+.splashdemo { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 10px; background: transparent; border: 0; cursor: pointer; }
+.splashdemo .card { width: 84px; pointer-events: none; }
+.splashdemo .card img { width: 100%; display: block; }
+.splashdemo span { font-family: var(--font-small); font-size: 14px; color: var(--ink); }
+.splashdemo:hover span { text-decoration: underline; }

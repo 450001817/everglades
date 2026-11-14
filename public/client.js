@@ -1,6 +1,6 @@
 // Everglades — browser client. Renders whatever the server says the game looks like.
 'use strict';
-const { CARDS, REGIONS, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES, DISRUPTIONS, FOIL_PRICE } = window.EG_DATA;
+const { CARDS, REGIONS, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES, DISRUPTIONS, FOIL_PRICE, SPLASHES } = window.EG_DATA;
 const roleInfo = r => r === 'Anaconda' ? BOSS : (r ? ROLES[r] : null);
 const $app = document.getElementById('app');
 const $peek = document.getElementById('peek');
@@ -291,7 +291,14 @@ function profileModal() {
   const need = C.econ.unlockWins;
   const tile = (a, locked, label, sub) => `<button class="avtile ${me.avatar === a.id ? 'on' : ''} ${locked ? 'locked' : ''}" ${locked ? 'disabled' : `data-avatar="${a.id}"`} title="${esc(label)}">
       <img src="${a.src}" alt="${esc(label)}">${locked ? `<span class="lock">${sub}</span>` : ''}</button>`;
-  const chars = C.avatars.characters.map(a => tile(a, false, a.id.split(':')[1].replace('LandDeveloper', 'Land Developer'))).join('');
+  // the characters, each followed by the skins of it you own
+  const ownedSkins = (C.avatars.skins || []).filter(s => me.owned.includes(s.id));
+  const chars = C.avatars.characters.map(a => {
+    const role = a.id.split(':')[1];
+    return tile(a, false, role.replace('LandDeveloper', 'Land Developer')) +
+      ownedSkins.filter(s => s.role === role).map(s => tile(s, false, `${s.name} (${ROLES[role].name} skin)`)).join('');
+  }).join('');
+  const skinNote = (C.avatars.skins || []).length > ownedSkins.length ? ' — skins you buy appear here too' : '';
   const unlockedN = C.avatars.animals.filter(a => me.unlocked.includes(a.id)).length;
   const animals = C.avatars.animals.map(a => {
     const wins = me.cardWins[a.card] || 0, locked = !me.unlocked.includes(a.id);
@@ -305,7 +312,7 @@ function profileModal() {
       <button class="btn brass" id="saveTag">Save gamertag</button>
     </div>
     <p class="hint" style="margin:0">Games ${me.stats.games} · First places ${me.stats.firsts} · Won ${Number(me.stats.ebWon).toLocaleString()} EB · Lost ${Number(me.stats.ebLost).toLocaleString()} EB${me.guest ? ' · Guest account (this browser only)' : ''}</p>
-    <div class="panel-title" style="margin:6px 0 0">Characters</div>
+    <div class="panel-title" style="margin:6px 0 0">Characters <span class="hint" style="text-transform:none;letter-spacing:0">${skinNote}</span></div>
     <div class="avgrid">${chars}</div>
     <div class="panel-title" style="margin:6px 0 0">Wildlife <span class="hint" style="text-transform:none;letter-spacing:0">— ${unlockedN}/${C.avatars.animals.length} unlocked. Win ${need} tricks with an animal card to unlock its picture.</span></div>
     <div class="avgrid">${animals}</div>
@@ -338,6 +345,7 @@ function storeModal() {
   let page = '';
   if (tab === 'eb') page = ebStoreHtml(me, C);
   if (tab === 'titles') page = titleStoreHtml(me, C);
+  if (tab === 'splash') page = splashStoreHtml(me, C);
   if (tab === 'skins') page = skinStoreHtml(me);
   if (tab === 'chat') page = chatStoreHtml(me);
   if (tab === 'foil') page = foilStoreHtml(me);
@@ -354,6 +362,7 @@ const STORE_TABS = {
   skins: { label: 'Character skins', type: 'skin' },
   chat: { label: 'Chat lines', type: 'chat' },
   foil: { label: 'Foil cards', type: 'foil' },
+  splash: { label: 'Splash effects', type: 'splash' },
   titles: { label: 'Titles', type: 'title' },
 };
 document.addEventListener('click', e => {
@@ -401,6 +410,110 @@ async function finishPurchase() {
   }
   showToast('Your payment is still processing. Your Eco-bucks will appear as soon as it clears.', false, 6000);
 }
+// Splash effects: preview each one on a sample card, buy it, and pick which one you use.
+function splashStoreHtml(me, C) {
+  const items = C.store.filter(it => it.type === 'splash').map(it => {
+    const owned = me.owned.includes(it.id), using = me.splash === it.splash;
+    const action = owned
+      ? `<button class="btn ${using ? '' : 'brass'}" data-splashwear="${using ? '' : it.splash}">${using ? 'Turn off' : 'Use this effect'}</button>`
+      : `<button class="btn primary" data-buy="${it.id}" ${me.balance < it.price ? 'disabled' : ''}>Buy · ${Number(it.price).toLocaleString()} EB</button>`;
+    return `<div class="storeitem">
+      <div class="storeprev splashprev"><button class="splashdemo" data-splashpreview="${it.splash}" title="Preview">${cardEl(it.splash === 'splash' ? 'Manatee' : 'Flamingo', '', 'data-splashcard="' + it.splash + '"')}<span>▶ Preview</span></button></div>
+      <div class="storeinfo"><b>${esc(it.name)}</b><span class="hint">${esc(it.blurb)}</span>
+        <span>${fmtEB(it.price)}${owned ? ` · <span style="color:var(--native)">${using ? 'In use' : 'Owned'}</span>` : me.balance < it.price ? ` · <span class="hint">you need ${(it.price - me.balance).toLocaleString()} more</span>` : ''}</span></div>
+      <div>${action}</div></div>`;
+  }).join('');
+  return `<p class="hint" style="margin:0 0 8px">Your splash effect bursts from every card you play, and everyone at the table sees it. You use one at a time.</p><div class="storelist">${items}</div>`;
+}
+document.addEventListener('click', async e => {
+  const pv = e.target.closest('[data-splashpreview]');
+  if (pv) { e.preventDefault(); const card = pv.querySelector('.card'); if (card) playSplash(pv.dataset.splashpreview, card, true); return; }
+  const w = e.target.closest('[data-splashwear]'); if (!w) return;
+  try { acct.msg = ''; acct.me = (await acctApi('profile', { splash: w.dataset.splashwear || null })).me; } catch (err) { acct.msg = err.message; SFX.error(); }
+  render();
+});
+
+// ---------- splash effects (pixel-art particles drawn over a card) ----------
+// A canvas laid over the card (and a margin around it) for about a second. Drawn at 1/3 resolution and scaled up
+// without smoothing, so the particles are chunky pixels like the rest of the game.
+const SPLASH_PX = 3;
+function playSplash(type, el, preview = false) {
+  if (!el || !SPLASHES.some(s => s.id === type)) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches && !preview) return;
+  const r = el.getBoundingClientRect(); if (!r.width) return;
+  const M = Math.round(Math.max(40, r.width * 0.7)); // room around the card for the burst
+  const cv = document.createElement('canvas');
+  cv.className = 'splashfx';
+  const W = Math.ceil((r.width + 2 * M) / SPLASH_PX), H = Math.ceil((r.height + 2 * M) / SPLASH_PX);
+  cv.width = W; cv.height = H;
+  Object.assign(cv.style, { left: (r.left - M) + 'px', top: (r.top - M) + 'px', width: W * SPLASH_PX + 'px', height: H * SPLASH_PX + 'px' });
+  document.body.appendChild(cv);
+  const g = cv.getContext('2d');
+  const cx = W / 2, cy = H / 2, cw = r.width / SPLASH_PX, ch = r.height / SPLASH_PX;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const dot = (x, y, c, s = 1) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), s, s); };
+  let parts = [], dur = 1100;
+  if (type === 'sparkle') {
+    dur = 1200;
+    for (let i = 0; i < 32; i++) { // stars burst from the card's edges and twinkle as they drift out
+      const a = rnd(0, Math.PI * 2), sp = rnd(10, 34);
+      const ex = cx + Math.cos(a) * cw * 0.45, ey = cy + Math.sin(a) * ch * 0.45;
+      parts.push({ x: ex, y: ey, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 6, big: Math.random() < 0.35, ph: rnd(0, 6), c: ['#fff6b0', '#ffd84a', '#ffffff', '#ffe98a'][i % 4], life: rnd(0.65, 1) });
+    }
+  } else { // water splash: a crown of droplets thrown out from the card's base, falling back; a ripple rings out
+    const base = cy + ch / 2 - 2;
+    for (let i = 0; i < 48; i++) {
+      const side = i % 2 ? -1 : 1, edge = rnd(0.15, 0.5); // more droplets from near the card's sides
+      parts.push({ x: cx + side * cw * edge, y: base - rnd(0, ch * 0.15), vx: side * rnd(10, 38) * (0.6 + edge), vy: -rnd(45, 95),
+        s: Math.random() < 0.55 ? 2 : 1, c: ['#d8f6ff', '#6fd0f4', '#2e8fd0', '#ffffff', '#4fb4e6'][i % 5], life: rnd(0.75, 1) });
+    }
+  }
+  const t0 = performance.now();
+  (function frame(now) {
+    const t = (now - t0) / dur; // 0..1
+    g.clearRect(0, 0, W, H);
+    if (t >= 1 || !cv.isConnected) { cv.remove(); return; }
+    const dt = (now - t0) / 1000;
+    if (type === 'sparkle') {
+      // a quick flash around the card first
+      if (t < 0.18) { g.globalAlpha = 1 - t / 0.18; g.strokeStyle = '#fff6b0'; g.lineWidth = 1; g.strokeRect(Math.round(cx - cw / 2) - 1, Math.round(cy - ch / 2) - 1, Math.round(cw) + 2, Math.round(ch) + 2); g.globalAlpha = 1; }
+      for (const p of parts) {
+        if (t > p.life) continue;
+        const k = 1 - Math.min(1, dt * 1.6) * 0.6; // slow down as they drift
+        const x = p.x + p.vx * dt * k, y = p.y + p.vy * dt * k + 8 * dt * dt;
+        const tw = Math.sin(dt * 18 + p.ph) > -0.2; // twinkle
+        g.globalAlpha = Math.max(0, 1 - t / p.life);
+        if (!tw) { dot(x, y, p.c); continue; }
+        dot(x, y, p.c); dot(x - 1, y, p.c); dot(x + 1, y, p.c); dot(x, y - 1, p.c); dot(x, y + 1, p.c); // a little plus-shaped star
+        if (p.big && t < 0.6) { dot(x - 2, y, '#ffffff'); dot(x + 2, y, '#ffffff'); dot(x, y - 2, '#ffffff'); dot(x, y + 2, '#ffffff'); }
+      }
+    } else {
+      // ripple: two pixel ellipses spreading out under the card
+      for (const [delay, col] of [[0, '#7fd6f5'], [0.18, '#bfefff']]) {
+        const q = (t - delay) / 0.75; if (q <= 0 || q >= 1) continue;
+        const rx = cw * (0.35 + q * 0.55), ry = Math.max(2, rx * 0.22), by = cy + ch / 2 - 2;
+        g.globalAlpha = (1 - q) * 0.9;
+        for (let a = 0; a < Math.PI * 2; a += 0.12) dot(cx + Math.cos(a) * rx, by + Math.sin(a) * ry, col);
+      }
+      // the first moment: two columns of spray shooting up from the base corners
+      if (t < 0.3) {
+        g.globalAlpha = 1 - t / 0.3;
+        const hgt = Math.round(ch * 0.55 * Math.sin(Math.min(1, t / 0.15) * Math.PI / 2));
+        for (const sx of [cx - cw * 0.42, cx + cw * 0.42]) for (let k = 0; k < hgt; k += 2) dot(sx + (k % 4 ? 1 : -1), cy + ch / 2 - 2 - k, k % 6 ? '#bfefff' : '#ffffff', 2);
+      }
+      for (const p of parts) {
+        if (t > p.life) continue;
+        const vy = p.vy + 150 * dt, x = p.x + p.vx * dt, y = p.y + p.vy * dt + 75 * dt * dt; // gravity
+        g.globalAlpha = Math.max(0, Math.min(1, (p.life - t) * 4));
+        dot(x, y, p.c, p.s);
+        if (vy < 0) dot(x, y + p.s, p.c, 1); // a short streak while rising
+      }
+    }
+    g.globalAlpha = 1;
+    requestAnimationFrame(frame);
+  })(t0);
+}
+
 function titleStoreHtml(me, C) {
   const items = C.store.filter(it => it.type === 'title').map(it => {
     const owned = me.owned.includes(it.id), wearing = me.title === it.id;
@@ -729,6 +842,10 @@ function onUpdate(prev) {
     if (S.phase === 'ended' && prev.phase !== 'ended') setTimeout(SFX.end, 700);
     if (prev.phase === 'choose' && S.phase === 'play') SFX.travel();
     if (prev.phase === 'draft' && S.players.filter(p => p.role).length > prev.players.filter(p => p.role).length) SFX.trick();
+    // splash effects: cards that just landed in the trick, played by someone with an effect equipped
+    const nowPlays = S.trick ? S.trick.plays : newTrick ? lt.plays : [];
+    const before = new Set(prev.trick ? prev.trick.plays.map(x => x.card) : []);
+    for (const pl of nowPlays) if (!before.has(pl.card) && S.players[pl.p] && S.players[pl.p].splash) (ui.fxQueue = ui.fxQueue || []).push({ card: pl.card, type: S.players[pl.p].splash });
     const prevPlays = prev.trick ? prev.trick.plays.length : 0;
     if ((S.trick && S.trick.plays.length > prevPlays) || (newTrick && prevPlays < S.players.length)) SFX.card();
     const d = boardTotal(S.board) - boardTotal(prev.board);
@@ -1077,8 +1194,8 @@ function trickDoneHtml() {
       </div>
     </div>
     <div class="played" style="--n:${lt.plays.length}">${lt.plays.map(pl => pl.card === lt.card
-      ? captioned(cardEl(pl.card, `winner ${pl.p === S.you ? foil(pl.card) : ''}`, '', '', `<div class="winribbon">${lt.crisis ? 'CRISIS!' : 'WINNER'}</div>`), who(pl.p), 'win')
-      : captioned(cardEl(pl.card, `loser ${pl.p === S.you ? foil(pl.card) : ''}`), who(pl.p), 'lose')).join('')}</div>
+      ? captioned(cardEl(pl.card, `winner ${pl.p === S.you ? foil(pl.card) : ''}`, `data-played="${pl.card}"`, '', `<div class="winribbon">${lt.crisis ? 'CRISIS!' : 'WINNER'}</div>`), who(pl.p), 'win')
+      : captioned(cardEl(pl.card, `loser ${pl.p === S.you ? foil(pl.card) : ''}`, `data-played="${pl.card}"`), who(pl.p), 'lose')).join('')}</div>
     <div class="holdbar"><span style="animation-duration:${ui.trickHold.ms}ms;animation-delay:-${elapsed}ms"></span></div>
   </div>`;
 }
@@ -1172,7 +1289,7 @@ function tableHtml() {
       ${disPanelHtml()}
     </div>
     <div class="played" style="--n:${slots}">${S.trick.plays.length
-      ? S.trick.plays.map(pl => captioned(cardEl(pl.card, pl.p === S.you ? foil(pl.card) : ''), seatName(pl.p))).join('')
+      ? S.trick.plays.map(pl => captioned(cardEl(pl.card, pl.p === S.you ? foil(pl.card) : '', `data-played="${pl.card}"`), seatName(pl.p))).join('')
       : `<span class="lastline" style="color:var(--blush)">${S.phase === 'disrupt' ? 'Cards are played once the Disruptions are resolved.' : 'No cards played yet.'}</span>`}</div>
     <div class="strip">
       <h3>Travel row</h3>
@@ -1269,6 +1386,10 @@ function renderGame() {
   }
   ui.scrollTo = null;
   placeBubbles();
+  if (ui.fxQueue && ui.fxQueue.length) {
+    const q = ui.fxQueue; ui.fxQueue = [];
+    requestAnimationFrame(() => { for (const f of q) playSplash(f.type, [...document.querySelectorAll(`[data-played="${f.card}"]`)].find(e => e.offsetParent)); });
+  }
 }
 // phone layout (matches the phone media query in style.css)
 const phoneMQ = matchMedia('(max-width: 760px), (max-height: 520px) and (max-width: 1000px)');

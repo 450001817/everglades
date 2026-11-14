@@ -105,6 +105,7 @@ function viewFor(room, member) {
         role: p.role, // roles are public
         skin: a && typeof p.role === 'string' ? A.skinFor(a, p.role) : null, // the look everyone sees for this player's character
         profile: a ? A.publicProfile(a) : null,
+        splash: A.splashFor(a), // the splash effect everyone sees when this player plays a card
       };
     }),
     settlement: room.settlement, // Eco-buck payouts once the game is over
@@ -345,7 +346,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (op === 'profile') {
         const a = A.requireAccount(body.session);
-        A.setProfile(a, { gamertag: body.gamertag, avatar: body.avatar, title: body.title, skin: body.skin });
+        A.setProfile(a, { gamertag: body.gamertag, avatar: body.avatar, title: body.title, skin: body.skin, splash: body.splash });
         // update lobby banners, and the portraits of anyone already at a table (a skin change shows straight away)
         for (const r of rooms.values()) if (r.members.some(m => m.accountId === a.id)) broadcast(r);
         return send(res, 200, { me: A.privateProfile(a) });

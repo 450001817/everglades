@@ -107,6 +107,10 @@ Everyone signs in before they sit down at a table. An account keeps your **gamer
 4. Test keys and live keys each need their own webhook endpoint and secret.
 5. The **Terms of Service** (`public/terms.html`) and **Refund Policy** (`public/refunds.html`) are linked from the home page and the store. Set `SUPPORT_EMAIL` in Render to show your support address on them. Without it, they point to the contact on the Stripe receipt. In Stripe, under **Settings > Business > Public details**, add the two page URLs and your support email.
 
+**Splash effects (250 EB each):** the store's **Splash effects** tab sells effects that burst from a card when its owner plays it, and everyone at the table sees them. The first two are **Sparkle** (golden pixel stars) and **Water splash** (a crown of droplets and a ripple). Each one can be previewed in the store. A player uses one at a time, picked like a title. The effects are listed in `SPLASHES` in `public/data.js` and drawn by `playSplash()` in `public/client.js`. They're skipped for players with reduced motion turned on.
+
+**Profile pictures:** every character picture is a centered close-up taken from the character's animation art. Each character skin you own adds its own picture next to that character (`assets/avatars/skin_<id>.png`).
+
 All the numbers (starting balance, daily bonus, buy-ins, unlock count) and the store's items are at the top of `accounts.js`. To add a cosmetic, add it to `STORE` there. Skins and their price (`SKIN_PRICE`) are in `public/data.js`. Run `node test/economy.js` to check the payouts, store, unlocks and sign-in after changes.
 
 ### Turning on "Sign in with Google" (about 10 minutes, free)

@@ -6,7 +6,7 @@
 'use strict';
 const path = require('path');
 const crypto = require('crypto');
-const { CARDS, ROLES, SKINS, CHAT, DISRUPTIONS, FOIL_PRICE } = require('./public/data.js');
+const { CARDS, ROLES, SKINS, CHAT, DISRUPTIONS, FOIL_PRICE, SPLASHES } = require('./public/data.js');
 
 // ---------- economy settings (change freely) ----------
 const ECON = {
@@ -30,15 +30,18 @@ const STORE = [
   // as foil, for that player only.
   ...Object.values(CARDS).map(c => ({ id: 'foil:' + c.id, type: 'foil', card: c.id, deck: c.kind, name: c.name + ' (foil)', price: FOIL_PRICE, blurb: 'Foil Ecology card' })),
   ...Object.values(DISRUPTIONS).map(d => ({ id: 'foil:' + d.id, type: 'foil', card: d.id, deck: 'Disruption', name: d.name + ' (foil)', price: FOIL_PRICE, blurb: 'Foil Disruption card' })),
+  // type 'splash': an effect that plays over your card when you play it (SPLASHES in public/data.js); equipped like a title
+  ...SPLASHES.map(s => ({ id: 'splash:' + s.id, type: 'splash', splash: s.id, name: s.name, price: s.price, blurb: s.blurb })),
 ];
 const ownsChat = (a, id) => !!a && a.owned.includes('chat:' + id);
 
 // ---------- profile pictures ----------
 const CHARACTER_AVATARS = ['Conservationist', 'Fisherman', 'Hunter', 'LandDeveloper', 'Researcher', 'Tourist', 'Anaconda'];
 const ANIMAL_AVATARS = Object.values(CARDS).filter(c => c.taxon !== 'Plant').map(c => c.id);
+// every character skin has a picture too ('skin:<id>'), unlocked by owning the skin
 const avatarSrc = id => {
   const [kind, name] = String(id).split(':');
-  return kind === 'animal' ? `assets/avatars/animal_${name}.png` : `assets/avatars/char_${name}.png`;
+  return kind === 'animal' ? `assets/avatars/animal_${name}.png` : kind === 'skin' ? `assets/avatars/skin_${name}.png` : `assets/avatars/char_${name}.png`;
 };
 
 // ---------- storage (see storage.js: Upstash Redis when configured, otherwise a local file) ----------
@@ -151,10 +154,11 @@ async function googleLogin(credential) {
 // ---------- profile ----------
 function unlockedAvatars(a) {
   return [...CHARACTER_AVATARS.map(c => 'char:' + c),
+    ...SKINS.filter(s => a.owned.includes('skin:' + s.id)).map(s => 'skin:' + s.id),
     ...ANIMAL_AVATARS.filter(id => (a.cardWins[id] || 0) >= ECON.unlockWins).map(id => 'animal:' + id)];
 }
 // skin: { role, id } equips skin `id` for that character; id null goes back to the original look.
-function setProfile(a, { gamertag, avatar, title, skin }) {
+function setProfile(a, { gamertag, avatar, title, skin, splash }) {
   if (skin !== undefined) {
     const role = skin && skin.role, id = skin && skin.id;
     if (!ROLES[role]) throw userErr('That character does not exist.');
@@ -181,6 +185,10 @@ function setProfile(a, { gamertag, avatar, title, skin }) {
     if (title !== null && !a.owned.includes(title)) throw userErr("You don't own that title yet.");
     a.title = title;
   }
+  if (splash !== undefined) { // a splash effect id ('sparkle'), or null to turn it off
+    if (splash !== null && !a.owned.includes('splash:' + splash)) throw userErr("You don't own that splash effect yet.");
+    a.splash = splash;
+  }
   save();
   return a;
 }
@@ -202,6 +210,7 @@ function buy(a, itemId) {
   a.balance -= item.price; a.owned.push(item.id);
   if (item.type === 'title' && !a.title) a.title = item.id; // wear it straight away
   if (item.type === 'skin') a.skins = Object.assign({}, a.skins, { [item.role]: item.skin }); // equip it straight away
+  if (item.type === 'splash') a.splash = item.splash; // switch to the new effect straight away
   save();
   return item;
 }
@@ -284,9 +293,10 @@ function skinFor(a, role) {
   const id = a && a.skins && a.skins[role];
   return id && a.owned.includes('skin:' + id) ? id : null;
 }
+const splashFor = a => (a && a.splash && a.owned.includes('splash:' + a.splash) ? a.splash : null); // the effect everyone sees
 function publicProfile(a) { // shown to everyone (lobby banner)
   return { id: a.id, gamertag: a.gamertag, avatar: a.avatar, avatarSrc: avatarSrc(a.avatar), title: a.title, titleName: titleName(a.title),
-    skins: Object.fromEntries(Object.keys(ROLES).map(r => [r, skinFor(a, r)]).filter(x => x[1])) };
+    skins: Object.fromEntries(Object.keys(ROLES).map(r => [r, skinFor(a, r)]).filter(x => x[1])), splash: splashFor(a) };
 }
 function privateProfile(a) { // shown to the account owner
   return Object.assign(publicProfile(a), {
@@ -297,6 +307,7 @@ function privateProfile(a) { // shown to the account owner
 function config() {
   return { googleClientId: GOOGLE_CLIENT_ID(), guestsAllowed: guestsAllowed(), econ: ECON, store: STORE,
     avatars: { characters: CHARACTER_AVATARS.map(c => ({ id: 'char:' + c, src: avatarSrc('char:' + c) })),
+      skins: SKINS.map(s => ({ id: 'skin:' + s.id, role: s.role, name: s.name, src: avatarSrc('skin:' + s.id) })),
       animals: ANIMAL_AVATARS.map(id => ({ id: 'animal:' + id, card: id, name: CARDS[id].name, src: avatarSrc('animal:' + id) })) } };
 }
 const get = id => db.accounts[id] || null;
@@ -336,5 +347,5 @@ function adjustPurchase(paymentIntent, change) {
 module.exports = {
   ECON, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
-  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, ownsChat, creditPurchase, adjustPurchase,
+  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, splashFor, ownsChat, creditPurchase, adjustPurchase,
 };
