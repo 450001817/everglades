@@ -6,7 +6,7 @@
 'use strict';
 const path = require('path');
 const crypto = require('crypto');
-const { CARDS, ROLES, SKINS, CHAT } = require('./public/data.js');
+const { CARDS, ROLES, SKINS, CHAT, DISRUPTIONS, FOIL_PRICE } = require('./public/data.js');
 
 // ---------- economy settings (change freely) ----------
 const ECON = {
@@ -26,6 +26,10 @@ const STORE = [
   ...SKINS.map(s => ({ id: 'skin:' + s.id, type: 'skin', role: s.role, skin: s.id, name: s.name, price: s.price, blurb: s.blurb })),
   // type 'chat': a preset line the player can send as a speech bubble during a game (CHAT in public/data.js)
   ...CHAT.map(c => ({ id: 'chat:' + c.id, type: 'chat', group: c.group, name: c.text, price: c.price, blurb: 'Chat line' })),
+  // type 'foil': a foil version of an Ecology or Disruption card. Whenever that card is dealt to its owner it shows
+  // as foil, for that player only.
+  ...Object.values(CARDS).map(c => ({ id: 'foil:' + c.id, type: 'foil', card: c.id, deck: c.kind, name: c.name + ' (foil)', price: FOIL_PRICE, blurb: 'Foil Ecology card' })),
+  ...Object.values(DISRUPTIONS).map(d => ({ id: 'foil:' + d.id, type: 'foil', card: d.id, deck: 'Disruption', name: d.name + ' (foil)', price: FOIL_PRICE, blurb: 'Foil Disruption card' })),
 ];
 const ownsChat = (a, id) => !!a && a.owned.includes('chat:' + id);
 

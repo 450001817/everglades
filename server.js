@@ -81,6 +81,7 @@ function viewFor(room, member) {
     room: room.code, phase: s.phase, seq: s.seq,
     you: me, yourPid: member ? member.pid : null, isHost: !!member && member.pid === room.hostPid,
     mode: room.mode || 'solo', partners: room.mode === 'partners', coop: room.mode === 'coop',
+    disruptions: s.phase === 'lobby' ? !!room.disruptions : !!s.disruptions,
     speed: SPEEDS[room.speed] ? room.speed : 'normal', trickPauseMs: Math.round(pace(room).trick),
     buyIn: room.buyIn, buyIns: A.ECON.buyIns,
     lobby: room.members.map(m => {
@@ -111,7 +112,20 @@ function viewFor(room, member) {
     lastTrick: s.lastTrick, log: s.log.slice(-40),
     chatter: room.chatter, // short in-character lines from bots: [{ id, seat, text }]
     reactions: room.reactions, // character portrait reactions: [{ id, seat, anim, pri }]
-    step: s.step ? { type: s.step.type, card: s.step.card, left: s.step.left, line: s.step.line, regions: s.step.regions } : null,
+    step: s.step ? (s.step.type === 'dis' ? s.step // Disruption choices: nothing secret in them
+      : { type: s.step.type, card: s.step.card, left: s.step.left, line: s.step.line, regions: s.step.regions }) : null,
+    // Disruptions: your own cards and draft pack are private; others only show how many they hold / whether they decided
+    dis: myP ? (myP.dis || []) : [],
+    disCounts: s.players.map(p => (p.dis || []).length),
+    ddraft: s.phase === 'ddraft' && s.ddraft ? { round: s.ddraft.round, pack: me >= 0 && me < s.np ? s.ddraft.packs[me] : [],
+      picked: me >= 0 ? s.ddraft.picks[me] || null : null, waiting: G.pendingSimultaneous(s) } : null,
+    dcommit: s.phase === 'disrupt' && s.dcommit ? { waiting: G.pendingSimultaneous(s),
+      committed: Object.keys(s.dcommit.picks).filter(p => s.dcommit.picks[p]).map(Number), // face-down cards are visible on the table
+      mine: me >= 0 && s.dcommit.picks[me] !== undefined ? (s.dcommit.picks[me] || 'pass') : null } : null,
+    guide: s.guide ? { p: s.guide.p, options: s.guide.p === me ? s.guide.options : [] } : null, // Traveler's Guidebook choices
+    myRisk: me >= 0 && s.trick ? G.riskFor(s, me) : null, // Take Bribes changes the Risk for one player
+    // Liberation: its owner gets to look through the other scoring piles while choosing
+    stealPiles: s.step && s.step.type === 'dis' && s.step.mode === 'steal' && s.step.p === me ? s.players.map((p, i) => i === me ? [] : p.pile) : null,
     hand: myP ? myP.hand : [], pile: myP ? myP.pile : [], role: myP ? myP.role : null,
     legal: myTurn && s.phase === 'play' && !s.step ? G.legalCards(s, me) : [],
     placeTargets: myTurn ? G.placeTargets(s) : [],
@@ -177,7 +191,8 @@ function broadcast(room) {
 
 function scheduleBot(room) {
   const s = room.game;
-  if (!['draft', 'choose', 'play'].includes(s.phase)) return;
+  G.autoBots(s); // bots decide at once in the simultaneous parts (Disruption draft and commits)
+  if (!['draft', 'choose', 'play', 'disrupt'].includes(s.phase)) return;
   // a trick just finished: everyone sees the finished trick (winning card highlighted) for a moment.
   // Tracked even when a person moves next, so the pause isn't applied a second time later.
   const done = s.players.reduce((a, p) => a + p.biomesWon.length, 0);
@@ -326,6 +341,10 @@ const server = http.createServer(async (req, res) => {
             // Eco-buck buy-in for this table (every player pays it when the game starts)
             if (!A.ECON.buyIns.includes(+body.amount)) return send(res, 400, { error: 'Pick one of the buy-in amounts.' });
             room.buyIn = +body.amount;
+          } else if (body.cmd === 'disruptions' && s.phase === 'lobby') {
+            // the Disruptions match modifier (host only)
+            if (!isHost) return send(res, 403, { error: 'Only the host can change match modifiers.' });
+            room.disruptions = !!body.on;
           } else if (body.cmd === 'mode' && s.phase === 'lobby') {
             // 'solo' = everyone for themselves, 'partners' = teams of 2, 'coop' = everyone vs The Anaconda
             room.mode = ['solo', 'partners', 'coop'].includes(body.mode) ? body.mode : 'solo';
@@ -359,7 +378,7 @@ const server = http.createServer(async (req, res) => {
             for (const x of people) x.name = cleanName(memberAccount(x).gamertag);
             room.game = G.newGame();
             for (const x of room.members) G.addPlayer(room.game, { id: x.pid, name: x.name, bot: x.bot, team: room.mode === 'partners' ? x.team : null });
-            G.startGame(room.game, { partners: room.mode === 'partners', coop: room.mode === 'coop' });
+            G.startGame(room.game, { partners: room.mode === 'partners', coop: room.mode === 'coop', disruptions: !!room.disruptions });
             room.chatter = []; room.tricksSeen = 0; resetReactions(room);
             room.pauseUntil = Date.now() + DEAL_PAUSE_MS; // let the shuffle-and-deal animation play first
           } else if (body.cmd === 'botify') {

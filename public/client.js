@@ -1,6 +1,6 @@
 // Everglades — browser client. Renders whatever the server says the game looks like.
 'use strict';
-const { CARDS, REGIONS, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES } = window.EG_DATA;
+const { CARDS, REGIONS, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES, DISRUPTIONS, FOIL_PRICE } = window.EG_DATA;
 const roleInfo = r => r === 'Anaconda' ? BOSS : (r ? ROLES[r] : null);
 const $app = document.getElementById('app');
 const $peek = document.getElementById('peek');
@@ -288,7 +288,7 @@ function storeModal() {
       <div class="error">${esc(acct.msg)}</div>
     </div></div>`;
   }
-  const items = C.store.filter(it => it.type !== 'skin' && it.type !== 'chat').map(it => {
+  const items = C.store.filter(it => it.type !== 'skin' && it.type !== 'chat' && it.type !== 'foil').map(it => {
     const owned = me.owned.includes(it.id), wearing = me.title === it.id;
     const action = owned
       ? (it.type === 'title' ? `<button class="btn ${wearing ? '' : 'brass'}" data-wear="${wearing ? '' : it.id}">${wearing ? 'Take off' : 'Wear title'}</button>` : '<span class="tag">Owned</span>')
@@ -308,6 +308,7 @@ function storeModal() {
       return `<button class="skintab" data-skinshop="${r}">${esc(ROLES[r].name)} <small>${have}/${n}</small></button>`;
     }).join('')}</div>
     ${chatStoreHtml(me)}
+    ${foilStoreHtml(me)}
     <p class="hint" style="margin:6px 0 0">Earn Eco-bucks by finishing in the top spots at a table. You can also open a character's skins by clicking them on the home page.</p>
     <div class="error">${esc(acct.msg)}</div>
   </div></div>`;
@@ -349,6 +350,36 @@ function chatStoreHtml(me) {
   return `<div class="panel-title" style="margin:6px 0 0">Chat lines <span class="hint" style="text-transform:none;letter-spacing:0">— ${CHAT[0].price} EB each. Everything the bots say. Send the lines you own from the 💬 Chat button during a game.</span></div>
     <div class="skintabs">${tabs}</div><div class="chatlist">${rows}</div>`;
 }
+// Store section: foil versions of every Ecology and Disruption card (seen only by their owner when dealt)
+const FOIL_DECKS = { Native: 'Native', Invasive: 'Invasive', Disruption: 'Disruption' };
+function foilStoreHtml(me) {
+  const deck = FOIL_DECKS[acct.foilDeck] ? acct.foilDeck : 'Native';
+  const ids = deck === 'Disruption' ? Object.keys(DISRUPTIONS) : Object.keys(CARDS).filter(id => CARDS[id].kind === deck).sort((a, b) => CARDS[a].name.localeCompare(CARDS[b].name));
+  const count = d => (d === 'Disruption' ? Object.keys(DISRUPTIONS) : Object.keys(CARDS).filter(id => CARDS[id].kind === d));
+  const tabs = Object.keys(FOIL_DECKS).map(d => `<button class="skintab ${d === deck ? 'on' : ''}" data-foildeck="${d}">${d} <small>${count(d).filter(id => me.owned.includes('foil:' + id)).length}/${count(d).length}</small></button>`).join('');
+  const items = ids.map(id => {
+    const owned = me.owned.includes('foil:' + id), arming = acct.foilConfirm === id;
+    const card = deck === 'Disruption' ? disEl(id, 'foil') : cardEl(id, 'foil');
+    const btn = owned ? '<span class="tag equipped">Owned</span>'
+      : arming ? `<button class="btn small primary" data-foilbuy="${id}">Confirm · ${FOIL_PRICE} EB</button>`
+      : `<button class="btn small brass" data-foilarm="${id}" ${me.balance < FOIL_PRICE ? 'disabled' : ''}>Buy · ${FOIL_PRICE} EB</button>`;
+    return `<div class="foilitem">${card}${btn}</div>`;
+  }).join('');
+  return `<div class="panel-title" style="margin:6px 0 0">Foil cards <span class="hint" style="text-transform:none;letter-spacing:0">— ${FOIL_PRICE} EB each. Whenever the card is dealt to you, it shines as foil (only you see it). Hover a card to read it.</span></div>
+    <div class="skintabs">${tabs}</div><div class="foilgrid">${items}</div>`;
+}
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-foildeck],[data-foilarm],[data-foilbuy]'); if (!t) return;
+  if (t.dataset.foildeck) { acct.foilDeck = t.dataset.foildeck; acct.foilConfirm = null; return render(); }
+  if (t.dataset.foilarm) { acct.foilConfirm = t.dataset.foilarm; acct.msg = ''; return render(); }
+  try {
+    acct.msg = '';
+    const r = await acctApi('store/buy', { item: 'foil:' + t.dataset.foilbuy });
+    acct.me = r.me; acct.foilConfirm = null; SFX.end();
+    showToast(`New foil card: <b>${esc(r.item.name)}</b>`);
+  } catch (err) { acct.msg = err.message; SFX.error(); }
+  render();
+});
 document.addEventListener('click', async e => {
   const t = e.target.closest('[data-chatgroup],[data-chatarm],[data-chatbuy]'); if (!t) return;
   if (t.dataset.chatgroup) { acct.chatGroup = t.dataset.chatgroup; acct.chatConfirm = null; return render(); }
@@ -533,7 +564,8 @@ function onUpdate(prev) {
   // phones: scroll to the map when you must click it, or to the play area when you must pick a biome or role
   if (prev && S.waiting === S.you && S.phase !== 'ended') {
     const stepNow = S.step && S.step.type, stepBefore = prev.step && prev.waiting === S.you && prev.step.type;
-    if ((stepNow === 'place' || stepNow === 'predate') && stepNow !== stepBefore) ui.scrollTo = 'board';
+    const mapStep = stepNow === 'place' || stepNow === 'predate' || (stepNow === 'dis' && ['remove', 'dest', 'scatter'].includes(S.step.mode));
+    if (mapStep && (stepNow !== stepBefore || (stepNow === 'dis' && prev.step.mode !== S.step.mode))) ui.scrollTo = 'board';
     else if (prev.waiting !== S.you && (S.phase === 'choose' || S.phase === 'draft')) ui.scrollTo = 'table';
   }
   if (S.waiting !== S.you || S.phase !== 'play' || S.step) ui.confirm = null;
@@ -727,6 +759,12 @@ function renderLobby() {
           `<button class="btn small ${(S.mode || 'solo') === m ? 'brass' : ''}" data-mode="${m}">${l}</button>`).join('')}</div>` : ''}
       </div>
       <div class="row" style="justify-content:space-between">
+        <div><div class="panel-title" style="margin:0">Match modifiers</div>
+          <span style="font-size:18px">Disruptions: <b>${S.disruptions ? 'On' : 'Off'}</b></span>
+          <span class="hint">— each player drafts 2 Disruption cards and may play one face down after the biome is chosen</span></div>
+        ${S.isHost ? `<div class="modepick"><button class="btn small ${S.disruptions ? 'brass' : ''}" data-dis="1">On</button><button class="btn small ${S.disruptions ? '' : 'brass'}" data-dis="0">Off</button></div>` : ''}
+      </div>
+      <div class="row" style="justify-content:space-between">
         <div><div class="panel-title" style="margin:0">Bot speed</div>
           <span style="font-size:18px">${SPEED_LABEL[S.speed] || 'Normal'}</span> <span class="hint">${({ slow: '— relaxed, plenty of time to read', normal: '— steady pace', fast: '— quick games' })[S.speed] || ''}</span></div>
         ${S.isHost ? `<div class="modepick">${SPEED_ORDER.map(sp =>
@@ -780,6 +818,7 @@ function renderLobby() {
   if (S.isHost) {
     $app.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => lobby('mode', { mode: b.dataset.mode }));
     $app.querySelectorAll('[data-speed]').forEach(b => b.onclick = () => lobby('speed', { speed: b.dataset.speed }));
+    $app.querySelectorAll('[data-dis]').forEach(b => b.onclick = () => lobby('disruptions', { on: b.dataset.dis === '1' }));
     $app.querySelectorAll('[data-buyin]').forEach(b => b.onclick = () => lobby('buyin', { amount: +b.dataset.buyin }));
     document.getElementById('addbot').onclick = () => lobby('addBot');
     document.getElementById('start').onclick = () => lobby('start');
@@ -792,6 +831,18 @@ function cardEl(id, cls = '', extra = '', who = '', badge = '') {
   const c = CARDS[id];
   return `<div class="card eco ${cls}" data-peek="${c.img}" ${extra}><img src="${c.img}" alt="${esc(c.name)}" loading="lazy">${badge}${who ? `<div class="who">${esc(who)}</div>` : ''}</div>`;
 }
+// A Disruption card (portrait, like Ecology cards).
+function disEl(id, cls = '', extra = '', who = '') {
+  const d = DISRUPTIONS[id];
+  return `<div class="card eco dis ${cls}" data-peek="${d.img}" ${extra}><img src="${d.img}" alt="${esc(d.name)}" loading="lazy">${who ? `<div class="who">${esc(who)}</div>` : ''}</div>`;
+}
+const disBack = (who = '') => `<div class="card eco dis facedown"><img src="assets/cards/disruption/back.png" alt="Face-down Disruption">${who ? `<div class="who">${esc(who)}</div>` : ''}</div>`;
+// Foil cards: shown shiny only to the player who owns the foil, for cards dealt to them.
+function ownsFoil(id) {
+  const owned = (S && S.myAccount && S.myAccount.owned) || (acct.me && acct.me.owned) || [];
+  return owned.includes('foil:' + id);
+}
+const foil = id => ownsFoil(id) ? 'foil' : '';
 function biomeEl(id, cls = '', extra = '') {
   const b = BIOMES[id];
   return `<div class="card bio ${cls}" data-peek="${b.img}" ${extra}><img src="${b.img}" alt="${esc(b.name)}"></div>`;
@@ -804,10 +855,15 @@ function boardHtml() {
   const curRegion = S.trick ? BIOMES[S.trick.biome].region : null;
   const fresh = ui.fresh; ui.fresh = null; // animate new tokens once
   let polys = '', toks = '', sums = '';
+  const disSt = myTurn && step && step.type === 'dis' ? step : null; // a Disruption asking its owner for choices
   for (const [id, g] of Object.entries(GEO)) {
     const t = S.board[id];
+    const placeOk = !(S.trick && S.trick.blocked && id === curRegion); // Land Development
     const target = myTurn && step && step.type === 'place' && S.placeTargets.includes(id);
-    polys += `<polygon class="rg ${id === curRegion ? 'current' : ''} ${target ? 'target' : ''}" points="${g.poly.map(p => p.join(',')).join(' ')}" ${target ? `data-place="${id}"` : ''}><title>${esc(REGIONS[id].name)}</title></polygon>`;
+    const dDest = disSt && disSt.mode === 'dest' && id !== disSt.from && placeOk;
+    const dScatter = disSt && disSt.mode === 'scatter' && id !== disSt.from && placeOk;
+    const attr = target ? `data-place="${id}"` : dDest ? `data-ddest="${id}"` : dScatter ? `data-dscatter="${id}"` : '';
+    polys += `<polygon class="rg ${id === curRegion ? 'current' : ''} ${target || dDest || dScatter ? 'target' : ''}" points="${g.poly.map(p => p.join(',')).join(' ')}" ${attr}><title>${esc(REGIONS[id].name)}</title></polygon>`;
     // natives on even spots, invasives on odd spots, so they mingle
     const spots = SPOTS[id];
     const draw = (kind, count, offset) => {
@@ -820,11 +876,13 @@ function boardHtml() {
     };
     draw('n', t.n, 0); draw('i', t.i, 1);
     const preyHere = myTurn && step && step.type === 'predate' && step.regions.includes(id);
-    const pickN = ((preyHere || ui.mode === 'landdev') && t.n > 0);
-    const pickI = ((preyHere || ui.mode === 'landdev') && t.i > 0);
+    const disHere = disSt && disSt.mode === 'remove' && (disSt.quota ? disSt.quota[id] > 0 : disSt.regions.includes(id));
+    const pickN = ((preyHere || ui.mode === 'landdev' || (disHere && disSt.kinds.includes('n'))) && t.n > 0);
+    const pickI = ((preyHere || ui.mode === 'landdev' || (disHere && disSt.kinds.includes('i'))) && t.i > 0);
+    const pickAttr = k => disHere ? `data-dpick="${id}:${k}"` : `data-pick="${id}:${k}"`;
     sums += `<div class="sum" style="left:${(g.sum[0] / BW * 100).toFixed(2)}%;top:${(g.sum[1] / BH * 100).toFixed(2)}%">
-      <span class="tok n ${t.n ? '' : 'zero'} ${pickN ? 'pick' : ''}" ${pickN ? `data-pick="${id}:n"` : ''} title="Native">${t.n}</span>
-      <span class="tok i ${t.i ? '' : 'zero'} ${pickI ? 'pick' : ''}" ${pickI ? `data-pick="${id}:i"` : ''} title="Invasive">${t.i}</span></div>`;
+      <span class="tok n ${t.n ? '' : 'zero'} ${pickN ? 'pick' : ''}" ${pickN ? pickAttr('n') : ''} title="Native">${t.n}</span>
+      <span class="tok i ${t.i ? '' : 'zero'} ${pickI ? 'pick' : ''}" ${pickI ? pickAttr('i') : ''} title="Invasive">${t.i}</span></div>`;
   }
   return `<div class="board"><img class="map" src="assets/board.png" alt="Map of the Everglades">
     <svg viewBox="0 0 ${BW} ${BH}" preserveAspectRatio="none">${polys}<g pointer-events="none">${toks}</g></svg>${sums}</div>`;
@@ -899,8 +957,43 @@ function trickDoneHtml() {
   </div>`;
 }
 
+// Disruption draft: pick 1 card from your pack; the rest pass clockwise.
+function ddraftHtml() {
+  const D = S.ddraft;
+  const waitingNames = D.waiting.map(p => S.players[p].name);
+  const canPick = S.you >= 0 && !D.picked && D.pack.length;
+  return `<div class="tabletop draft"><div class="players-mini">${playersHtml(true)}</div>
+    <h3>${canPick ? `▶ Disruption draft — pick ${D.round === 0 ? 'your first' : 'your second'} card` : `Waiting for ${esc(waitingNames.join(', ') || '…')}…`}
+      <span style="color:var(--blush)">(the rest pass clockwise)</span></h3>
+    <div class="rolegrid ${canPick ? 'choosing' : ''}">${D.pack.map(id => disEl(id, `${canPick ? 'choosable' : ''} ${D.picked === id ? 'sel' : ''} ${foil(id)}`, canPick ? `data-ddraft="${id}"` : '')).join('')}</div>
+    ${S.dis.length ? `<div class="strip"><h3>Your Disruptions</h3><div class="strip-cards">${S.dis.map(id => disEl(id, foil(id))).join('')}</div></div>` : ''}
+  </div>`;
+}
+// Revealed Disruptions this round (or face-down markers while players are still deciding), plus active effects.
+function disRowHtml() {
+  const T = S.trick; if (!T || !S.disruptions) return '';
+  let cards = '';
+  if (S.phase === 'disrupt' && S.dcommit) {
+    // still deciding: show who has committed something face down (not what)
+    cards = S.dcommit.committed.map(i => i === S.you
+      ? disEl(S.dcommit.mine, foil(S.dcommit.mine), '', 'You (face down)') : disBack(S.players[i].name)).join('');
+    cards = cards || '<span class="lastline" style="color:var(--blush)">No Disruptions committed yet.</span>';
+  } else if (T.dis.length) {
+    cards = T.dis.map(d => disEl(d.card, d.p === S.you ? foil(d.card) : '', '', S.players[d.p].name)).join('');
+  } else return '';
+  const fx = [];
+  if (T.protest) fx.push('Risk 0 (Ecological Protest)');
+  if (T.blocked) fx.push('No tokens can be placed here (Land Development)');
+  if (T.doubleNative) fx.push('Native tokens played here are doubled');
+  for (const p of T.bribes || []) fx.push(`${esc(S.players[p].name)}: Risk +5 (Take Bribes)`);
+  for (const p of T.docu || []) fx.push(`${esc(S.players[p].name)}: Natives +5 Impact`);
+  if (T.seq && S.phase === 'play') { const last = T.seq[T.seq.length - 1]; if ((T.dis || []).some(d => d.card === 'ChangingSeasons' && d.p === last)) fx.push(`${esc(S.players[last].name)} plays last`); }
+  return `<div class="strip disrow"><h3>Disruptions this round</h3><div class="strip-cards">${cards}</div>${fx.length ? `<div class="disfx">${fx.map(f => `<span>${f}</span>`).join('')}</div>` : ''}</div>`;
+}
+
 function tableHtml() {
   if (S.phase === 'draft') return draftHtml();
+  if (S.phase === 'ddraft' && S.ddraft) return ddraftHtml();
   if (holding()) return trickDoneHtml();
   const myTurn = isMine();
   const choosing = S.phase === 'choose' || !S.trick;
@@ -912,11 +1005,14 @@ function tableHtml() {
   if (choosing) {
     // Picking the next biome: the travel row is the star.
     const lt = S.lastTrick;
+    const guide = pickNow && S.guide && S.guide.p === S.you && S.guide.options.length ? S.guide.options : null; // Traveler's Guidebook
     return `<div class="tabletop choose"><div class="players-mini">${playersHtml(true)}</div>
       <div class="row" style="justify-content:space-between;flex-wrap:nowrap">
         <h3>${pickNow ? '▶ Choose where to travel' : `${esc(S.players[S.leader].name)} is choosing where to travel…`}</h3>${deck}
       </div>
       <div class="travel ${pickNow ? 'choosing' : ''}">${travelCards(pickNow ? 'choosable' : '')}</div>
+      ${guide ? `<div class="strip"><h3>Traveler's Guidebook — or travel to one of the top 5 biome cards</h3>
+        <div class="strip-cards guide">${guide.map(id => biomeEl(id, 'choosable', `data-choose="${id}"`)).join('')}</div></div>` : ''}
       ${lt ? `<div class="strip">
         <h3>Last trick — ${esc(S.players[lt.winner].name)} won${lt.crisis ? ' · <span style="color:#ffb3b3">Crisis!</span>' : ''}</h3>
         <div class="strip-cards">${biomeEl(lt.biome)}${lt.plays.map(pl => cardEl(pl.card, pl.card === lt.card ? 'win' : '')).join('')}</div>
@@ -926,17 +1022,21 @@ function tableHtml() {
   // A biome has been chosen: the current biome and the played cards take over.
   const b = BIOMES[S.trick.biome];
   const changed = S.trick.risk !== b.risk;
+  const suit = S.trick.suit || b.suit, suitChanged = suit !== b.suit;
+  const myRisk = S.myRisk !== null && S.myRisk !== undefined && S.myRisk !== S.trick.risk ? S.myRisk : null;
   return `<div class="tabletop play"><div class="players-mini">${playersHtml(true)}</div>
-    <h3>Round ${S.round} — exploring</h3>
+    <h3>Round ${S.round} — ${S.phase === 'disrupt' ? 'Disruption phase' : 'exploring'}</h3>
     <div class="cur-row">
       ${biomeEl(S.trick.biome)}
       <div class="tt-info">
         <div class="place">${esc(b.name)}<br><span style="color:var(--blush)">${esc(REGIONS[b.region].name)}</span></div>
-        <span class="suitbadge suit-${b.suit}">${b.suit}</span>
-        <span class="risk">Risk <b>${S.trick.risk}</b>${changed ? `<span style="font-size:13px;color:var(--ink-soft)">(was ${b.risk})</span>` : ''}</span>
+        <span class="suitbadge suit-${suit}">${suit}</span>${suitChanged ? `<span style="font-size:13px;color:var(--blush)">(was ${b.suit})</span>` : ''}
+        <span class="risk">Risk <b>${S.trick.risk}</b>${changed ? `<span style="font-size:13px;color:var(--ink-soft)">(was ${b.risk})</span>` : ''}${myRisk !== null ? `<span style="font-size:13px;color:var(--ink-soft)"> · ${myRisk} for your cards</span>` : ''}</span>
+        ${S.trick.keystones ? `<span class="hint" style="color:var(--blush)">Keystone: each Native token here lowers the Risk${S.trick.keystones > 1 ? ` (×${S.trick.keystones})` : ''}</span>` : ''}
       </div>
     </div>
-    <div class="played" style="--n:${S.trick.seq ? S.trick.seq.length : n}">${S.trick.plays.length ? S.trick.plays.map(pl => cardEl(pl.card, '', '', S.players[pl.p].boss ? 'Anaconda' : S.players[pl.p].name)).join('') : '<span class="lastline" style="color:var(--blush)">No cards played yet.</span>'}</div>
+    ${disRowHtml()}
+    <div class="played" style="--n:${S.trick.seq ? S.trick.seq.length : n}">${S.trick.plays.length ? S.trick.plays.map(pl => cardEl(pl.card, pl.p === S.you ? foil(pl.card) : '', '', S.players[pl.p].boss ? 'Anaconda' : S.players[pl.p].name)).join('') : '<span class="lastline" style="color:var(--blush)">No cards played yet.</span>'}</div>
     <div class="strip">
       <h3>Travel row</h3>
       <div class="strip-cards">${travelCards('')}${deck}</div>
@@ -956,9 +1056,10 @@ function renderGame() {
     const cls = !canPlay ? '' : legal ? 'legal' : 'illegal';
     // Invasive cards above the current Invasive Risk can't win this trick: flag them.
     const c = CARDS[id];
-    const over = S.trick && c.kind === 'Invasive' && c.impact > S.trick.risk;
-    const badge = over ? `<div class="overrisk" title="Impact ${c.impact} is above the Invasive Risk (${S.trick.risk}): this card can't win the trick, but it still populates."><span>!</span></div>` : '';
-    return `<div class="slot" style="--i:${hand.indexOf(id)}">${cardEl(id, `${cls} ${ui.sel === id ? 'sel' : ''}`, `data-hand="${id}"`, '', badge)}</div>`;
+    const risk = S.trick ? (S.myRisk ?? S.trick.risk) : 0; // Take Bribes: your own Risk may be higher
+    const over = S.trick && c.kind === 'Invasive' && c.impact > risk;
+    const badge = over ? `<div class="overrisk" title="Impact ${c.impact} is above the Invasive Risk (${risk}): this card can't win the trick, but it still populates."><span>!</span></div>` : '';
+    return `<div class="slot" style="--i:${hand.indexOf(id)}">${cardEl(id, `${cls} ${ui.sel === id ? 'sel' : ''} ${foil(id)}`, `data-hand="${id}"`, '', badge)}</div>`;
   }).join('') || '<span class="hint" style="color:var(--blush)">No cards in hand.</span>';
   const role = S.role ? ROLES[S.role] : null;
   // keep sideways scroll positions (hand, players strip) across re-renders
@@ -996,12 +1097,17 @@ function renderGame() {
       <div class="hand-cap">${role ? `<span class="myrole" ${peekAttrs(S.role, tableSkin(S.role))}>You are the <b>${esc(role.name)}</b> <small>(hold to read)</small></span>` : ''}<span class="swipe">${hand.length} card${hand.length === 1 ? '' : 's'} · swipe ↔ · hold a card to read it</span></div>
       <div class="handrow">
         <div class="hand ${ui.dealing ? 'dealing' : ''} ${Date.now() - (ui.handIntro || 0) < 1400 ? 'intro' : ''}">${handHtml}</div>
+        ${S.disruptions && (S.dis || []).length ? `<div class="dishand"><div class="cap">Disruptions</div><div class="dishand-cards">${S.dis.map(id => {
+          const canCommit = S.phase === 'disrupt' && S.dcommit && S.dcommit.waiting.includes(S.you);
+          return disEl(id, `${canCommit ? 'choosable' : ''} ${foil(id)}`, canCommit ? `data-commit="${id}"` : '');
+        }).join('')}</div></div>` : ''}
         ${role ? `<div class="rolebox"><div class="cap">You are the <b>${esc(role.name)}</b></div><div class="card" ${peekAttrs(S.role, tableSkin(S.role))}>${roleCardHtml(S.role, tableSkin(S.role))}</div></div>` : ''}
       </div>
     </section>
   </div>
   ${ui.confirm ? confirmModal() : ''}
   ${ui.mode === 'swap' ? swapModal() : ''}
+  ${ui.stealFrom !== null && ui.stealFrom !== undefined && S.stealPiles ? stealModal() : ''}
   ${ui.showRules ? rulesModal() : ''}
   ${S.phase === 'ended' && !holding() ? endModal() : ''}`;
 
@@ -1037,16 +1143,51 @@ function promptHtml() {
     return `<div class="paper spiral prompt"><div class="msg">${esc(S.players[lt.winner].name)} wins the trick!<small>${S.phase === 'ended' ? 'Final scores coming up…' : 'Next round in a moment…'}</small></div></div>`;
   }
   if (S.phase === 'ended') return `<div class="paper spiral prompt"><div class="msg">Game over!</div></div>`;
+  const yours = (msg, buttons = '') => `<div class="paper spiral prompt yours"><div class="msg">${msg}</div>${buttons}</div>`;
+  const names = list => esc(list.map(p => S.players[p].name).join(', '));
+  // Disruptions: the simultaneous parts (everyone decides at once)
+  if (S.phase === 'ddraft' && S.ddraft) {
+    if (S.you >= 0 && !S.ddraft.picked) return yours(`Disruption draft: pick 1 card from your pack.<small>${isPhone() ? 'Tap' : 'Click'} a card in the play area. The rest pass clockwise; you'll keep 2.</small>`);
+    return `<div class="paper spiral prompt"><div class="msg">Waiting for ${names(S.ddraft.waiting)} to pick…</div></div>`;
+  }
+  if (S.phase === 'disrupt' && S.dcommit) {
+    if (S.you >= 0 && S.dcommit.waiting.includes(S.you)) return yours('Disruption phase: commit 1 Disruption card face down, or pass.<small>All committed cards are revealed together, then activated in turn order. Hover a card to read it.</small>',
+      S.dis.map(id => `<button class="btn brass" data-commit="${id}">${esc(DISRUPTIONS[id].name)}</button>`).join('') + '<button class="btn" data-commit="">Pass</button>');
+    return `<div class="paper spiral prompt"><div class="msg">Waiting for ${names(S.dcommit.waiting)} to decide on a Disruption…<small>${S.dcommit.mine && S.dcommit.mine !== 'pass' ? `You committed ${esc(DISRUPTIONS[S.dcommit.mine].name)} face down.` : 'You passed.'}</small></div></div>`;
+  }
   if (!myTurn) {
     let what = S.phase === 'draft' ? 'to choose a role' : S.phase === 'choose' ? 'to choose where to travel' : 'to play';
     if (S.step?.type === 'place') what = `to spread ${CARDS[S.step.card].name}`;
     if (S.step?.type === 'predate') what = `to hunt with ${CARDS[S.step.card].name}`;
+    if (S.step?.type === 'dis') what = `to resolve ${DISRUPTIONS[S.step.card].name}`;
     return `<div class="paper spiral prompt"><div class="msg">Waiting for ${esc(w ? w.name : '…')} ${what}…<small>${isPhone() ? 'Press and hold any card or player' : 'Hover any card'} for a second to read it.</small></div></div>`;
   }
   const box = (msg, buttons = '') => `<div class="paper spiral prompt yours"><div class="msg">${msg}</div>${buttons}</div>`;
   if (S.phase === 'draft') return box(`Choose your role! ${isPhone() ? 'Tap' : 'Click'} a role card in the play area.<small>${isPhone() ? 'Press and hold' : 'Hover over'} a card to read its objectives. Your hand is already dealt, so plan around it.</small>`);
   if (S.phase === 'choose') return box('You lead! Pick a biome in the glowing travel row.<small>Its type sets the lead suit, and its region is where everyone populates.</small>');
   const st = S.step;
+  if (st?.type === 'dis') {
+    const D = esc(DISRUPTIONS[st.card].name);
+    const done = st.must ? '' : `<button class="btn" id="dDone">${st.mode === 'remove' ? 'Done' : 'Skip'}</button>`;
+    if (st.mode === 'remove') {
+      const left = st.quota ? Object.values(st.quota).reduce((a, b) => a + b, 0) : st.left;
+      const where = st.quota ? (Object.keys(st.quota).length > 1 ? 'the current region and each neighbour' : 'the current region') : st.regions.length > 1 ? 'any region' : 'the current region';
+      const kinds = st.kinds.length > 1 ? 'Native or Invasive' : 'Invasive';
+      return box(`${D}: ${st.must ? 'remove' : st.collect ? 'pick up' : 'you may remove'} ${st.quota || left < 100 ? `${left} more` : 'any number of'} ${kinds} token${left === 1 ? '' : 's'} from ${where}.<small>Click a blinking counter on the map.${st.collect ? ' Then you choose one region to move them to.' : ''}</small>`, done);
+    }
+    if (st.mode === 'dest') return box(`${D}: choose where the ${st.pool.n + st.pool.i} token${st.pool.n + st.pool.i === 1 ? '' : 's'} (${st.pool.n} Native, ${st.pool.i} Invasive) go.<small>Click a glowing region on the map.</small>`, done);
+    if (st.mode === 'scatter') {
+      const kind = ui.scatterKind === 'i' && st.pool.i ? 'i' : st.pool.n ? 'n' : 'i';
+      ui.scatterKind = kind;
+      return box(`${D}: ${st.pool.n + st.pool.i} token${st.pool.n + st.pool.i === 1 ? '' : 's'} from Miami left to place.<small>Pick a kind, then click any other region. Done sends the rest back to Miami.</small>`,
+        `<button class="btn ${kind === 'n' ? 'brass' : ''}" data-skind="n" ${st.pool.n ? '' : 'disabled'}>Native (${st.pool.n})</button><button class="btn ${kind === 'i' ? 'brass' : ''}" data-skind="i" ${st.pool.i ? '' : 'disabled'}>Invasive (${st.pool.i})</button>${done}`);
+    }
+    if (st.mode === 'steal') {
+      const others = S.players.map((p, i) => ({ p, i })).filter(x => x.i !== S.you && x.p.pileCount);
+      return box(`${D}: take a card from another player's scoring pile.<small>Pick a player, then a card.</small>`,
+        others.map(x => `<button class="btn brass" data-stealfrom="${x.i}">${esc(x.p.name)} (${x.p.pileCount})</button>`).join('') + done);
+    }
+  }
   if (st?.type === 'place') return box(`Migratory: place ${st.left} more ${CARDS[st.card].kind} token${st.left > 1 ? 's' : ''}.<small>Click a glowing region on the map. Tokens spread in a continuous line from the current region.</small>`);
   if (st?.type === 'predate') return box(`Predatory: first remove up to ${st.left} token${st.left > 1 ? 's' : ''} — Native or Invasive.<small>Click a blinking green or red counter on the map. ${esc(CARDS[st.card].name)}'s own tokens are added after the hunt.</small>`, `<button class="btn" id="predDone">Done hunting</button>`);
   if (S.tourPeek) {
@@ -1055,7 +1196,7 @@ function promptHtml() {
       `${biomeEl(S.tourPeek)}<button class="btn" data-tour="0">Leave on top</button><button class="btn brass" data-tour="1">Put on bottom</button>`);
   }
   if (ui.mode === 'landdev') { return box('Land Developer: click any counter on the map to remove 1 token.', `<button class="btn" id="cancelMode">Cancel</button>`); }
-  const suit = BIOMES[S.trick.biome].suit;
+  const suit = S.trick.suit || BIOMES[S.trick.biome].suit;
   const follow = S.legal.length < S.hand.length ? (S.coop ? `Follow ${suit} if you can.` : `Follow ${suit} or play an Invasive card.`) : `You can't follow ${suit}, so play anything.`;
   let buttons = '';
   if (S.role && ACTIVE_ABILITY[S.role] && !S.abilityUsed) buttons += `<button class="btn brass" id="ability">${ACTIVE_ABILITY[S.role]}</button>`;
@@ -1066,6 +1207,17 @@ function promptHtml() {
     buttons += `<button class="btn primary" id="play" ${sel ? '' : 'disabled'}>${sel ? 'Play ' + esc(sel.name) : 'Play card'}</button>`;
   }
   return box(`Your turn — pick a card to play.<small>${follow}${S.abilityUsed ? ' Ability used.' : ''}</small>`, buttons);
+}
+
+// Liberation: pick a card from the chosen player's scoring pile.
+function stealModal() {
+  const from = ui.stealFrom, pile = S.stealPiles[from] || [];
+  return `<div class="modal"><div class="paper spiral">
+    <div class="panel-title">Liberation — ${esc(S.players[from].name)}'s scoring pile</div>
+    <p class="hint" style="margin:0 0 8px">Click the card to take into your own scoring pile.</p>
+    <div class="swapgrid">${pile.map(id => cardEl(id, 'choosable', `data-steal="${id}"`)).join('') || '<span class="hint">Empty.</span>'}</div>
+    <div class="row" style="margin-top:10px"><button class="btn" id="stealBack">Back</button></div>
+  </div></div>`;
 }
 
 function swapModal() {
@@ -1486,6 +1638,17 @@ function wire() {
     else act({ type: 'predate', region, kind });
   });
   q('#predDone', () => act({ type: 'predateDone' }));
+  // Disruptions
+  q('[data-ddraft]', el => { hidePeek(); act({ type: 'draftDis', card: el.dataset.ddraft }); });
+  q('[data-commit]', el => { hidePeek(); act({ type: 'commitDis', card: el.dataset.commit || null }); });
+  q('[data-dpick]', el => { const [region, kind] = el.dataset.dpick.split(':'); act({ type: 'dRemove', region, kind }); });
+  $app.querySelectorAll('[data-ddest]').forEach(el => el.addEventListener('click', () => act({ type: 'dDest', region: el.dataset.ddest })));
+  $app.querySelectorAll('[data-dscatter]').forEach(el => el.addEventListener('click', () => act({ type: 'dScatter', region: el.dataset.dscatter, kind: ui.scatterKind || 'n' })));
+  q('[data-skind]', el => { ui.scatterKind = el.dataset.skind; render(); });
+  q('#dDone', () => { ui.stealFrom = null; act({ type: 'dDone' }); });
+  q('[data-stealfrom]', el => { ui.stealFrom = +el.dataset.stealfrom; render(); });
+  q('#stealBack', () => { ui.stealFrom = null; render(); });
+  q('[data-steal]', el => { const from = ui.stealFrom; ui.stealFrom = null; hidePeek(); act({ type: 'dSteal', from, card: el.dataset.steal }); });
   q('[data-tour]', el => act({ type: 'tourDecide', bottom: el.dataset.tour === '1' }));
   q('#cancelMode', () => { ui.mode = null; ui.swapHand = ui.swapPile = null; render(); });
   q('#ability', () => {
@@ -1499,7 +1662,7 @@ function wire() {
   q('[data-hand]', el => {
     const id = el.dataset.hand;
     if (!isMine() || S.phase !== 'play' || S.step || S.tourPeek || ui.mode) return;
-    if (!S.legal.includes(id)) { SFX.error(); return showToast(`You must follow ${BIOMES[S.trick.biome].suit} or play an Invasive card.`); }
+    if (!S.legal.includes(id)) { SFX.error(); return showToast(`You must follow ${S.trick.suit || BIOMES[S.trick.biome].suit} or play an Invasive card.`); }
     hidePeek();
     if (ui.sel === id && !(S.role === 'Conservationist' && CARDS[id].kind === 'Invasive')) return tryPlay(id);
     ui.sel = id; render();

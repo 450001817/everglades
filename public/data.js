@@ -250,7 +250,35 @@
   const CHAT = [];
   for (const [group, lines] of Object.entries(CHAT_GROUPS)) lines.forEach((text, i) => CHAT.push({ id: CHAT_PREFIX[group] + (i + 1), group, text, price: CHAT_PRICE }));
 
-  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES };
+  // Disruption cards (the optional Disruptions match modifier; from Disruptions.xlsx).
+  // Each player is dealt 3, drafts 2, and may commit one face down after the biome is chosen each round.
+  // `steps` tells the engine which choices the card asks of its owner (see the disruption section of game.js).
+  const DISRUPTIONS = {
+    Hurricane:          { name: 'Hurricane', text: 'You must remove 2 population tokens from the current region, then do the same for all adjacent regions.' },
+    MassMigration:      { name: 'Mass Migration', text: 'You may move all tokens from the current region to any other region in a continuous line.' },
+    HuntingSeason:      { name: 'Hunting Season', text: 'You may remove up to 5 total population tokens from any regions.' },
+    EcologicalProtest:  { name: 'Ecological Protest', text: 'The Risk factor becomes 0 on the current region.' },
+    CatchAndRelease:    { name: 'Catch and Release', text: 'You may move up to 5 population tokens from any regions to any other single region.' },
+    FertilizerLeaching: { name: 'Fertilizer Leaching', text: 'Add a population token of the same type for each population token in the current region.' },
+    WildFire:           { name: 'Wild Fire', text: 'Remove all population tokens from the current region unless it is a Water ecology. Double all Native tokens played onto the region this round.' },
+    BountyHunting:      { name: 'Bounty Hunting', text: 'You may remove any number of Invasive tokens from the current region.' },
+    RedTide:            { name: 'Red Tide', text: 'Remove all population tokens from the current region unless it is a Land ecology. Double all Native tokens played onto the region this round.' },
+    TakeBribes:         { name: 'Take Bribes', text: 'The current Risk factor is considered 5 higher for your cards only this round.' },
+    LandDevelopment:    { name: 'Land Development', text: 'Remove 2 population tokens from the current region. No population tokens can be placed on the current region this round.' },
+    NatureDocumentary:  { name: 'Nature Documentary', text: 'Native cards you play this round have 5 additional Impact.' },
+    Flood:              { name: 'Flood', text: 'If the current biome is Land, it becomes Wetland for the round. If it began as Wetland, it becomes Water for the round. Then remove 2 population tokens.' },
+    Drought:            { name: 'Drought', text: 'Remove up to 5 population tokens from the current region. If the current region is Wetland, it becomes Land for the round.' },
+    ChangingSeasons:    { name: 'Changing Seasons', text: 'You play last this round.' },
+    Liberation:         { name: 'Liberation', text: "Take a card from another player's scoring pile and add it to yours." },
+    RunawayPets:        { name: 'Runaway Pets', text: 'You may move all tokens from Miami to any number of other regions.' },
+    TravelersGuidebook: { name: "Traveler's Guidebook", text: 'You begin the next round and may travel to any of the top 5 cards of the Biome deck instead of the Travel Row.' },
+  };
+  for (const [id, d] of Object.entries(DISRUPTIONS)) Object.assign(d, { id, img: 'assets/cards/disruption/' + id + '.png' });
+
+  // Foil cards: a shiny version of any Ecology or Disruption card, seen only by the player who owns it.
+  const FOIL_PRICE = 100;
+
+  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES, DISRUPTIONS, FOIL_PRICE };
   if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
   else root.EG_DATA = DATA;
 })(typeof window !== 'undefined' ? window : globalThis);

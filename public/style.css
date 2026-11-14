@@ -381,6 +381,48 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
 .rolebox .card { height: calc(100cqh - 80px); width: auto; aspect-ratio: 1050 / 750; }
 .rolebox .card img { height: 100%; width: 100%; }
 
+/* ---------- Disruptions ---------- */
+.card.dis { border-color: #16131a; }
+.card.dis.facedown { cursor: default; }
+.card.dis.choosable[data-ddraft]::after { content: 'PICK'; }
+.card.dis.choosable[data-commit]::after { content: 'COMMIT'; }
+.card.choosable[data-steal]::after { content: 'TAKE'; }
+.dishand { flex-shrink: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
+.dishand .cap { color: var(--paper); font-family: 'EGDigits', 'VT323', monospace; font-size: 18px; line-height: 1; white-space: nowrap; }
+.dishand-cards { display: flex; gap: 6px; align-items: flex-end; }
+.dishand .card.dis { width: calc((100cqh - 80px) * .714 * .62); }
+.dishand .card.dis.choosable { cursor: pointer; }
+.disrow { margin-top: 2px; }
+.disrow .card.eco { width: min(11cqw, 13cqh); }
+.disfx { display: flex; flex-wrap: wrap; gap: 4px; }
+.disfx span { font-family: 'EGDigits', 'VT323', monospace; font-size: 15px; line-height: 1.1; padding: 0 6px; background: #16131a; color: #fff3c4; border: 2px solid var(--ink); }
+.tabletop.draft .rolegrid .card.dis { width: min(26cqw, 40cqh); }
+.strip-cards.guide .card.bio { width: min(15cqw, 13cqh); }
+
+/* ---------- foil cards (only their owner sees them) ---------- */
+.card.foil { overflow: hidden; }
+.card.foil::before {
+  /* a band of rainbow that drifts across the card; most of the card stays readable */
+  content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; mix-blend-mode: color-dodge; opacity: .38;
+  background: linear-gradient(115deg, transparent 0%, transparent 34%, #ff3d9a 40%, #ffe34d 45%, #3dffc5 50%, #3db2ff 55%, #b45cff 60%, transparent 66%, transparent 100%);
+  background-size: 300% 300%; animation: foilshift 6s linear infinite;
+}
+.card.foil::after { /* a glint of light that sweeps across now and then */
+  content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,.75) 48%, transparent 56%);
+  background-size: 250% 100%; animation: foilglint 3.2s ease-in-out infinite;
+}
+.card.foil.choosable::after { /* keep the PICK / COMMIT label on choosable foil cards */
+  background: var(--brass); animation: none; inset: auto; left: 50%; bottom: -14px; transform: translateX(-50%);
+}
+@keyframes foilshift { 0% { background-position: 0% 50%; } 100% { background-position: 300% 50%; } }
+@keyframes foilglint { 0%, 55% { background-position: 150% 0; } 100% { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .card.foil::before, .card.foil::after { animation: none; } }
+.foilgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; max-height: 360px; overflow-y: auto; padding: 4px 6px 16px 4px; }
+.foilitem { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.foilitem .card { width: 100%; }
+.foilitem .btn { white-space: nowrap; }
+
 /* hover preview of a card in your hand */
 .peek {
   position: fixed; z-index: 70; left: 50%; bottom: calc(var(--hand) + 2 * var(--gap));

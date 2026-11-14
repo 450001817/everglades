@@ -1,7 +1,7 @@
 // Everglades — rules engine. Pure game logic, no networking.
 // Every change to a game goes through applyAction(state, playerIndex, action).
 'use strict';
-const { CARDS, REGIONS, ADJ, BIOMES, ROLES } = require('./public/data.js');
+const { CARDS, REGIONS, ADJ, BIOMES, ROLES, DISRUPTIONS } = require('./public/data.js');
 const ENDINGS = require('./endings.js'); // story endings shown on the end screen
 
 const MIN_PLAYERS = 2;
@@ -67,6 +67,7 @@ function partnerSeating(players) {
 }
 
 function startGame(s, opts = {}) {
+  s.disruptions = !!opts.disruptions; // the Disruptions match modifier
   if (opts.coop) return startCoop(s);
   const n = s.players.length;
   if (n < MIN_PLAYERS) err('You need at least 2 players.');
@@ -166,7 +167,7 @@ function bossPopulate(s, c) {
     log(s, `The Anaconda's ${c.name} devours ${eaten} Native token${eaten > 1 ? 's' : ''} in ${REGIONS[region].name}.`);
     emit(s, { type: 'eat', p: s.bossIdx, card: c.id, region, kind: 'n', count: eaten });
   }
-  s.board[region].i += c.pop;
+  putTokens(s, region, 'i', c.pop);
 }
 
 function pickRole(s, p, role) {
@@ -178,14 +179,34 @@ function pickRole(s, p, role) {
   emit(s, { type: 'role', p, role });
   s.draftTurn += 1;
   if (s.draftTurn >= s.np) {
-    s.phase = 'choose'; s.leader = 0; s.turn = 0;
+    s.leader = 0; s.turn = 0;
+    if (s.disruptions) return startDisDraft(s);
+    s.phase = 'choose';
     log(s, `All roles chosen. ${pname(s, 0)} leads the first round.`);
   }
 }
 
 // ---------- rules queries ----------
-function leadSuit(s) { return s.trick ? BIOMES[s.trick.biome].suit : null; }
+// The suit to follow: the biome's, unless a Disruption (Flood, Drought) changed it for this round.
+function leadSuit(s) { return s.trick ? (s.trick.suit || BIOMES[s.trick.biome].suit) : null; }
 function trickRegion(s) { return s.trick ? BIOMES[s.trick.biome].region : null; }
+
+// The trick's Invasive Risk. Keystone is a static effect: while a Keystone card is in the trick, every Native
+// token in the trick's region lowers the Risk by 1 (per Keystone played), so natives added later in the trick
+// lower it further. Ecological Protest sets it to 0. Recomputed after every action (see applyAction).
+function refreshRisk(s) {
+  const T = s.trick; if (!T) return;
+  const natives = s.board[trickRegion(s)].n;
+  T.risk = T.protest ? 0 : Math.max(0, T.baseRisk - (T.keystones || 0) * natives);
+}
+// The Risk a given player's card is judged against (Take Bribes: +5 for that player's cards only).
+function riskFor(s, p) { return s.trick.risk + ((s.trick.bribes || []).includes(p) ? 5 : 0); }
+// A played card's Impact (Nature Documentary: +5 for that player's Native cards this round).
+function impactOf(s, play) {
+  const c = CARDS[play.card];
+  return c.impact + (c.kind === 'Native' && (s.trick.docu || []).includes(play.p) ? 5 : 0);
+}
+const playMatches = (s, play) => cardMatches(play.card, leadSuit(s), riskFor(s, play.p));
 
 // Follow suit if you can (or play any Invasive); otherwise play anything.
 function legalCards(s, p) {
@@ -205,23 +226,22 @@ function cardMatches(cardId, suit, risk) {
 }
 
 function trickWinner(s) {
-  const suit = leadSuit(s), risk = s.trick.risk;
   const plays = s.trick.plays;
   let best = -1;
   const better = (a, b) => { // is play a better than play b (b played earlier)?
-    const ca = CARDS[a.card], cb = CARDS[b.card];
-    if (ca.impact !== cb.impact) return ca.impact > cb.impact;
-    return ca.kind === 'Invasive' && cb.kind === 'Native'; // Invasive wins ties vs Native
+    const ia = impactOf(s, a), ib = impactOf(s, b);
+    if (ia !== ib) return ia > ib;
+    return CARDS[a.card].kind === 'Invasive' && CARDS[b.card].kind === 'Native'; // Invasive wins ties vs Native
   };
   plays.forEach((pl, idx) => {
-    if (!cardMatches(pl.card, suit, risk)) return;
+    if (!playMatches(s, pl)) return;
     if (best < 0 || better(pl, plays[best])) best = idx;
   });
   let matched = true;
   if (best < 0) {
     // Nobody matched the biome. House rule: the highest Impact card played wins.
     matched = false;
-    plays.forEach((pl, idx) => { if (best < 0 || CARDS[pl.card].impact > CARDS[plays[best].card].impact) best = idx; });
+    plays.forEach((pl, idx) => { if (best < 0 || impactOf(s, pl) > impactOf(s, plays[best])) best = idx; });
   }
   return { idx: best, matched };
 }
@@ -231,20 +251,27 @@ function chooseBiome(s, p, biomeId) {
   if (s.phase !== 'choose') err('Not time to choose a biome.');
   if (p !== s.leader) err('Only the lead player chooses the biome.');
   const i = s.travel.indexOf(biomeId);
-  if (i < 0) err('That biome is not in the travel row.');
-  s.travel.splice(i, 1);
-  s.trick = { biome: biomeId, plays: [], risk: BIOMES[biomeId].risk };
-  s.phase = 'play'; s.turn = s.leader; s.step = null; s.abilityUsed = false; s.tourPeek = null;
+  const fromGuide = i < 0 && s.guide && s.guide.p === p && s.guide.options.includes(biomeId); // Traveler's Guidebook
+  if (i < 0 && !fromGuide) err('That biome is not in the travel row.');
+  if (fromGuide) s.biomeDeck.splice(s.biomeDeck.indexOf(biomeId), 1); else s.travel.splice(i, 1);
+  s.guide = null;
+  // Trick state. Disruptions can change the suit, the Risk, Impact and the order of play for this round.
+  s.trick = { biome: biomeId, plays: [], suit: BIOMES[biomeId].suit, baseRisk: BIOMES[biomeId].risk, risk: BIOMES[biomeId].risk,
+    keystones: 0, protest: false, bribes: [], docu: [], doubleNative: false, blocked: false, dis: [], pos: 0 };
+  s.phase = 'play'; s.step = null; s.abilityUsed = false; s.tourPeek = null;
   if (s.coop) {
     // A player who leads also plays first; when the Anaconda leads, the next player in rotation starts.
     const start = isBoss(s, s.leader) ? (s.coopStart + 1) % s.np : s.leader;
     s.coopStart = start;
-    s.trick.seq = coopSequence(s, start); s.trick.pos = 0;
-    s.turn = s.trick.seq[0];
+    s.trick.seq = coopSequence(s, start);
+  } else {
+    s.trick.seq = s.players.map((_, k) => (s.leader + k) % s.players.length); // clockwise from the leader
   }
+  s.turn = s.trick.seq[0];
   const b = BIOMES[biomeId];
-  log(s, `${pname(s, p)} travels to ${b.name} (${REGIONS[b.region].name}) — ${b.suit}, Invasive Risk ${b.risk}.`);
+  log(s, `${pname(s, p)} travels to ${b.name} (${REGIONS[b.region].name}) — ${b.suit}, Invasive Risk ${b.risk}${fromGuide ? ' (from the Traveler\'s Guidebook)' : ''}.`);
   emit(s, { type: 'travel', p, biome: biomeId });
+  if (s.disruptions && s.players.slice(0, s.np).some(pl => (pl.dis || []).length)) startDisPhase(s);
 }
 
 function playCard(s, p, cardId, populate) {
@@ -285,8 +312,21 @@ function addTokens(s, cardId) {
     s.step = { type: 'place', card: cardId, kind, left: c.pop, line: [], placed: [], before };
     return;
   }
-  s.board[region][kind] += c.pop;
+  const added = putTokens(s, region, kind, c.pop);
+  if (added === 0 && c.pop > 0 && s.trick.blocked) log(s, `No tokens can be placed on ${REGIONS[region].name} this round (Land Development).`);
   afterPlacement(s, cardId, [region], before);
+}
+
+// Adds tokens a played card brings. Disruptions on the trick's region: Land Development blocks them,
+// Wild Fire / Red Tide double Native tokens. Returns how many were actually added.
+function putTokens(s, region, kind, amount) {
+  const T = s.trick;
+  if (T && region === trickRegion(s)) {
+    if (T.blocked) return 0;
+    if (kind === 'n' && T.doubleNative) amount *= 2;
+  }
+  s.board[region][kind] += amount;
+  return amount;
 }
 
 function placeToken(s, p, region) {
@@ -294,7 +334,7 @@ function placeToken(s, p, region) {
   if (!st || st.type !== 'place' || p !== s.turn) err('Not placing tokens now.');
   if (!placeTargets(s).includes(region)) err('Migratory tokens must spread in a continuous line from the current region.');
   if (!st.line.includes(region)) st.line.push(region);
-  s.board[region][st.kind] += 1;
+  putTokens(s, region, st.kind, 1);
   st.placed.push(region);
   st.left -= 1;
   if (st.left <= 0) {
@@ -310,22 +350,22 @@ function placeToken(s, p, region) {
 function placeTargets(s) {
   const st = s.step;
   if (!st || st.type !== 'place') return [];
-  if (!st.line.length) return [trickRegion(s)];
+  const cur = trickRegion(s), blocked = s.trick && s.trick.blocked; // Land Development: the line starts next door
+  if (!st.line.length) return blocked ? ADJ[cur].slice() : [cur];
   const last = st.line[st.line.length - 1];
-  return [...st.line, ...ADJ[last].filter(r => !st.line.includes(r))];
+  const t = [...st.line, ...ADJ[last].filter(r => !st.line.includes(r))];
+  return blocked ? t.filter(r => r !== cur) : t;
 }
 
-// Keystone: after the card populates, lower the Invasive Risk by the Native tokens now in the trick's region
-// (this card's own tokens included), never below 0.
+// Keystone (static for the rest of the trick): once played, every Native token in the trick's region lowers the
+// Invasive Risk by 1, including Native tokens added later in the trick (see refreshRisk). Never below 0.
 function applyKeystone(s, c) {
-  const natives = s.board[trickRegion(s)].n;
   const was = s.trick.risk;
-  s.trick.risk = Math.max(0, was - natives);
+  s.trick.keystones = (s.trick.keystones || 0) + 1;
+  refreshRisk(s);
   if (s.players[s.turn].stats) s.players[s.turn].stats.keystones++;
   emit(s, { type: 'keystone', p: s.turn, card: c.id, from: was, to: s.trick.risk });
-  log(s, natives > 0
-    ? `Keystone: ${natives} Native token${natives > 1 ? 's' : ''} in ${REGIONS[trickRegion(s)].name} lower the Invasive Risk from ${was} to ${s.trick.risk}.`
-    : `Keystone: no Native tokens in ${REGIONS[trickRegion(s)].name}, so the Invasive Risk stays at ${was}.`);
+  log(s, `Keystone: for the rest of this trick, each Native token in ${REGIONS[trickRegion(s)].name} lowers the Invasive Risk by 1 (now ${s.trick.risk}).`);
 }
 
 function afterPlacement(s, cardId, regions, before) {
@@ -352,17 +392,13 @@ function predateDone(s, p) {
   s.step = null; addTokens(s, card);
 }
 
+// The order of play is s.trick.seq (clockwise from the leader; in co-op with the Anaconda's flips woven in;
+// Changing Seasons moves its owner to the end).
 function endTurn(s) {
   s.step = null;
-  if (s.coop) {
-    s.trick.pos += 1;
-    if (s.trick.pos >= s.trick.seq.length) return resolveTrick(s);
-    s.turn = s.trick.seq[s.trick.pos];
-    s.abilityUsed = false; s.tourPeek = null;
-    return;
-  }
-  if (s.trick.plays.length >= s.players.length) return resolveTrick(s);
-  s.turn = (s.turn + 1) % s.players.length;
+  s.trick.pos += 1;
+  if (s.trick.pos >= s.trick.seq.length) return resolveTrick(s);
+  s.turn = s.trick.seq[s.trick.pos];
   s.abilityUsed = false; s.tourPeek = null;
 }
 
@@ -386,12 +422,20 @@ function resolveTrick(s) {
     log(s, 'INVASIVE CRISIS! Native populations fall across the map.');
   }
   emit(s, { type: 'trick', p: play.p, card: play.card, biome: s.trick.biome, crisis });
-  s.lastTrick = { biome: s.trick.biome, plays: s.trick.plays, winner: play.p, card: play.card, crisis, risk: s.trick.risk, matched, round: s.round };
+  s.lastTrick = { biome: s.trick.biome, plays: s.trick.plays, winner: play.p, card: play.card, crisis, risk: s.trick.risk, matched, round: s.round,
+    suit: s.trick.suit, dis: s.trick.dis };
   s.trick = null; s.step = null;
   if (s.coop && (s.players[s.bossIdx].hand.length === 0 || s.players.slice(0, s.np).every(pl => pl.hand.length === 0))) return endGame(s);
   if (!s.coop && s.players.every(pl => pl.hand.length === 0)) return endGame(s);
   s.round += 1;
   s.leader = play.p; s.turn = play.p;
+  if (s.guidebook !== null && s.guidebook !== undefined) {
+    // Traveler's Guidebook: its owner leads the next round and may also travel to any of the top 5 biome cards
+    const g = s.guidebook; s.guidebook = null;
+    s.leader = g; s.turn = g;
+    s.guide = { p: g, options: s.biomeDeck.slice(0, 5) };
+    log(s, `${pname(s, g)} opens the Traveler's Guidebook and leads the next round.`);
+  }
   if (s.biomeDeck.length) s.travel.push(s.biomeDeck.shift()); // refill the travel row
   s.phase = 'choose'; s.abilityUsed = false; s.tourPeek = null;
 }
@@ -435,6 +479,295 @@ function tourDecide(s, p, bottom) {
   if (bottom) { s.biomeDeck.push(s.biomeDeck.shift()); log(s, `${pname(s, p)} puts it on the bottom.`); }
   else log(s, `${pname(s, p)} leaves it on top.`);
   s.tourPeek = null;
+}
+
+// ---------- DISRUPTIONS (optional match modifier) ----------
+// Setup: after the role draft each player is dealt 3 Disruption cards and drafts them: everyone picks 1, then
+// passes the rest clockwise, until each player holds 2 (the last card is discarded). Bots pick instantly.
+// Each round: once the biome is chosen, every player may commit 1 Disruption face down (or pass). When all
+// have decided they are revealed and activated in turn order (cards that need choices wait for their owner),
+// then normal play proceeds. In co-op only the players take part (not the Anaconda).
+const DIS_HAND = 3, DIS_KEEP = 2;
+
+function startDisDraft(s) {
+  const ids = shuffle(Object.keys(DISRUPTIONS));
+  s.players.forEach(pl => { pl.dis = []; });
+  s.ddraft = { packs: [], picks: [], round: 0 };
+  for (let p = 0; p < s.np; p++) { s.ddraft.packs.push(ids.slice(p * DIS_HAND, (p + 1) * DIS_HAND)); s.ddraft.picks.push(null); }
+  s.phase = 'ddraft';
+  log(s, `Disruption draft: everyone picks 1 of ${DIS_HAND} Disruption cards and passes the rest clockwise, until each player holds ${DIS_KEEP}.`);
+  autoBots(s);
+}
+function draftPick(s, p, card) {
+  const D = s.ddraft;
+  if (s.phase !== 'ddraft' || !D) err('Not drafting Disruptions now.');
+  if (p >= s.np) err('You are not in the draft.');
+  if (D.picks[p]) err('You already picked this round.');
+  if (!D.packs[p].includes(card)) err('That card is not in your pack.');
+  D.picks[p] = card;
+  advanceDraft(s);
+}
+function advanceDraft(s) {
+  const D = s.ddraft;
+  if (D.picks.some(x => !x)) return;
+  for (let p = 0; p < s.np; p++) { s.players[p].dis.push(D.picks[p]); D.packs[p] = D.packs[p].filter(c => c !== D.picks[p]); }
+  D.round += 1;
+  if (D.round >= DIS_KEEP) {
+    s.ddraft = null; s.phase = 'choose';
+    log(s, `Disruptions drafted. ${pname(s, s.leader)} leads the first round.`);
+    return;
+  }
+  const n = s.np;
+  D.packs = D.packs.map((_, p) => D.packs[(p - 1 + n) % n]); // pass clockwise: each pack moves to the next seat
+  D.picks = D.picks.map(() => null);
+  log(s, 'Packs passed clockwise.');
+  autoBots(s);
+}
+
+function startDisPhase(s) {
+  s.phase = 'disrupt';
+  s.dcommit = { picks: {} };
+  for (let p = 0; p < s.np; p++) if (!(s.players[p].dis || []).length) s.dcommit.picks[p] = null; // nothing to commit: auto-pass
+  log(s, 'Disruption phase: commit a Disruption card face down, or pass.');
+  autoBots(s);
+}
+function commitDis(s, p, card) {
+  if (s.phase !== 'disrupt' || !s.dcommit) err('Not the Disruption phase.');
+  if (p >= s.np) err('You have no Disruptions.');
+  if (s.dcommit.picks[p] !== undefined) err('You already decided this round.');
+  if (card !== null && !(s.players[p].dis || []).includes(card)) err('You do not hold that Disruption.');
+  s.dcommit.picks[p] = card;
+  maybeReveal(s);
+}
+function maybeReveal(s) {
+  const C = s.dcommit;
+  for (let p = 0; p < s.np; p++) if (C.picks[p] === undefined) return;
+  // reveal in turn order
+  const order = [...new Set(s.trick.seq.filter(p => p < s.np))];
+  for (const p of order) {
+    const card = C.picks[p];
+    if (!card) continue;
+    const pl = s.players[p];
+    pl.dis.splice(pl.dis.indexOf(card), 1);
+    s.trick.dis.push({ p, card });
+    log(s, `${pl.name} reveals ${DISRUPTIONS[card].name}!`);
+    emit(s, { type: 'disrupt', p, card });
+  }
+  if (!s.trick.dis.length) log(s, 'Everyone passes.');
+  s.dcommit = null;
+  s.dqueue = s.trick.dis.slice();
+  nextDis(s);
+}
+// Activate revealed Disruptions one by one; stop when one needs its owner's choices.
+function nextDis(s) {
+  s.step = null;
+  while (s.dqueue && s.dqueue.length) {
+    const { p, card } = s.dqueue.shift();
+    if (activateDis(s, p, card)) { s.turn = p; refreshRisk(s); return; }
+    refreshRisk(s);
+  }
+  s.dqueue = null;
+  s.phase = 'play'; s.trick.pos = 0; s.turn = s.trick.seq[0]; s.abilityUsed = false;
+  refreshRisk(s);
+}
+const tokensIn = (s, r, kinds) => kinds.reduce((a, k) => a + s.board[r][k], 0);
+// What each card does when activated. Returns true if it set up a choice step for its owner.
+function activateDis(s, p, id) {
+  const T = s.trick, cur = trickRegion(s), name = pname(s, p), R = REGIONS[cur].name;
+  const both = ['n', 'i'];
+  const removeStep = o => { s.step = Object.assign({ type: 'dis', card: id, p, mode: 'remove', kinds: both, pool: { n: 0, i: 0 }, must: false }, o); return disStepLive(s); };
+  switch (id) {
+    case 'Hurricane': {
+      const quota = { [cur]: 2 }; for (const r of ADJ[cur]) quota[r] = 2;
+      return removeStep({ quota, must: true });
+    }
+    case 'LandDevelopment':
+      T.blocked = true; log(s, `No population tokens can be placed on ${R} this round.`);
+      return removeStep({ quota: { [cur]: 2 }, must: true });
+    case 'HuntingSeason': return removeStep({ regions: Object.keys(REGIONS), left: 5 });
+    case 'BountyHunting': return removeStep({ regions: [cur], kinds: ['i'], left: 999 });
+    case 'Drought':
+      if (T.suit === 'Wetland') { T.suit = 'Land'; log(s, `Drought: ${R} is a Land biome this round.`); }
+      return removeStep({ regions: [cur], left: 5 });
+    case 'Flood': {
+      const was = T.suit;
+      if (T.suit === 'Land') T.suit = 'Wetland';
+      else if (BIOMES[T.biome].suit === 'Wetland' && T.suit === 'Wetland') T.suit = 'Water';
+      if (T.suit !== was) log(s, `Flood: the biome becomes ${T.suit} for the round.`);
+      return removeStep({ quota: { [cur]: 2 }, must: true });
+    }
+    case 'CatchAndRelease': return removeStep({ regions: Object.keys(REGIONS), left: 5, collect: true });
+    case 'MassMigration':
+      if (!tokensIn(s, cur, both)) { log(s, `${name}'s Mass Migration finds no tokens to move.`); return false; }
+      s.step = { type: 'dis', card: id, p, mode: 'dest', from: cur, pool: { n: s.board[cur].n, i: s.board[cur].i }, must: false };
+      return true;
+    case 'RunawayPets': {
+      const M = s.board.M;
+      if (!M.n && !M.i) { log(s, `${name}'s Runaway Pets: Miami is empty.`); return false; }
+      s.step = { type: 'dis', card: id, p, mode: 'scatter', from: 'M', pool: { n: M.n, i: M.i }, must: false };
+      M.n = 0; M.i = 0; // in hand until placed; anything not placed goes back to Miami
+      return true;
+    }
+    case 'Liberation':
+      if (!s.players.some((pl, k) => k !== p && pl.pile.length)) { log(s, `${name}'s Liberation: nobody has a scoring pile yet.`); return false; }
+      s.step = { type: 'dis', card: id, p, mode: 'steal', must: false };
+      return true;
+    case 'EcologicalProtest': T.protest = true; log(s, `Ecological Protest: the Invasive Risk on ${R} becomes 0.`); return false;
+    case 'FertilizerLeaching': s.board[cur].n *= 2; s.board[cur].i *= 2; log(s, `Fertilizer Leaching doubles the tokens on ${R}.`); return false;
+    case 'WildFire': case 'RedTide': {
+      const spared = id === 'WildFire' ? 'Water' : 'Land';
+      if (T.suit !== spared) { s.board[cur].n = 0; s.board[cur].i = 0; log(s, `${DISRUPTIONS[id].name} clears every token from ${R}.`); }
+      else log(s, `${DISRUPTIONS[id].name} spares ${R} (a ${spared} biome).`);
+      T.doubleNative = true; log(s, `Native tokens played onto ${R} are doubled this round.`);
+      return false;
+    }
+    case 'TakeBribes': T.bribes.push(p); log(s, `${name} takes bribes: the Risk counts 5 higher for their cards this round.`); return false;
+    case 'NatureDocumentary': T.docu.push(p); log(s, `${name}'s Native cards have +5 Impact this round.`); return false;
+    case 'ChangingSeasons':
+      T.seq = T.seq.filter(x => x !== p).concat([p]); log(s, `${name} will play last this round.`); return false;
+    case 'TravelersGuidebook': s.guidebook = p; log(s, `${name} will lead the next round, guidebook in hand.`); return false;
+    default: return false;
+  }
+}
+// A removal step is only worth asking about if something can be removed; otherwise it finishes at once.
+function canRemove(s, st) {
+  if (st.quota) return Object.entries(st.quota).some(([r, q]) => q > 0 && tokensIn(s, r, st.kinds) > 0);
+  return st.left > 0 && st.regions.some(r => tokensIn(s, r, st.kinds) > 0);
+}
+function disStepLive(s) {
+  const st = s.step;
+  if (st.mode === 'remove' && !canRemove(s, st)) return finishRemove(s, true);
+  return true;
+}
+// After a removal step: Catch and Release moves its picked tokens on to one region; everything else is done.
+function finishRemove(s, inActivate) {
+  const st = s.step;
+  if (st.collect && st.pool.n + st.pool.i > 0) { st.mode = 'dest'; st.from = null; st.must = true; return true; }
+  if (inActivate) { s.step = null; return false; }
+  nextDis(s);
+  return false;
+}
+function disAct(s, p, a) {
+  const st = s.step;
+  if (s.phase !== 'disrupt' || !st || st.type !== 'dis' || p !== st.p) err('No Disruption choice to make right now.');
+  const D = DISRUPTIONS[st.card].name;
+  if (a.type === 'dRemove') {
+    if (st.mode !== 'remove') err('Not removing tokens now.');
+    const { region, kind } = a;
+    if (!s.board[region] || !st.kinds.includes(kind) || s.board[region][kind] <= 0) err('You cannot remove that token.');
+    if (st.quota) { if (!(st.quota[region] > 0)) err(`${D} doesn't remove tokens there.`); st.quota[region]--; }
+    else { if (!st.regions.includes(region)) err(`${D} doesn't remove tokens there.`); if (st.left <= 0) err('No removals left.'); st.left--; }
+    s.board[region][kind]--;
+    if (st.collect) st.pool[kind]++;
+    log(s, `${D}: ${pname(s, p)} ${st.collect ? 'picks up' : 'removes'} 1 ${kind === 'n' ? 'Native' : 'Invasive'} token from ${REGIONS[region].name}.`);
+    emit(s, { type: 'eat', p, card: null, region, kind, count: 1, dis: st.card });
+    if (!canRemove(s, st)) finishRemove(s, false);
+    return;
+  }
+  if (a.type === 'dDest') {
+    if (st.mode !== 'dest') err('Not choosing a destination now.');
+    const r = a.region;
+    if (!s.board[r] || r === st.from) err('Pick another region.');
+    if (s.trick.blocked && r === trickRegion(s)) err('No tokens can be placed on the current region this round.');
+    if (st.from) { s.board[st.from].n -= st.pool.n; s.board[st.from].i -= st.pool.i; }
+    s.board[r].n += st.pool.n; s.board[r].i += st.pool.i;
+    log(s, `${D}: ${st.pool.n + st.pool.i} token${st.pool.n + st.pool.i === 1 ? '' : 's'} move to ${REGIONS[r].name}.`);
+    emit(s, { type: 'spread', p, card: null, regions: [r], dis: st.card });
+    return nextDis(s);
+  }
+  if (a.type === 'dScatter') {
+    if (st.mode !== 'scatter') err('Not placing tokens now.');
+    const { region: r, kind } = a;
+    if (!s.board[r] || r === st.from) err('Pick a region other than Miami.');
+    if (!(st.pool[kind] > 0)) err('No tokens of that kind left to place.');
+    if (s.trick.blocked && r === trickRegion(s)) err('No tokens can be placed on the current region this round.');
+    st.pool[kind]--; s.board[r][kind]++;
+    log(s, `${D}: a ${kind === 'n' ? 'Native' : 'Invasive'} token runs off to ${REGIONS[r].name}.`);
+    if (st.pool.n + st.pool.i === 0) return nextDis(s);
+    return;
+  }
+  if (a.type === 'dSteal') {
+    if (st.mode !== 'steal') err('Not taking a card now.');
+    const from = s.players[a.from];
+    if (!from || a.from === p || !from.pile.includes(a.card)) err("Pick a card from another player's scoring pile.");
+    from.pile.splice(from.pile.indexOf(a.card), 1);
+    s.players[p].pile.push(a.card);
+    log(s, `${D}: ${pname(s, p)} takes ${CARDS[a.card].name} from ${from.name}'s scoring pile.`);
+    return nextDis(s);
+  }
+  if (a.type === 'dDone') {
+    if (st.must) err(`${D} must be finished.`);
+    if (st.mode === 'remove') { finishRemove(s, false); return; }
+    if (st.mode === 'scatter') { s.board[st.from].n += st.pool.n; s.board[st.from].i += st.pool.i; }
+    return nextDis(s);
+  }
+  err('Unknown Disruption action.');
+}
+
+// Bots decide right away in the simultaneous parts (draft picks and commits). Also called by the server in case
+// a seat was handed to a bot mid-phase.
+function autoBots(s) {
+  if (s.phase === 'ddraft' && s.ddraft) {
+    let any = false;
+    for (let p = 0; p < s.np; p++) if (s.players[p].bot && !s.ddraft.picks[p]) {
+      const pack = s.ddraft.packs[p];
+      s.ddraft.picks[p] = pack[Math.floor(Math.random() * pack.length)]; any = true;
+    }
+    if (any) advanceDraft(s);
+  } else if (s.phase === 'disrupt' && s.dcommit) {
+    let any = false;
+    for (let p = 0; p < s.np; p++) if (s.players[p].bot && s.dcommit.picks[p] === undefined) {
+      s.dcommit.picks[p] = botCommit(s, p); any = true;
+    }
+    if (any) maybeReveal(s);
+  }
+}
+// Bots commit now and then, and only cards that would do something right now.
+function botCommit(s, p) {
+  const pl = s.players[p], cur = trickRegion(s);
+  const useful = (pl.dis || []).filter(id => {
+    if (id === 'MassMigration' || id === 'FertilizerLeaching') return tokensIn(s, cur, ['n', 'i']) > 0;
+    if (id === 'RunawayPets') return s.board.M.n + s.board.M.i > 0;
+    if (id === 'Liberation') return s.players.some((o, k) => k !== p && o.pile.length);
+    if (id === 'BountyHunting') return s.board[cur].i > 0;
+    return true;
+  });
+  if (!useful.length) return null;
+  // more eager late in the game, when cards left unplayed would be wasted
+  const left = pl.hand.length;
+  const chance = left <= useful.length + 1 ? 0.9 : 0.25;
+  return Math.random() < chance ? useful[Math.floor(Math.random() * useful.length)] : null;
+}
+function botDis(s, p) {
+  const st = s.step, pl = s.players[p], role = ROLES[pl.role] || { map: {} };
+  const wantKind = r => role.map[r] === 'I' ? 'i' : 'n';
+  if (st.mode === 'remove') {
+    const regions = st.quota ? Object.keys(st.quota).filter(r => st.quota[r] > 0) : st.regions;
+    // first choice: tokens that work against the bot's map objectives
+    for (const r of regions) {
+      if (!role.map[r]) continue;
+      const bad = wantKind(r) === 'n' ? 'i' : 'n';
+      if (st.kinds.includes(bad) && s.board[r][bad] > 0) return { type: 'dRemove', region: r, kind: bad };
+    }
+    if (st.must) { // mandatory removals: take whatever is there
+      for (const r of regions) for (const k of st.kinds) if (s.board[r][k] > 0) return { type: 'dRemove', region: r, kind: k };
+    }
+    return { type: 'dDone' };
+  }
+  if (st.mode === 'dest') {
+    if (!st.must) return { type: 'dDone' };
+    // Catch and Release: drop them where the bot wants that population (or anywhere legal)
+    const ok = Object.keys(REGIONS).filter(r => !(s.trick.blocked && r === trickRegion(s)));
+    const pref = ok.find(r => role.map[r] && wantKind(r) === (st.pool.n >= st.pool.i ? 'n' : 'i'));
+    return { type: 'dDest', region: pref || ok[0] };
+  }
+  if (st.mode === 'scatter') return { type: 'dDone' };
+  if (st.mode === 'steal') {
+    let best = null;
+    s.players.forEach((o, k) => { if (k === p) return; for (const c of o.pile) if (!best || CARDS[c].impact > CARDS[best.card].impact) best = { from: k, card: c }; });
+    return best ? Object.assign({ type: 'dSteal' }, best) : { type: 'dDone' };
+  }
+  return { type: 'dDone' };
 }
 
 // ---------- scoring ----------
@@ -574,17 +907,28 @@ function applyAction(s, p, a) {
     case 'predateDone': predateDone(s, p); break;
     case 'ability': useAbility(s, p, a); break;
     case 'tourDecide': tourDecide(s, p, !!a.bottom); break;
+    case 'draftDis': draftPick(s, p, a.card); break;
+    case 'commitDis': commitDis(s, p, a.card || null); break;
+    case 'dRemove': case 'dDest': case 'dScatter': case 'dSteal': case 'dDone': disAct(s, p, a); break;
     default: err('Unknown action.');
   }
+  refreshRisk(s); // Keystone is static: the Risk follows the Native tokens in the region
   s.seq++;
 }
 
-// Whose input is the game waiting on?
+// Whose input is the game waiting on? (-1 in the simultaneous parts: the Disruption draft and commits.)
 function waitingOn(s) {
   if (s.phase === 'draft') return s.draftTurn;
   if (s.phase === 'choose') return s.leader;
   if (s.phase === 'play') return s.turn;
+  if (s.phase === 'disrupt' && s.step) return s.turn;
   return -1;
+}
+// Who still has to decide in the simultaneous parts.
+function pendingSimultaneous(s) {
+  if (s.phase === 'ddraft' && s.ddraft) return s.ddraft.picks.map((x, p) => x ? -1 : p).filter(p => p >= 0);
+  if (s.phase === 'disrupt' && s.dcommit) return [...Array(s.np).keys()].filter(p => s.dcommit.picks[p] === undefined);
+  return [];
 }
 
 // ---------- simple bot ----------
@@ -600,6 +944,7 @@ function botAction(s, p) {
     return { type: 'play', card: pl.hand[0] };
   }
   if (s.phase === 'draft') { const av = availableRoles(s); return { type: 'pickRole', role: av[Math.floor(Math.random() * av.length)] }; }
+  if (s.phase === 'disrupt' && s.step && s.step.type === 'dis') return botDis(s, p);
   const role = ROLES[pl.role];
   const wantKind = r => role.map[r] === 'I' ? 'i' : 'n'; // what the bot wants to keep in region r
   if (s.phase === 'choose') {
@@ -634,9 +979,11 @@ function botAction(s, p) {
   // Pick a card: win cheaply if possible, otherwise dump the lowest Impact card.
   const legal = legalCards(s, p);
   const suit = leadSuit(s);
-  const risk = s.trick.risk;
-  const currentBest = s.trick.plays.filter(x => cardMatches(x.card, suit, risk)).reduce((m, x) => Math.max(m, CARDS[x.card].impact), -1);
-  const winners = legal.filter(c => cardMatches(c, suit, CARDS[c].keystone ? Math.max(0, risk - s.board[BIOMES[s.trick.biome].region].n - CARDS[c].pop) : risk) && CARDS[c].impact > currentBest)
+  const risk = riskFor(s, p);
+  const currentBest = s.trick.plays.filter(x => playMatches(s, x)).reduce((m, x) => Math.max(m, impactOf(s, x)), -1);
+  const natives = s.board[trickRegion(s)].n;
+  const winners = legal.filter(c => cardMatches(c, suit, CARDS[c].keystone ? Math.max(0, risk - (s.trick.keystones + 1) * (natives + CARDS[c].pop)) : risk)
+      && impactOf(s, { card: c, p }) > currentBest)
     .sort((a, b) => CARDS[a].impact - CARDS[b].impact);
   const wantsFew = pl.role === 'Researcher' || partnerWinning(s, p);
   let card;
@@ -756,9 +1103,9 @@ function botSay(s, p, a) {
       if (c.keystone) return pickOne([`${c.name} anchors the ecosystem. Invasive Risk drops!`, `${c.name} keeps the invaders in check.`]);
       if (c.kind === 'Invasive') return pickOne(V.inv(c.name));
       if (partnerWinning(s, p)) { const mate = s.players[s.trick.plays[trickWinner(s).idx].p].name; return pickOne([`${mate}'s got this one!`, `Backing up ${mate}.`, `Not stepping on ${mate}'s toes.`]); }
-      const suit = leadSuit(s), risk = s.trick.risk;
-      const best = s.trick.plays.filter(x => cardMatches(x.card, suit, risk)).reduce((m, x) => Math.max(m, CARDS[x.card].impact), -1);
-      return pickOne(cardMatches(a.card, suit, risk) && c.impact > best ? V.win(c.name) : V.low(c.name));
+      const best = s.trick.plays.filter(x => playMatches(s, x)).reduce((m, x) => Math.max(m, impactOf(s, x)), -1);
+      const mine = { card: a.card, p };
+      return pickOne(playMatches(s, mine) && impactOf(s, mine) > best ? V.win(c.name) : V.low(c.name));
     }
     case 'ability':
       if (pl.role === 'Tourist') return 'Peeking at the travel brochure…';
@@ -943,4 +1290,5 @@ module.exports = {
   botSay, reactionsFor, reactionLine,
   newGame, addPlayer, startGame, availableRoles, partnerSeating, applyAction, legalCards, placeTargets, waitingOn, botAction,
   computeResults, trickWinner, cardMatches, MIN_PLAYERS, MAX_PLAYERS,
+  autoBots, pendingSimultaneous, leadSuit, riskFor, impactOf,
 };
