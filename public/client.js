@@ -288,30 +288,65 @@ function storeModal() {
       <div class="error">${esc(acct.msg)}</div>
     </div></div>`;
   }
-  const items = C.store.filter(it => it.type !== 'skin' && it.type !== 'chat' && it.type !== 'foil').map(it => {
+  // One page per kind of product; the header and tabs stay put and the page scrolls.
+  const tab = STORE_TABS[acct.storeTab] ? acct.storeTab : 'skins';
+  const ownedOf = type => C.store.filter(it => it.type === type && me.owned.includes(it.id)).length;
+  const totalOf = type => C.store.filter(it => it.type === type).length;
+  const tabs = Object.entries(STORE_TABS).map(([k, t]) =>
+    `<button class="storetab ${k === tab ? 'on' : ''}" data-storetab="${k}">${t.label} <small>${ownedOf(t.type)}/${totalOf(t.type)}</small></button>`).join('');
+  let page = '';
+  if (tab === 'titles') page = titleStoreHtml(me, C);
+  if (tab === 'skins') page = skinStoreHtml(me);
+  if (tab === 'chat') page = chatStoreHtml(me);
+  if (tab === 'foil') page = foilStoreHtml(me);
+  return `<div class="modal"><div class="paper spiral acctmodal storemodal">
+    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Eco-buck store</div><div class="row">Balance ${fmtEB(me.balance)}<button class="btn small" data-close>Close</button></div></div>
+    <div class="storetabs">${tabs}</div>
+    <div class="storepage">${page}</div>
+    <div class="error">${esc(acct.msg)}</div>
+    <p class="hint" style="margin:0">Earn Eco-bucks by finishing in the top spots at a table.</p>
+  </div></div>`;
+}
+const STORE_TABS = {
+  skins: { label: 'Character skins', type: 'skin' },
+  chat: { label: 'Chat lines', type: 'chat' },
+  foil: { label: 'Foil cards', type: 'foil' },
+  titles: { label: 'Titles', type: 'title' },
+};
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-storetab]'); if (!t) return;
+  acct.storeTab = t.dataset.storetab; acct.msg = ''; acct.chatConfirm = acct.foilConfirm = null; render();
+});
+function titleStoreHtml(me, C) {
+  const items = C.store.filter(it => it.type === 'title').map(it => {
     const owned = me.owned.includes(it.id), wearing = me.title === it.id;
     const action = owned
-      ? (it.type === 'title' ? `<button class="btn ${wearing ? '' : 'brass'}" data-wear="${wearing ? '' : it.id}">${wearing ? 'Take off' : 'Wear title'}</button>` : '<span class="tag">Owned</span>')
+      ? `<button class="btn ${wearing ? '' : 'brass'}" data-wear="${wearing ? '' : it.id}">${wearing ? 'Take off' : 'Wear title'}</button>`
       : `<button class="btn primary" data-buy="${it.id}" ${me.balance < it.price ? 'disabled' : ''}>Buy · ${Number(it.price).toLocaleString()} EB</button>`;
     return `<div class="storeitem">
-      <div class="storeprev">${it.type === 'title' ? bannerHtml(Object.assign({}, me, { titleName: it.name })) : ''}</div>
+      <div class="storeprev">${bannerHtml(Object.assign({}, me, { titleName: it.name }))}</div>
       <div class="storeinfo"><b>${esc(it.name)}</b><span class="hint">${esc(it.blurb)}</span>
         <span>${fmtEB(it.price)}${owned ? ' · <span style="color:var(--native)">Owned</span>' : me.balance < it.price ? ` · <span class="hint">you need ${(it.price - me.balance).toLocaleString()} more</span>` : ''}</span></div>
       <div>${action}</div></div>`;
   }).join('');
-  return `<div class="modal"><div class="paper spiral acctmodal">
-    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Eco-buck store</div><div class="row">Balance ${fmtEB(me.balance)}<button class="btn small" data-close>Close</button></div></div>
-    <div class="storelist">${items}</div>
-    <div class="panel-title" style="margin:6px 0 0">Character skins <span class="hint" style="text-transform:none;letter-spacing:0">— ${fmtEB(SKINS[0].price)} each. New looks for each character. Everyone at the table sees them.</span></div>
-    <div class="skintabs">${Object.keys(ROLES).map(r => {
-      const n = SKINS.filter(s => s.role === r).length, have = SKINS.filter(s => s.role === r && me.owned.includes('skin:' + s.id)).length;
-      return `<button class="skintab" data-skinshop="${r}">${esc(ROLES[r].name)} <small>${have}/${n}</small></button>`;
-    }).join('')}</div>
-    ${chatStoreHtml(me)}
-    ${foilStoreHtml(me)}
-    <p class="hint" style="margin:6px 0 0">Earn Eco-bucks by finishing in the top spots at a table. You can also open a character's skins by clicking them on the home page.</p>
-    <div class="error">${esc(acct.msg)}</div>
-  </div></div>`;
+  return `<p class="hint" style="margin:0 0 8px">Titles sparkle under your name on your player banner.</p><div class="storelist">${items}</div>`;
+}
+// Every skin at once, grouped by character: buy, equip, or open the character's shop for the animated preview.
+function skinStoreHtml(me) {
+  const groups = Object.keys(ROLES).map(role => {
+    const on = mySkin(role);
+    const tile = s => {
+      const id = s ? s.id : null, owned = !s || me.owned.includes('skin:' + s.id), isOn = on === id;
+      const action = owned ? (isOn ? '<span class="tag equipped">Equipped</span>' : `<button class="btn small brass" data-equip="${role}:${id || ''}">Equip</button>`)
+        : `<button class="btn small primary" data-buy="skin:${s.id}" ${me.balance < s.price ? 'disabled' : ''}>Buy · ${s.price.toLocaleString()} EB</button>`;
+      return `<div class="skintile ${isOn ? 'on' : ''}">
+        <button class="skinpick" data-skinshop="${role}" data-skinview="${id || ''}" title="Preview ${esc(s ? s.name : 'the original')}"><div class="pthumb idle" style="background-image:url('${CHAR_ANIM.src(role, 'idle', id)}')"></div></button>
+        <b>${esc(s ? s.name : 'Original')}</b>${s ? `<span class="hint skinblurb">${esc(s.blurb)}</span>` : ''}${action}</div>`;
+    };
+    return `<div class="skingroup"><div class="skingroup-title">${esc(ROLES[role].name)}</div>
+      <div class="skingrid">${tile(null)}${SKINS.filter(s => s.role === role).map(tile).join('')}</div></div>`;
+  }).join('');
+  return `<p class="hint" style="margin:0 0 8px">${fmtEB(SKINS[0].price)} each. Everyone at the table sees your skin when you play that character. Click a portrait for the animated preview.</p>${groups}`;
 }
 // ---------- chat lines (bought in the store, sent during a game) ----------
 const chatGroupName = g => CHAT_GROUP_NAMES[g] || (ROLES[g] ? ROLES[g].name : g);
@@ -948,11 +983,12 @@ function trickDoneHtml() {
         <div class="winline">★ ${esc(w.name)} wins with ${esc(CARDS[lt.card].name)}!</div>
         ${lt.crisis ? '<div class="crisisline">INVASIVE CRISIS!</div>' : ''}
         ${lt.matched === false ? '<span class="lastline" style="color:var(--blush)">No card matched, so the highest Impact won.</span>' : ''}
+        ${(lt.dis || []).length ? `<span class="lastline" style="color:var(--blush)">Disruptions: ${lt.dis.map(d => `${esc(DISRUPTIONS[d.card].name)} (${esc(S.players[d.p].name)})`).join(', ')}</span>` : ''}
       </div>
     </div>
     <div class="played" style="--n:${lt.plays.length}">${lt.plays.map(pl => pl.card === lt.card
-      ? cardEl(pl.card, 'winner', '', who(pl.p), `<div class="winribbon">${lt.crisis ? 'CRISIS!' : 'WINNER'}</div>`)
-      : cardEl(pl.card, 'loser', '', who(pl.p))).join('')}</div>
+      ? captioned(cardEl(pl.card, `winner ${pl.p === S.you ? foil(pl.card) : ''}`, '', '', `<div class="winribbon">${lt.crisis ? 'CRISIS!' : 'WINNER'}</div>`), who(pl.p), 'win')
+      : captioned(cardEl(pl.card, `loser ${pl.p === S.you ? foil(pl.card) : ''}`), who(pl.p), 'lose')).join('')}</div>
     <div class="holdbar"><span style="animation-duration:${ui.trickHold.ms}ms;animation-delay:-${elapsed}ms"></span></div>
   </div>`;
 }
@@ -969,26 +1005,33 @@ function ddraftHtml() {
     ${S.dis.length ? `<div class="strip"><h3>Your Disruptions</h3><div class="strip-cards">${S.dis.map(id => disEl(id, foil(id))).join('')}</div></div>` : ''}
   </div>`;
 }
-// Revealed Disruptions this round (or face-down markers while players are still deciding), plus active effects.
-function disRowHtml() {
+// A card with its owner's name as a caption underneath (never drawn over the card).
+const captioned = (cardHtml, name, cls = '') => `<div class="pcard ${cls}">${cardHtml}<div class="pname">${esc(name)}</div></div>`;
+const seatName = p => S.players[p].boss ? 'Anaconda' : S.players[p].name;
+// The Disruption panel beside the biome: face-down cards while players decide, then the revealed cards and
+// a short list of what they change this round.
+function disPanelHtml() {
   const T = S.trick; if (!T || !S.disruptions) return '';
-  let cards = '';
+  let cards = '', title = 'Disruptions';
   if (S.phase === 'disrupt' && S.dcommit) {
-    // still deciding: show who has committed something face down (not what)
+    title = `Disruptions — ${S.dcommit.waiting.length ? `${S.dcommit.waiting.length} still deciding` : 'revealing'}`;
     cards = S.dcommit.committed.map(i => i === S.you
-      ? disEl(S.dcommit.mine, foil(S.dcommit.mine), '', 'You (face down)') : disBack(S.players[i].name)).join('');
-    cards = cards || '<span class="lastline" style="color:var(--blush)">No Disruptions committed yet.</span>';
+      ? captioned(disEl(S.dcommit.mine, foil(S.dcommit.mine)), 'You (face down)')
+      : captioned(disBack(), S.players[i].name)).join('');
+    if (!cards) cards = '<span class="dis-empty">Nothing committed yet.</span>';
   } else if (T.dis.length) {
-    cards = T.dis.map(d => disEl(d.card, d.p === S.you ? foil(d.card) : '', '', S.players[d.p].name)).join('');
-  } else return '';
+    cards = T.dis.map(d => captioned(disEl(d.card, d.p === S.you ? foil(d.card) : ''), S.players[d.p].name)).join('');
+  } else cards = '<span class="dis-empty">No Disruptions this round.</span>';
   const fx = [];
-  if (T.protest) fx.push('Risk 0 (Ecological Protest)');
-  if (T.blocked) fx.push('No tokens can be placed here (Land Development)');
-  if (T.doubleNative) fx.push('Native tokens played here are doubled');
-  for (const p of T.bribes || []) fx.push(`${esc(S.players[p].name)}: Risk +5 (Take Bribes)`);
+  if (T.protest) fx.push('Risk is 0');
+  if (T.blocked) fx.push('No tokens can be placed here');
+  if (T.doubleNative) fx.push('Natives played here are doubled');
+  for (const p of T.bribes || []) fx.push(`${esc(S.players[p].name)}: Risk +5`);
   for (const p of T.docu || []) fx.push(`${esc(S.players[p].name)}: Natives +5 Impact`);
-  if (T.seq && S.phase === 'play') { const last = T.seq[T.seq.length - 1]; if ((T.dis || []).some(d => d.card === 'ChangingSeasons' && d.p === last)) fx.push(`${esc(S.players[last].name)} plays last`); }
-  return `<div class="strip disrow"><h3>Disruptions this round</h3><div class="strip-cards">${cards}</div>${fx.length ? `<div class="disfx">${fx.map(f => `<span>${f}</span>`).join('')}</div>` : ''}</div>`;
+  if ((T.dis || []).some(d => d.card === 'ChangingSeasons')) for (const d of T.dis.filter(x => x.card === 'ChangingSeasons')) fx.push(`${esc(S.players[d.p].name)} plays last`);
+  if ((T.dis || []).some(d => d.card === 'TravelersGuidebook')) for (const d of T.dis.filter(x => x.card === 'TravelersGuidebook')) fx.push(`${esc(S.players[d.p].name)} leads next round`);
+  return `<div class="dispanel"><div class="dis-title">${title}</div><div class="dis-cards">${cards}</div>
+    ${fx.length ? `<div class="disfx">${fx.map(f => `<span>${f}</span>`).join('')}</div>` : ''}</div>`;
 }
 
 function tableHtml() {
@@ -1024,19 +1067,23 @@ function tableHtml() {
   const changed = S.trick.risk !== b.risk;
   const suit = S.trick.suit || b.suit, suitChanged = suit !== b.suit;
   const myRisk = S.myRisk !== null && S.myRisk !== undefined && S.myRisk !== S.trick.risk ? S.myRisk : null;
-  return `<div class="tabletop play"><div class="players-mini">${playersHtml(true)}</div>
+  const slots = S.trick.seq ? S.trick.seq.length : n;
+  return `<div class="tabletop play ${S.disruptions ? 'with-dis' : ''}"><div class="players-mini">${playersHtml(true)}</div>
     <h3>Round ${S.round} — ${S.phase === 'disrupt' ? 'Disruption phase' : 'exploring'}</h3>
     <div class="cur-row">
       ${biomeEl(S.trick.biome)}
       <div class="tt-info">
         <div class="place">${esc(b.name)}<br><span style="color:var(--blush)">${esc(REGIONS[b.region].name)}</span></div>
-        <span class="suitbadge suit-${suit}">${suit}</span>${suitChanged ? `<span style="font-size:13px;color:var(--blush)">(was ${b.suit})</span>` : ''}
-        <span class="risk">Risk <b>${S.trick.risk}</b>${changed ? `<span style="font-size:13px;color:var(--ink-soft)">(was ${b.risk})</span>` : ''}${myRisk !== null ? `<span style="font-size:13px;color:var(--ink-soft)"> · ${myRisk} for your cards</span>` : ''}</span>
-        ${S.trick.keystones ? `<span class="hint" style="color:var(--blush)">Keystone: each Native token here lowers the Risk${S.trick.keystones > 1 ? ` (×${S.trick.keystones})` : ''}</span>` : ''}
+        <div class="tt-badges"><span class="suitbadge suit-${suit}">${suit}</span>${suitChanged ? `<span class="was">was ${b.suit}</span>` : ''}</div>
+        <span class="risk">Risk <b>${S.trick.risk}</b>${changed ? `<span class="was">(was ${b.risk})</span>` : ''}</span>
+        ${myRisk !== null ? `<span class="was">${myRisk} for your cards</span>` : ''}
+        ${S.trick.keystones ? `<span class="keynote">Keystone: each Native here lowers the Risk${S.trick.keystones > 1 ? ` ×${S.trick.keystones}` : ''}</span>` : ''}
       </div>
+      ${disPanelHtml()}
     </div>
-    ${disRowHtml()}
-    <div class="played" style="--n:${S.trick.seq ? S.trick.seq.length : n}">${S.trick.plays.length ? S.trick.plays.map(pl => cardEl(pl.card, pl.p === S.you ? foil(pl.card) : '', '', S.players[pl.p].boss ? 'Anaconda' : S.players[pl.p].name)).join('') : '<span class="lastline" style="color:var(--blush)">No cards played yet.</span>'}</div>
+    <div class="played" style="--n:${slots}">${S.trick.plays.length
+      ? S.trick.plays.map(pl => captioned(cardEl(pl.card, pl.p === S.you ? foil(pl.card) : ''), seatName(pl.p))).join('')
+      : `<span class="lastline" style="color:var(--blush)">${S.phase === 'disrupt' ? 'Cards are played once the Disruptions are resolved.' : 'No cards played yet.'}</span>`}</div>
     <div class="strip">
       <h3>Travel row</h3>
       <div class="strip-cards">${travelCards('')}${deck}</div>

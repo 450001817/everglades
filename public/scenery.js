@@ -141,9 +141,9 @@
     requestAnimationFrame(tick);
   }
 
+  const wanted = () => document.body.classList.contains('scenic') && !reduced.matches && !document.hidden;
   async function sync() {
-    const want = document.body.classList.contains('scenic') && !reduced.matches && !document.hidden;
-    if (!want) { running = false; document.documentElement.classList.remove('scenery-live'); return; }
+    if (!wanted()) { running = false; document.documentElement.classList.remove('scenery-live'); return; }
     const name = portrait.matches ? 'tall' : 'wide';
     if (name !== scene) {
       scene = name;
@@ -153,7 +153,8 @@
       canvas.style.objectPosition = prep.S.position;
       lastFrame = -1;
     }
-    if (!prep) return;
+    // loading takes a moment: if a game started meanwhile, stay hidden
+    if (!prep || !wanted()) { running = false; document.documentElement.classList.remove('scenery-live'); return; }
     document.documentElement.classList.add('scenery-live');
     if (!running) { running = true; requestAnimationFrame(tick); }
   }

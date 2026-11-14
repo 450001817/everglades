@@ -243,7 +243,19 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
 .chat-line { display: block; width: 100%; text-align: left; margin: 0 0 3px; padding: 3px 8px; font-family: 'EGDigits', 'VT323', monospace; font-size: 18px; line-height: 1.1; color: var(--ink); background: #fff; border: 2px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); cursor: pointer; }
 .chat-line:hover, .chat-line:focus-visible { background: var(--brass); }
 /* chat lines in the store */
-.chatlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px; max-height: 300px; overflow-y: auto; padding: 2px 4px 4px 2px; }
+.chatlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px; padding: 2px 4px 4px 2px; }
+/* the store: tabs across the top, one scrolling page per kind of product */
+.modal .paper.acctmodal.storemodal { height: min(88dvh, 860px); overflow: hidden; } /* only the page inside scrolls */
+.storetabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 3px solid var(--ink); padding-bottom: 8px; }
+.storetab { font-family: inherit; font-size: 17px; font-weight: 700; padding: 6px 14px; background: var(--paper-2); color: var(--ink); border: 3px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); cursor: pointer; }
+.storetab small { font-family: 'EGDigits', 'VT323', monospace; font-weight: 400; font-size: 15px; opacity: .75; }
+.storetab:hover { outline: 3px solid var(--brass); }
+.storetab.on { background: var(--brass); }
+.storepage { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 2px 6px 10px 2px; }
+.storepage .panel-title:first-child { margin-top: 0 !important; }
+.skingroup { margin-bottom: 14px; }
+.skingroup-title { font-weight: 700; font-size: 17px; margin: 0 0 6px; padding-bottom: 2px; border-bottom: 2px dashed #cfc6a8; }
+.skinblurb { font-size: 14px; line-height: 1.15; }
 .chatitem { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; background: #fff; border: 2px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); }
 .chatitem.owned { background: #eef7e6; }
 .chat-quote { font-family: 'EGDigits', 'VT323', monospace; font-size: 18px; line-height: 1.05; }
@@ -338,8 +350,25 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
 /* playing: the current biome and played cards are big, the travel row shrinks to a strip */
 .cur-row { display: flex; gap: 14px; align-items: flex-start; }
 .cur-row .card.bio { width: min(52cqw, 40cqh); }
-.played { display: flex; gap: 8px; padding-bottom: 22px; flex-wrap: nowrap; min-height: 0; }
-.played .card.eco { width: min(calc((100cqw - 24px - (var(--n) - 1) * 8px) / var(--n)), 25cqh); }
+/* played cards fill the space left between the top band and the travel row; each card is sized to fit both
+   the width (one slot per player) and the height of that space, with the player's name as a caption below */
+.played { flex: 1 1 0; min-height: 0; container-type: size; display: flex; gap: 8px; justify-content: center; align-items: flex-start; flex-wrap: nowrap; padding-top: 4px; }
+.pcard { flex: 0 0 auto; width: min(calc((100cqw - (var(--n) - 1) * 8px) / var(--n)), calc((100cqh - 30px) * .714)); display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.pcard .card { width: 100%; }
+.pname { max-width: 100%; font-family: 'EGDigits', 'VT323', monospace; font-size: 16px; line-height: 1; color: var(--paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pcard.win .pname { color: var(--brass); }
+.pcard.lose .pname { opacity: .7; }
+.tt-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tt-info .was { font-family: 'EGDigits', 'VT323', monospace; font-size: 15px; line-height: 1; color: var(--blush); }
+.tt-info .keynote { font-family: 'EGDigits', 'VT323', monospace; font-size: 15px; line-height: 1.05; color: var(--blush); max-width: 22ch; }
+/* with Disruptions on, the biome shrinks a little and the Disruption panel sits beside it */
+.tabletop.with-dis .cur-row .card.bio { width: min(30cqw, 30cqh); }
+.dispanel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 6px 8px; border: 3px solid var(--ink); background: rgba(0, 0, 0, .18); }
+.dis-title { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--brass); font-weight: 700; }
+.dis-cards { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.dispanel .pcard { width: min(8.5cqw, 15cqh); }
+.dispanel .pname { font-size: 14px; }
+.dis-empty { font-family: 'EGDigits', 'VT323', monospace; font-size: 17px; color: var(--blush); }
 .strip { margin-top: auto; display: flex; flex-direction: column; gap: 4px; }
 .strip-cards { display: flex; gap: 8px; align-items: flex-end; }
 .strip .card.bio { width: min(17cqw, 15cqh); }
@@ -392,10 +421,8 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
 .dishand-cards { display: flex; gap: 6px; align-items: flex-end; }
 .dishand .card.dis { width: calc((100cqh - 80px) * .714 * .62); }
 .dishand .card.dis.choosable { cursor: pointer; }
-.disrow { margin-top: 2px; }
-.disrow .card.eco { width: min(11cqw, 13cqh); }
 .disfx { display: flex; flex-wrap: wrap; gap: 4px; }
-.disfx span { font-family: 'EGDigits', 'VT323', monospace; font-size: 15px; line-height: 1.1; padding: 0 6px; background: #16131a; color: #fff3c4; border: 2px solid var(--ink); }
+.disfx span { font-family: 'EGDigits', 'VT323', monospace; font-size: 15px; line-height: 1.15; padding: 0 6px; background: var(--paper); color: var(--ink); border: 2px solid var(--ink); }
 .tabletop.draft .rolegrid .card.dis { width: min(26cqw, 40cqh); }
 .strip-cards.guide .card.bio { width: min(15cqw, 13cqh); }
 
@@ -418,7 +445,7 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
 @keyframes foilshift { 0% { background-position: 0% 50%; } 100% { background-position: 300% 50%; } }
 @keyframes foilglint { 0%, 55% { background-position: 150% 0; } 100% { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { .card.foil::before, .card.foil::after { animation: none; } }
-.foilgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; max-height: 360px; overflow-y: auto; padding: 4px 6px 16px 4px; }
+.foilgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; padding: 4px 6px 16px 4px; }
 .foilitem { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .foilitem .card { width: 100%; }
 .foilitem .btn { white-space: nowrap; }
@@ -684,8 +711,12 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
   .cur-row { gap: 10px; }
   .cur-row .card.bio { width: 54%; }
   .tt-info .place { font-size: 19px; }
-  .played { flex-wrap: wrap; gap: 26px 8px; padding-bottom: 22px; }
-  .played .card.eco { width: calc((100% - 16px) / 3); }
+  .played { flex: none; container-type: normal; flex-wrap: wrap; gap: 12px 8px; }
+  .pcard { width: calc((100% - 16px) / 3); }
+  .cur-row { flex-wrap: wrap; }
+  .tabletop.with-dis .cur-row .card.bio { width: 54%; }
+  .dispanel { flex-basis: 100%; }
+  .dispanel .pcard { width: calc((100% - 40px) / 6); min-width: 58px; }
   .card .who { font-size: 15px; bottom: -19px; }
   .strip .card.bio { width: 30%; }
   .strip .card.eco { width: 15%; }

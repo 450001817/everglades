@@ -193,7 +193,7 @@
   // The name only tells skins apart in the shop; it is never shown during a game.
   const SKIN_PRICE = 500;
   const SKINS = [
-    { id: 'rodney',  role: 'Hunter',          name: 'Rodney',  blurb: 'Big laugh, bigger heart. Never misses a cookout or a shot.' },
+    { id: 'rodney',  role: 'Hunter',          name: 'Rodney',  blurb: 'Big laugh, bigger heart.' },
     { id: 'maribel', role: 'Hunter',          name: 'Maribel', blurb: 'Tracks hogs through the hammocks before sunrise.' },
     { id: 'kenji',   role: 'Fisherman',       name: 'Kenji',   blurb: 'Forty years on Florida Bay. Knows every channel by heart.' },
     { id: 'dot',     role: 'Fisherman',       name: 'Dot',     blurb: 'Out-fishes the whole marina and lets them know it.' },
