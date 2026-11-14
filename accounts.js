@@ -23,7 +23,7 @@ const ECON = {
 const STORE = [
   { id: 'title_savior', type: 'title', name: 'Savior of the Everglades', price: 10000,
     blurb: 'A legendary title that sparkles under your name.' },
-  ...SKINS.map(s => ({ id: 'skin:' + s.id, type: 'skin', role: s.role, skin: s.id, name: s.name, price: s.price, blurb: s.blurb })),
+  ...SKINS.map(s => ({ id: 'skin:' + s.id, type: 'skin', role: s.role, skin: s.id, name: s.name, price: s.price, blurb: s.blurb, exclusive: !!s.exclusive })),
   // type 'chat': a preset line the player can send as a speech bubble during a game (CHAT in public/data.js)
   ...CHAT.map(c => ({ id: 'chat:' + c.id, type: 'chat', group: c.group, name: c.text, price: c.price, blurb: 'Chat line' })),
   // type 'foil': a foil version of an Ecology or Disruption card. Whenever that card is dealt to its owner it shows
@@ -31,8 +31,15 @@ const STORE = [
   ...Object.values(CARDS).map(c => ({ id: 'foil:' + c.id, type: 'foil', card: c.id, deck: c.kind, name: c.name + ' (foil)', price: FOIL_PRICE, blurb: 'Foil Ecology card' })),
   ...Object.values(DISRUPTIONS).map(d => ({ id: 'foil:' + d.id, type: 'foil', card: d.id, deck: 'Disruption', name: d.name + ' (foil)', price: FOIL_PRICE, blurb: 'Foil Disruption card' })),
   // type 'splash': an effect that plays over your card when you play it (SPLASHES in public/data.js); equipped like a title
-  ...SPLASHES.map(s => ({ id: 'splash:' + s.id, type: 'splash', splash: s.id, name: s.name, price: s.price, blurb: s.blurb })),
+  ...SPLASHES.map(s => ({ id: 'splash:' + s.id, type: 'splash', splash: s.id, name: s.name, price: s.price, blurb: s.blurb, exclusive: !!s.exclusive })),
+  // ----- Goblin Ink staff exclusives (exclusive: true) -----
+  // Never listed in the store or sold; unlocked only on staff accounts (STAFF_EMAILS below). Others still see the
+  // skins, title and splash effect in games; the green foil is only seen by its owner, like every foil.
+  { id: 'title_goblin', type: 'title', style: 'goblin', name: 'Goblin Ink Game Staff', price: 0, exclusive: true,
+    blurb: 'Goblin Ink staff exclusive: shimmering green, with a whiff of something awful.' },
+  { id: 'foilall:green', type: 'foilall', name: 'Green foil on every card', price: 0, exclusive: true, blurb: 'Goblin Ink staff exclusive.' },
 ];
+const EXCLUSIVE = STORE.filter(i => i.exclusive);
 const ownsChat = (a, id) => !!a && a.owned.includes('chat:' + id);
 
 // ---------- profile pictures ----------
@@ -144,10 +151,24 @@ async function verifyGoogle(credential) {
   if (!claims.exp || claims.exp * 1000 < Date.now()) throw userErr('That Google sign-in has expired. Please try again.');
   return claims; // only claims.sub (Google's stable user id) is stored, nothing else
 }
+// Goblin Ink staff: Google accounts whose email is listed in the STAFF_EMAILS setting (comma-separated, set on the
+// host, never in the code). Checked at every Google sign-in; the email itself is never saved.
+const staffEmails = () => String(process.env.STAFF_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+function grantStaff(a) {
+  const first = !a.staff;
+  a.staff = true;
+  for (const it of EXCLUSIVE) if (!a.owned.includes(it.id)) a.owned.push(it.id);
+  if (first) { // wear the staff title and stink cloud straight away the first time
+    a.title = 'title_goblin'; a.splash = 'stink';
+    console.log(`Goblin Ink staff items unlocked for ${a.gamertag}`);
+  }
+}
 async function googleLogin(credential) {
   const claims = await verifyGoogle(credential);
   let a = db.accounts[db.google[claims.sub]];
   if (!a) { a = newAccount({ google: true }); db.google[claims.sub] = a.id; }
+  const email = String(claims.email || '').toLowerCase();
+  if (email && claims.email_verified !== false && staffEmails().includes(email)) { grantStaff(a); save(); }
   return { account: a, session: newSession(a) };
 }
 
@@ -204,7 +225,7 @@ function dailyBonus(a) {
 // ---------- store ----------
 function buy(a, itemId) {
   const item = STORE.find(i => i.id === itemId);
-  if (!item) throw userErr('That item is not in the store.');
+  if (!item || item.exclusive) throw userErr('That item is not in the store.');
   if (a.owned.includes(item.id)) throw userErr('You already own that.');
   if (a.balance < item.price) throw userErr(`You need ${item.price.toLocaleString()} EB for that.`);
   a.balance -= item.price; a.owned.push(item.id);
@@ -215,6 +236,7 @@ function buy(a, itemId) {
   return item;
 }
 const titleName = id => (STORE.find(i => i.id === id) || {}).name || null;
+const titleStyle = id => (STORE.find(i => i.id === id) || {}).style || 'sparkle'; // the look of the title under a player's name
 
 // ---------- buy-ins (escrow) and payouts ----------
 // The buy-in is taken from every player when the game starts and held in escrow until it is settled.
@@ -295,17 +317,18 @@ function skinFor(a, role) {
 }
 const splashFor = a => (a && a.splash && a.owned.includes('splash:' + a.splash) ? a.splash : null); // the effect everyone sees
 function publicProfile(a) { // shown to everyone (lobby banner)
-  return { id: a.id, gamertag: a.gamertag, avatar: a.avatar, avatarSrc: avatarSrc(a.avatar), title: a.title, titleName: titleName(a.title),
+  return { id: a.id, gamertag: a.gamertag, avatar: a.avatar, avatarSrc: avatarSrc(a.avatar), title: a.title, titleName: titleName(a.title), titleStyle: titleStyle(a.title),
     skins: Object.fromEntries(Object.keys(ROLES).map(r => [r, skinFor(a, r)]).filter(x => x[1])), splash: splashFor(a) };
 }
 function privateProfile(a) { // shown to the account owner
   return Object.assign(publicProfile(a), {
     balance: a.balance, owned: a.owned, cardWins: a.cardWins, stats: a.stats, guest: !!a.guest,
+    staff: !!a.staff, exclusiveStore: a.staff ? EXCLUSIVE : [], // staff see their exclusive items in their own store
     unlocked: unlockedAvatars(a),
   });
 }
 function config() {
-  return { googleClientId: GOOGLE_CLIENT_ID(), guestsAllowed: guestsAllowed(), econ: ECON, store: STORE,
+  return { googleClientId: GOOGLE_CLIENT_ID(), guestsAllowed: guestsAllowed(), econ: ECON, store: STORE.filter(i => !i.exclusive),
     avatars: { characters: CHARACTER_AVATARS.map(c => ({ id: 'char:' + c, src: avatarSrc('char:' + c) })),
       skins: SKINS.map(s => ({ id: 'skin:' + s.id, role: s.role, name: s.name, src: avatarSrc('skin:' + s.id) })),
       animals: ANIMAL_AVATARS.map(id => ({ id: 'animal:' + id, card: id, name: CARDS[id].name, src: avatarSrc('animal:' + id) })) } };
@@ -347,5 +370,5 @@ function adjustPurchase(paymentIntent, change) {
 module.exports = {
   ECON, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
-  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, splashFor, ownsChat, creditPurchase, adjustPurchase,
+  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, splashFor, ownsChat, creditPurchase, adjustPurchase, grantStaff,
 };

@@ -280,7 +280,7 @@ function bannerHtml(p, { you = false, extra = '', size = '' } = {}) {
     <img class="pavatar" src="${esc(p.avatarSrc)}" alt="">
     <div class="pb-text">
       <div class="pb-name">${esc(p.gamertag)}${you ? ' <span class="you">(you)</span>' : ''}</div>
-      ${p.titleName ? `<div class="pb-title sparkle">${esc(p.titleName)}</div>` : ''}
+      ${p.titleName ? `<div class="pb-title ${p.titleStyle === 'goblin' ? 'goblin' : 'sparkle'}">${esc(p.titleName)}</div>` : ''}
       ${extra}
     </div></div>`;
 }
@@ -321,7 +321,9 @@ function profileModal() {
 }
 // Store: spend Eco-bucks (items are defined in accounts.js)
 function storeModal() {
-  const me = acct.me, C = acct.config; if (!me || !C) return '';
+  const me = acct.me; if (!me || !acct.config) return '';
+  // staff accounts also see their exclusive items (never shown to anyone else)
+  const C = Object.assign({}, acct.config, { store: acct.config.store.concat(me.exclusiveStore || []) });
   if (acct.modal && acct.modal.buy) {
     const it = C.store.find(i => i.id === acct.modal.buy);
     const isSkin = it.type === 'skin';
@@ -418,9 +420,9 @@ function splashStoreHtml(me, C) {
       ? `<button class="btn ${using ? '' : 'brass'}" data-splashwear="${using ? '' : it.splash}">${using ? 'Turn off' : 'Use this effect'}</button>`
       : `<button class="btn primary" data-buy="${it.id}" ${me.balance < it.price ? 'disabled' : ''}>Buy · ${Number(it.price).toLocaleString()} EB</button>`;
     return `<div class="storeitem">
-      <div class="storeprev splashprev"><button class="splashdemo" data-splashpreview="${it.splash}" title="Preview">${cardEl(it.splash === 'splash' ? 'Manatee' : 'Flamingo', '', 'data-splashcard="' + it.splash + '"')}<span>▶ Preview</span></button></div>
+      <div class="storeprev splashprev"><button class="splashdemo" data-splashpreview="${it.splash}" title="Preview">${cardEl({ splash: 'Manatee', stink: 'BurmesePython' }[it.splash] || 'Flamingo', '', 'data-splashcard="' + it.splash + '"')}<span>▶ Preview</span></button></div>
       <div class="storeinfo"><b>${esc(it.name)}</b><span class="hint">${esc(it.blurb)}</span>
-        <span>${fmtEB(it.price)}${owned ? ` · <span style="color:var(--native)">${using ? 'In use' : 'Owned'}</span>` : me.balance < it.price ? ` · <span class="hint">you need ${(it.price - me.balance).toLocaleString()} more</span>` : ''}</span></div>
+        <span>${it.exclusive ? '<span class="staffex">Goblin Ink staff exclusive</span>' : fmtEB(it.price)}${owned ? ` · <span style="color:var(--native)">${using ? 'In use' : 'Owned'}</span>` : me.balance < it.price ? ` · <span class="hint">you need ${(it.price - me.balance).toLocaleString()} more</span>` : ''}</span></div>
       <div>${action}</div></div>`;
   }).join('');
   return `<p class="hint" style="margin:0 0 8px">Your splash effect bursts from every card you play, and everyone at the table sees it. You use one at a time.</p><div class="storelist">${items}</div>`;
@@ -460,6 +462,15 @@ function playSplash(type, el, preview = false) {
       const ex = cx + Math.cos(a) * cw * 0.45, ey = cy + Math.sin(a) * ch * 0.45;
       parts.push({ x: ex, y: ey, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 6, big: Math.random() < 0.35, ph: rnd(0, 6), c: ['#fff6b0', '#ffd84a', '#ffffff', '#ffe98a'][i % 4], life: rnd(0.65, 1) });
     }
+  } else if (type === 'stink') { // stink cloud: green puffs billow out and drift up, wavy stink lines rise, a fly buzzes
+    dur = 1500;
+    for (let i = 0; i < 14; i++) { // cloud puffs around the card
+      const a = rnd(0, Math.PI * 2);
+      parts.push({ kind: 'puff', x: cx + Math.cos(a) * cw * rnd(0.2, 0.5), y: cy + Math.sin(a) * ch * rnd(0.15, 0.45), vx: Math.cos(a) * rnd(4, 12), vy: -rnd(6, 16),
+        r: rnd(3, 6), c: ['#7fbf3f', '#9bd34a', '#5e9a2c', '#b6e06a'][i % 4], delay: rnd(0, 0.25), life: rnd(0.8, 1) });
+    }
+    for (let i = 0; i < 4; i++) parts.push({ kind: 'line', x: cx + (i - 1.5) * cw * 0.28, y: cy - ch * 0.15, ph: rnd(0, 6), delay: 0.1 + i * 0.06, life: 1 });
+    parts.push({ kind: 'fly', ph: rnd(0, 6), delay: 0, life: 1 });
   } else { // water splash: a crown of droplets thrown out from the card's base, falling back; a ripple rings out
     const base = cy + ch / 2 - 2;
     for (let i = 0; i < 48; i++) {
@@ -486,6 +497,25 @@ function playSplash(type, el, preview = false) {
         if (!tw) { dot(x, y, p.c); continue; }
         dot(x, y, p.c); dot(x - 1, y, p.c); dot(x + 1, y, p.c); dot(x, y - 1, p.c); dot(x, y + 1, p.c); // a little plus-shaped star
         if (p.big && t < 0.6) { dot(x - 2, y, '#ffffff'); dot(x + 2, y, '#ffffff'); dot(x, y - 2, '#ffffff'); dot(x, y + 2, '#ffffff'); }
+      }
+    } else if (type === 'stink') {
+      for (const p of parts) {
+        const q = (t - p.delay) / (p.life - p.delay); if (q <= 0 || q >= 1) continue;
+        const tt = dt - p.delay * dur / 1000;
+        if (p.kind === 'puff') { // a chunky pixel cloud that swells, drifts up and fades
+          const x = p.x + p.vx * tt, y = p.y + p.vy * tt, r = p.r * (0.6 + q * 0.9);
+          g.globalAlpha = Math.min(1, (1 - q) * 1.6) * 0.85;
+          for (let yy = -r; yy <= r; yy++) for (let xx = -r; xx <= r; xx++) if (xx * xx + yy * yy * 1.4 <= r * r) dot(x + xx, y + yy, p.c);
+          g.globalAlpha *= 0.9; dot(x - r * 0.4, y - r * 0.5, '#d9f59a', 2); // a highlight
+        } else if (p.kind === 'line') { // a wavy stink line rising
+          g.globalAlpha = Math.min(1, (1 - q) * 2) * 0.9;
+          const top = p.y - tt * 26;
+          for (let k = 0; k < 14; k++) dot(p.x + Math.round(Math.sin(k * 0.6 + tt * 9 + p.ph) * 1.5), top - k, '#4f8a1e');
+        } else { // one fly buzzing in loops around the card
+          g.globalAlpha = 1;
+          const fx = cx + Math.cos(tt * 7 + p.ph) * cw * 0.55, fy = cy - ch * 0.35 + Math.sin(tt * 11 + p.ph) * ch * 0.18;
+          dot(fx, fy, '#1d1b26', 2); dot(fx - 1, fy - 1, (Math.floor(tt * 30) % 2) ? '#e8f4ff' : '#9fb4c7'); dot(fx + 2, fy - 1, (Math.floor(tt * 30) % 2) ? '#9fb4c7' : '#e8f4ff');
+        }
       }
     } else {
       // ripple: two pixel ellipses spreading out under the card
@@ -521,14 +551,15 @@ function titleStoreHtml(me, C) {
       ? `<button class="btn ${wearing ? '' : 'brass'}" data-wear="${wearing ? '' : it.id}">${wearing ? 'Take off' : 'Wear title'}</button>`
       : `<button class="btn primary" data-buy="${it.id}" ${me.balance < it.price ? 'disabled' : ''}>Buy · ${Number(it.price).toLocaleString()} EB</button>`;
     return `<div class="storeitem">
-      <div class="storeprev">${bannerHtml(Object.assign({}, me, { titleName: it.name }))}</div>
+      <div class="storeprev">${bannerHtml(Object.assign({}, me, { titleName: it.name, titleStyle: it.style || 'sparkle' }))}</div>
       <div class="storeinfo"><b>${esc(it.name)}</b><span class="hint">${esc(it.blurb)}</span>
-        <span>${fmtEB(it.price)}${owned ? ' · <span style="color:var(--native)">Owned</span>' : me.balance < it.price ? ` · <span class="hint">you need ${(it.price - me.balance).toLocaleString()} more</span>` : ''}</span></div>
+        <span>${it.exclusive ? '<span class="staffex">Goblin Ink staff exclusive</span>' : fmtEB(it.price)}${owned ? ' · <span style="color:var(--native)">Owned</span>' : me.balance < it.price ? ` · <span class="hint">you need ${(it.price - me.balance).toLocaleString()} more</span>` : ''}</span></div>
       <div>${action}</div></div>`;
   }).join('');
   return `<p class="hint" style="margin:0 0 8px">Titles sparkle under your name on your player banner.</p><div class="storelist">${items}</div>`;
 }
 // Every skin at once, grouped by character: buy, equip, or open the character's shop for the animated preview.
+const ownsSkinOk = s => !s.exclusive || !!(acct.me && acct.me.owned.includes('skin:' + s.id)); // staff skins only for their owner
 function skinStoreHtml(me) {
   const groups = Object.keys(ROLES).map(role => {
     const on = mySkin(role);
@@ -541,7 +572,7 @@ function skinStoreHtml(me) {
         <b>${esc(s ? s.name : 'Original')}</b>${s ? `<span class="hint skinblurb">${esc(s.blurb)}</span>` : ''}${action}</div>`;
     };
     return `<div class="skingroup"><div class="skingroup-title">${esc(ROLES[role].name)}</div>
-      <div class="skingrid">${tile(null)}${SKINS.filter(s => s.role === role).map(tile).join('')}</div></div>`;
+      <div class="skingrid">${tile(null)}${SKINS.filter(s => s.role === role && ownsSkinOk(s)).map(tile).join('')}</div></div>`;
   }).join('');
   return `<p class="hint" style="margin:0 0 8px">${fmtEB(SKINS[0].price)} each. Everyone at the table sees your skin when you play that character. Click a portrait for the animated preview.</p>${groups}`;
 }
@@ -634,7 +665,7 @@ function mySkin(role) {
 function skinShopModal() {
   const role = acct.modal.skins, R = ROLES[role]; if (!R) return '';
   const me = acct.me, C = acct.config;
-  const skins = SKINS.filter(s => s.role === role);
+  const skins = SKINS.filter(s => s.role === role && ownsSkinOk(s));
   const on = mySkin(role);
   const view = acct.modal.view !== undefined ? acct.modal.view : on; // which look the big preview shows
   const viewing = skins.find(s => s.id === view);
@@ -1084,7 +1115,8 @@ function ownsFoil(id) {
   const owned = (S && S.myAccount && S.myAccount.owned) || (acct.me && acct.me.owned) || [];
   return owned.includes('foil:' + id);
 }
-const foil = id => ownsFoil(id) ? 'foil' : '';
+const ownsAllFoil = () => ((S && S.myAccount && S.myAccount.owned) || (acct.me && acct.me.owned) || []).includes('foilall:green'); // staff: green foil on every card
+const foil = id => ownsAllFoil() ? 'foil greenfoil' : ownsFoil(id) ? 'foil' : '';
 function biomeEl(id, cls = '', extra = '') {
   const b = BIOMES[id];
   return `<div class="card bio ${cls}" data-peek="${b.img}" ${extra}><img src="${b.img}" alt="${esc(b.name)}"></div>`;

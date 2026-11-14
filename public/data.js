@@ -208,6 +208,14 @@
     { id: 'sven',    role: 'Researcher',      name: 'Sven',    blurb: 'Came for one season of fieldwork. Stayed for twelve.' },
     { id: 'gus',     role: 'Tourist',         name: 'Gus',     blurb: 'SPF 4 and a Hawaiian shirt. What could go wrong?' },
     { id: 'rosa',    role: 'Tourist',         name: 'Rosa',    blurb: 'Grandma has 3,000 gator photos and wants 3,001.' },
+    // Goblin Ink staff skins: never sold, never shown in anyone else's shop. They are unlocked only on staff
+    // accounts (see STAFF_EMAILS in accounts.js). Everyone at the table still sees them in a game.
+    { id: 'gob_conservationist', role: 'Conservationist', name: 'Goblin Conservationist', blurb: 'Goblin Ink staff exclusive.', exclusive: true, price: 0 },
+    { id: 'gob_fisherman',       role: 'Fisherman',       name: 'Goblin Fisherman',       blurb: 'Goblin Ink staff exclusive.', exclusive: true, price: 0 },
+    { id: 'gob_hunter',          role: 'Hunter',          name: 'Goblin Hunter',          blurb: 'Goblin Ink staff exclusive.', exclusive: true, price: 0 },
+    { id: 'gob_landdeveloper',   role: 'LandDeveloper',   name: 'Goblin Land Developer',  blurb: 'Goblin Ink staff exclusive.', exclusive: true, price: 0 },
+    { id: 'gob_researcher',      role: 'Researcher',      name: 'Goblin Researcher',      blurb: 'Goblin Ink staff exclusive.', exclusive: true, price: 0 },
+    { id: 'gob_tourist',         role: 'Tourist',         name: 'Goblin Tourist',         blurb: 'Goblin Ink staff exclusive.', exclusive: true, price: 0 },
   ].map(s => Object.assign({ price: SKIN_PRICE }, s));
 
   // Chat lines: everything the bots say (see VOICE and REACT in game.js), rewritten to stand on their own,
@@ -287,6 +295,7 @@
   const SPLASHES = [
     { id: 'sparkle', name: 'Sparkle', price: SPLASH_PRICE, blurb: 'Golden stars burst from your card and twinkle away.' },
     { id: 'splash', name: 'Water splash', price: SPLASH_PRICE, blurb: 'Your card lands with a splash of swamp water and a ripple.' },
+    { id: 'stink', name: 'Stink cloud', price: 0, exclusive: true, blurb: 'Goblin Ink staff exclusive: your card lands in a reeking green cloud.' },
   ];
 
   const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES, DISRUPTIONS, FOIL_PRICE, SPLASHES, SPLASH_PRICE };

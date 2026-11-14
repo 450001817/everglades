@@ -60,7 +60,8 @@ throws(() => A.buy(a, 'title_savior'), 'cannot buy it twice');
 
 // character skins: 500 EB, equipped on purchase, only owned skins can be worn, only for their own character
 const { SKINS } = require('../public/data.js');
-ok(SKINS.length >= 6 && SKINS.every(s => s.price === 500), `${SKINS.length} skins, all 500 EB`);
+const forSale = SKINS.filter(s => !s.exclusive); // staff skins are never sold (see test/staff.js)
+ok(forSale.length >= 6 && forSale.every(s => s.price === 500), `${forSale.length} skins for sale, all 500 EB`);
 ok(new Set(SKINS.map(s => s.name)).size === SKINS.length && new Set(SKINS.map(s => s.id)).size === SKINS.length, 'every skin has a unique name and id');
 ok(SKINS.some(s => s.id === 'rodney' && s.role === 'Hunter' && s.name === 'Rodney'), 'Rodney is a Hunter skin');
 ok(A.skinFor(b, 'Hunter') === null && !A.publicProfile(b).skins.Hunter, 'no skin by default');

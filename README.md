@@ -109,6 +109,8 @@ Everyone signs in before they sit down at a table. An account keeps your **gamer
 
 **Splash effects (250 EB each):** the store's **Splash effects** tab sells effects that burst from a card when its owner plays it, and everyone at the table sees them. The first two are **Sparkle** (golden pixel stars) and **Water splash** (a crown of droplets and a ripple). Each one can be previewed in the store. A player uses one at a time, picked like a title. The effects are listed in `SPLASHES` in `public/data.js` and drawn by `playSplash()` in `public/client.js`. They're skipped for players with reduced motion turned on.
 
+**Goblin Ink staff exclusives:** a set that's never sold and never shown in anyone else's store or skin shop. It includes a goblin skin for every character (with all 6 animations and a profile picture), the shimmering green **Goblin Ink Game Staff** title with rising stink clouds, a **Stink cloud** splash effect, and **green foil on every card**. They unlock on any Google account whose email is listed in the `STAFF_EMAILS` setting (comma-separated) when that account signs in. The email is only checked at sign-in, never saved, and never in the code. Other players still see the staff member's goblin skin, title and stink cloud during a game. Like all foils, the green foil is only seen by its owner. The items are the `exclusive` entries in `SKINS` / `SPLASHES` (`public/data.js`) and `STORE` (`accounts.js`). Run `node test/staff.js` to check them.
+
 **Profile pictures:** every character picture is a centered close-up taken from the character's animation art. Each character skin you own adds its own picture next to that character (`assets/avatars/skin_<id>.png`).
 
 All the numbers (starting balance, daily bonus, buy-ins, unlock count) and the store's items are at the top of `accounts.js`. To add a cosmetic, add it to `STORE` there. Skins and their price (`SKIN_PRICE`) are in `public/data.js`. Run `node test/economy.js` to check the payouts, store, unlocks and sign-in after changes.
@@ -239,6 +241,7 @@ Every rule is in **game.js**, and all card stats are in **public/data.js**. Both
 | `public/assets/cards/disruption/` | The 18 Disruption cards and their face-down back. The art is also saved in `GeneratedArt/DisruptionDeck/art` |
 | `payments.js` | Buying Eco-bucks with Stripe Checkout (packs, checkout, webhook) |
 | `test/payments.js` | Checks Eco-buck purchases against a pretend Stripe (prices, crediting once, webhook signatures) |
+| `test/staff.js` | Checks the staff-only items: only listed Google emails unlock them, nobody can buy them, and they never appear in the public store |
 | `test/bench.js` | Measures one logic-engine bot against tables of the old simple bots (`--dis`, `--partners`) |
 | `test/predatory.js` | Checks that Predatory cards hunt before their own tokens are added (including Done early, empty regions and the Great Barracuda) |
 | `test/sim.js` | Plays 500 bot-only games (every 7th one co-op) to check the rules never get stuck and every character reaction is valid (`npm test`) |

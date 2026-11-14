@@ -839,3 +839,29 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .splashdemo .card img { width: 100%; display: block; }
 .splashdemo span { font-family: var(--font-small); font-size: 14px; color: var(--ink); }
 .splashdemo:hover span { text-decoration: underline; }
+
+/* ---------- Goblin Ink staff exclusives ---------- */
+.staffex { font-family: var(--font-small); color: #3f8f1f; }
+/* "Goblin Ink Game Staff": shimmering green, with little pixel stink clouds puffing up off it */
+.pb-title.goblin {
+  position: relative; align-self: flex-start; font-weight: 700; font-size: 13px; letter-spacing: .5px; line-height: 1.2; padding: 0 14px;
+  background: linear-gradient(100deg, #1f5e14 0%, #6fd23a 20%, #e9ffc2 29%, #7fe04a 40%, #2f7d1c 58%, #c6ff7a 72%, #3c9a22 100%);
+  background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shimmer 2.2s linear infinite; filter: drop-shadow(1px 1px 0 rgba(0,0,0,.35)) drop-shadow(0 0 3px rgba(120, 220, 60, .45));
+}
+.pb-title.goblin::before, .pb-title.goblin::after { /* two tiny pixel clouds that rise and fade, one after the other */
+  content: ''; position: absolute; bottom: 60%; width: 3px; height: 3px; background: #8fd14a; -webkit-text-fill-color: initial;
+  box-shadow: 3px 0 #8fd14a, -3px 0 #8fd14a, 0 -3px #8fd14a, 3px -3px #b6e874, -3px -3px #7bbd38, 6px 0 #7bbd38, 0 3px #6aa82e, 3px 3px #6aa82e, -3px 3px #6aa82e;
+  opacity: 0; animation: stinkpuff 2.4s steps(6) infinite; pointer-events: none;
+}
+.pb-title.goblin::before { left: 2px; }
+.pb-title.goblin::after { right: 6px; animation-delay: 1.2s; }
+@keyframes stinkpuff { 0% { opacity: 0; transform: translateY(4px) scale(.5); } 20% { opacity: .9; } 100% { opacity: 0; transform: translateY(-14px) scale(1.2); } }
+@media (prefers-reduced-motion: reduce) { .pb-title.goblin, .pb-title.goblin::before, .pb-title.goblin::after { animation: none; } .pb-title.goblin::before, .pb-title.goblin::after { opacity: 0; } }
+/* green foil (staff): the same foil sheen as bought foils, but in swamp greens */
+.card.foil.greenfoil::before {
+  opacity: .5;
+  background: linear-gradient(115deg, transparent 0%, transparent 32%, #1f7a2e 38%, #7dff5a 44%, #d9ffb0 50%, #3ce07a 56%, #0f5a2a 62%, transparent 68%, transparent 100%);
+  background-size: 300% 300%;
+}
+.card.foil.greenfoil { box-shadow: 0 0 0 2px #4fcf3a, 0 0 10px rgba(90, 220, 70, .55); }
