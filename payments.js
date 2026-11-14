@@ -19,10 +19,12 @@
 const crypto = require('crypto');
 const A = require('./accounts.js');
 
+// `retired` packs are no longer sold, but payments for them still credit (a checkout opened before the change).
 const EB_PACKS = [
-  { id: 'eb100', eb: 100, cents: 100 },
+  { id: 'eb100', eb: 100, cents: 100, retired: true },
   { id: 'eb500', eb: 500, cents: 500 },
-  { id: 'eb1000', eb: 1000, cents: 900, tag: 'Best value' },
+  { id: 'eb1000', eb: 1000, cents: 900 },
+  { id: 'eb2000', eb: 2000, cents: 1500, tag: 'Best value' },
 ];
 const API = 'https://api.stripe.com/v1';
 const key = () => process.env.STRIPE_SECRET_KEY || '';
@@ -30,7 +32,7 @@ const enabled = () => /^(sk|rk)_(test|live)_/.test(key());
 const userErr = msg => Object.assign(new Error(msg), { userError: true });
 
 function publicConfig() {
-  return { enabled: enabled(), testMode: key().includes('_test_'), packs: EB_PACKS };
+  return { enabled: enabled(), testMode: key().includes('_test_'), packs: EB_PACKS.filter(p => !p.retired) };
 }
 
 // Stripe's API takes form-encoded bodies with bracketed keys (line_items[0][price_data][currency]=usd).
@@ -59,7 +61,7 @@ async function stripe(method, path, body) {
 // Step 1: a Stripe Checkout page for one pack. Returns the URL to send the player to.
 async function createCheckout(account, packId, origin) {
   if (!enabled()) throw userErr('Eco-buck packs are not available right now.');
-  const pack = EB_PACKS.find(p => p.id === packId);
+  const pack = EB_PACKS.find(p => p.id === packId && !p.retired);
   if (!pack) throw userErr('Pick one of the Eco-buck packs.');
   // Guest accounts live in one browser; buying on one risks losing what you paid for. Ask for Google sign-in
   // (when this server has Google sign-in set up).
