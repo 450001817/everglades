@@ -835,8 +835,8 @@ function computeResults(s) {
     const objPop = objRegions.reduce((a, r) => a + b[r].n + b[r].i, 0);
     const role = pl.role;
     if (role === 'Conservationist') {
-      lines.push({ label: `Native majority overall (${totalN} vs ${totalI})`, pts: totalN > totalI ? 15 : 0 });
-      lines.push({ label: 'Never triggered an Invasive Crisis', pts: pl.triggeredCrisis ? 0 : 5 });
+      lines.push({ label: `Native majority overall (${totalN} vs ${totalI})`, pts: totalN > totalI ? R.majorityPts : 0 });
+      lines.push({ label: 'Never triggered an Invasive Crisis', pts: pl.triggeredCrisis ? 0 : R.noCrisisPts });
     } else if (role === 'Fisherman' || role === 'Hunter') {
       lines.push({ label: `25+ population in objective regions (${objPop})`, pts: objPop >= 25 ? (role === 'Fisherman' ? 10 : 15) : 0 });
       const suit = role === 'Fisherman' ? 'Water' : 'Land';
@@ -845,16 +845,16 @@ function computeResults(s) {
       lines.push({ label: `Most tricks from ${suit} regions (${mine})`, pts: mine > 0 && mine === best ? 15 : 0 });
     } else if (role === 'LandDeveloper') {
       const empty = REGION_IDS.filter(r => b[r].n + b[r].i === 0).length;
-      lines.push({ label: `No population in 2+ regions (${empty} empty)`, pts: empty >= 2 ? 15 : 0 });
+      lines.push({ label: `No population in ${R.emptyNeed}+ regions (${empty} empty)`, pts: empty >= R.emptyNeed ? R.emptyPts : 0 });
       lines.push({ label: `Most total tricks (${tricks[p]})`, pts: tricks[p] > 0 && tricks[p] === maxOf(tricks) ? 10 : 0 });
     } else if (role === 'Researcher') {
       const tax = new Set(pl.pile.map(c => CARDS[c].taxon));
       lines.push({ label: `6 unique taxonomies in scoring pile (${tax.size})`, pts: tax.size >= 6 ? 15 : 0 });
       lines.push({ label: `Fewest tricks (${tricks[p]})`, pts: tricks[p] === minOf(tricks) ? 10 : 0 });
     } else if (role === 'Tourist') {
-      lines.push({ label: 'All map objectives met', pts: met.length === objRegions.length ? 10 : 0 });
+      lines.push({ label: 'All map objectives met', pts: met.length === objRegions.length ? R.allMetPts : 0 });
       const only = pl.biomesWon.length > 0 && pl.biomesWon.every(id => R.map[BIOMES[id].region]);
-      lines.push({ label: 'Won tricks only from objective regions', pts: only ? 15 : 0 });
+      lines.push({ label: 'Won tricks only from objective regions', pts: only ? R.onlyObjPts : 0 });
     }
     lines.push({ label: `Tricks won: ${tricks[p]} × ${TRICK_POINTS}`, pts: tricks[p] * TRICK_POINTS });
     const total = lines.reduce((a, l) => a + l.pts, 0);

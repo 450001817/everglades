@@ -133,9 +133,9 @@
   const ROLES = {
     Conservationist: {
       name: 'Conservationist', img: 'assets/cards/roles/Conservationist.png', ending: 'assets/cards/roles/ConservationistEND.png',
-      map: { FSP: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 10,
+      map: { FSP: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 20, majorityPts: 15, noCrisisPts: 25,
       ability: 'You may choose not to populate when you play Invasive cards.',
-      goals: ['10 pts for each map objective met', '15 pts if the total population majority is Native', '5 pts if you never trigger an Invasive Crisis'],
+      goals: ['20 pts for each map objective met', '15 pts if the total population majority is Native', '25 pts if you never trigger an Invasive Crisis'],
     },
     Fisherman: {
       name: 'Fisherman', img: 'assets/cards/roles/Fisherman.png', ending: 'assets/cards/roles/FishermanENDING.png',
@@ -151,9 +151,9 @@
     },
     LandDeveloper: {
       name: 'Land Developer', img: 'assets/cards/roles/LandDeveloper.png', ending: 'assets/cards/roles/LandDeveloperENDING.png',
-      map: { NG: 'N', SG: 'N', KW: 'N', KL: 'N', M: 'I' }, mapPts: 5,
+      map: { NG: 'N', SG: 'N', KW: 'N', KL: 'N', M: 'I' }, mapPts: 5, emptyNeed: 3, emptyPts: 15,
       ability: 'Start of turn: remove 1 population token from any region.',
-      goals: ['5 pts for each map objective met', '15 pts if there is no population in at least 2 regions', '10 pts if you won the most total tricks'],
+      goals: ['5 pts for each map objective met', '15 pts if there is no population in at least three regions', '10 pts if you won the most total tricks'],
     },
     Researcher: {
       name: 'Researcher', img: 'assets/cards/roles/Researcher.png', ending: 'assets/cards/roles/ResearcherENDING.png',
@@ -163,11 +163,17 @@
     },
     Tourist: {
       name: 'Tourist', img: 'assets/cards/roles/Tourist.png', ending: 'assets/cards/roles/TouristENDING.png',
-      map: { M: 'I', ENP: 'N', KL: 'N', FK: 'N', KW: 'N' }, mapPts: 5,
+      map: { M: 'I', ENP: 'N', KL: 'N', FK: 'N', KW: 'N' }, mapPts: 5, allMetPts: 10, onlyObjPts: 20,
       ability: 'Start of turn: look at the top card of the location deck. You may then replace it or put it on the bottom.',
-      goals: ['5 pts for each map objective met', '10 pts if all map objectives are met', '15 pts if you won tricks only from your map objective regions'],
+      goals: ['5 pts for each map objective met', '10 pts if all map objectives are met', '20 pts if you won tricks only from your map objective regions'],
     },
   };
+
+  // Balance experiments only (test runs): EG_ROLE_TUNE='{"Tourist":{"allMetPts":20}}' overrides role numbers.
+  if (typeof process !== 'undefined' && process.env && process.env.EG_ROLE_TUNE) {
+    const tune = JSON.parse(process.env.EG_ROLE_TUNE);
+    for (const r of Object.keys(tune)) Object.assign(ROLES[r], tune[r]);
+  }
 
   // Co-op boss (not a player role, so it is not in ROLES)
   const BOSS = {

@@ -121,8 +121,8 @@ module.exports = function makeAI(G) {
       const others = people.filter(q => q !== k);
       switch (pl.role) {
         case 'Conservationist':
-          v += 15 * L((totN - totI - 0.5) / (sig * 1.6));
-          v += pl.triggeredCrisis ? 0 : 5 * Math.pow(0.96, R);
+          v += Rl.majorityPts * L((totN - totI - 0.5) / (sig * 1.6));
+          v += pl.triggeredCrisis ? 0 : Rl.noCrisisPts * Math.pow(0.96, R);
           break;
         case 'Fisherman': case 'Hunter': {
           const suit = pl.role === 'Fisherman' ? 'Water' : 'Land';
@@ -134,7 +134,7 @@ module.exports = function makeAI(G) {
         }
         case 'LandDeveloper': {
           const e = REGION_IDS.reduce((a, r) => a + L((0.5 - b[r].n - b[r].i) / (0.35 + 0.25 * R)), 0);
-          v += 15 * L((e - 1.5) / 0.45);
+          v += Rl.emptyPts * L((e - (Rl.emptyNeed - 0.5)) / 0.45);
           const mine = totalTricks(k), best = Math.max(0, ...others.map(totalTricks));
           if (mine > 0.05) v += 10 * L((mine - best + 0.25) / tsig);
           break;
@@ -148,10 +148,10 @@ module.exports = function makeAI(G) {
           break;
         }
         case 'Tourist': {
-          v += 10 * mets.reduce((a, x) => a * x, 1);
+          v += Rl.allMetPts * mets.reduce((a, x) => a * x, 1);
           const off = pl.biomesWon.filter(id => !Rl.map[BIOMES[id].region]).length;
           const inObj = objs.length / REGION_IDS.length;
-          if (off === 0) v += 15 * (pl.biomesWon.length ? 1 : (R > 0 ? 0.6 : 0)) * Math.pow(inObj, fut[k].all * 0.6);
+          if (off === 0) v += Rl.onlyObjPts * (pl.biomesWon.length ? 1 : (R > 0 ? 0.6 : 0)) * Math.pow(inObj, fut[k].all * 0.6);
           break;
         }
       }
