@@ -265,16 +265,26 @@ function readRaw(req) {
   });
 }
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.ttf': 'font/ttf' };
+// Caching: a file asked for with a version (?v=..., e.g. the character animations; see CHAR_ANIM in data.js) never
+// changes under that address, so browsers may keep it for a year. Everything else is re-checked on every visit
+// (a quick "not modified" answer when unchanged), so updated art reaches every device straight away.
 function serveStatic(req, res) {
-  let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  const u = new URL(req.url, 'http://x');
+  let p = decodeURIComponent(u.pathname);
   if (p === '/') p = '/index.html';
   const file = path.normalize(path.join(PUBLIC, p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
-  fs.readFile(file, (e, buf) => {
-    if (e) { res.writeHead(404); return res.end('Not found'); }
+  fs.stat(file, (e, st) => {
+    if (e || !st.isFile()) { res.writeHead(404); return res.end('Not found'); }
     const ext = path.extname(file);
-    res.writeHead(200, { 'Content-Type': TYPES[ext] || 'application/octet-stream', 'Cache-Control': ext === '.png' || ext === '.ttf' ? 'public, max-age=86400' : 'no-cache' });
-    res.end(buf);
+    const etag = `W/"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+    const headers = { 'Content-Type': TYPES[ext] || 'application/octet-stream', ETag: etag,
+      'Cache-Control': u.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'no-cache' };
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
+    fs.readFile(file, (e2, buf) => {
+      if (e2) { res.writeHead(404); return res.end('Not found'); }
+      res.writeHead(200, headers); res.end(buf);
+    });
   });
 }
 
