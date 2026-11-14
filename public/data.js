@@ -169,6 +169,11 @@
     },
   };
 
+  // Role card art changes now and then (new objective numbers): bump CARD_V whenever a role card image is replaced,
+  // so every browser fetches the new card at once instead of showing one it saved earlier.
+  const CARD_V = '20261115';
+  for (const r of Object.values(ROLES)) r.img += '?v=' + CARD_V;
+
   // Balance experiments only (test runs): EG_ROLE_TUNE='{"Tourist":{"allMetPts":20}}' overrides role numbers.
   if (typeof process !== 'undefined' && process.env && process.env.EG_ROLE_TUNE) {
     const tune = JSON.parse(process.env.EG_ROLE_TUNE);
