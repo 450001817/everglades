@@ -179,8 +179,9 @@ The whole game fits on one screen with no page scrolling. From left to right: th
   - It starts on your first click or key press, because browsers block sound until then.
   - The **♪ Music** button in the top-right corner turns it off, and your browser remembers the choice.
   - Like the sound effects, the music is synthesized live in the browser, so there are no audio files.
-  - The song is written out note by note in `public/music.js`, if you want to change it.
-- **Sound:** retro 8-bit effects for playing cards, travelling, placing and removing tokens, your turn, winning a trick, Invasive Crisis and game end. Use the ♪ button in the top bar to turn it off.
+  - **In a game the music changes:** "Tracking the River of Grass" (D minor, 100 bpm, a driving bass that builds in the middle) plays during regular games. "Coils of the Anaconda" (E Phrygian, 112 bpm, a coiling low ostinato, heartbeat drums and a hissing rattle) plays against the Anaconda in co-op. The title theme returns for the results. Tracks crossfade when they switch, and in-game music plays quieter so the sound effects stay clear. The game's top bar has its own **Music** button.
+  - All three songs are written out note by note in `public/music.js`, if you want to change them.
+- **Sound:** retro 8-bit effects for playing cards, travelling, placing and removing tokens, your turn, winning a trick, Invasive Crisis and game end. Use the **Sound** button in the game's top bar to turn them off (music has its own button).
 - **At the end**, everyone sees the scores and the winner's story ending, written out as text. Each role's ending is good or grim by the same rule as the back of its role card. Each side then has several variants, picked by what's in the winner's scoring pile and what they did during the game. For example:
   - The Conservationist who refused to let invasives take root gets "The Line You Held".
   - A Fisherman holding a Manatee gets "Company on the Water".

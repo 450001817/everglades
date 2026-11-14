@@ -108,14 +108,22 @@ const SFX = {
 document.addEventListener('pointerdown', () => audio(), { once: true });
 document.addEventListener('keydown', () => audio(), { once: true });
 
-// ---------- title theme (music.js): loops on the home page, lobby and loading screen ----------
-const theme = window.EG_THEME ? EG_THEME.createTheme(() => audio()) : null;
+// ---------- music (music.js) ----------
+// The title theme on the home page, lobby, loading screen and results; a tenser theme during a game; a darker one
+// against the Anaconda in co-op. Switching tracks crossfades (the old one fades out as the new one fades in).
+const TRACKS = window.EG_THEME ? Object.fromEntries(Object.entries(EG_THEME.SONGS).map(([k, s]) => [k, EG_THEME.createTheme(() => audio(), s)])) : {};
 let musicOn = (() => { try { return localStorage.getItem('eg_music') !== '0'; } catch { return true; } })();
+function wantedTrack() {
+  if (!musicOn) return null;
+  if (!sess || !S || S.phase === 'lobby' || S.phase === 'ended') return 'title';
+  return S.coop ? 'coop' : 'match';
+}
 function updateMusic() {
-  if (!theme) return;
-  const want = musicOn && (!sess || !S || S.phase === 'lobby');
-  if (want && !theme.playing) theme.start();
-  else if (!want && theme.playing) theme.stop();
+  const want = wantedTrack();
+  for (const [k, tr] of Object.entries(TRACKS)) {
+    if (k === want && !tr.playing) tr.start();
+    else if (k !== want && tr.playing) tr.stop();
+  }
 }
 // The eye button: hide everything so the animated backdrop can be watched on its own (Escape or the eye brings it back).
 function setSceneOnly(on) {
@@ -131,7 +139,7 @@ function setSceneOnly(on) {
 }
 document.getElementById('sceneEye')?.addEventListener('click', () => setSceneOnly(!document.documentElement.classList.contains('scene-only')));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') setSceneOnly(false); });
-const musicBtnHtml = () => `<button class="btn small musicbtn" id="musicBtn" title="Title music on/off">${musicOn ? '♪ Music: On' : '♪ Music: Off'}</button>`;
+const musicBtnHtml = (cls = 'musicbtn') => `<button class="btn small ${cls}" id="musicBtn" title="Music on/off">${musicOn ? '♪ Music: On' : '♪ Music: Off'}</button>`;
 document.addEventListener('click', e => {
   if (!e.target.closest('#musicBtn')) return;
   musicOn = !musicOn;
@@ -1409,7 +1417,8 @@ function renderGame() {
       ${ui.showLog ? `<div class="paper spiral notes-drop" id="log"><div class="panel-title">Field notes</div>${S.log.map(l => `<p class="${l.startsWith('INVASIVE') ? 'crisis' : ''}">${esc(l)}</p>`).join('')}</div>` : ''}
     </div>
     <button class="btn small" id="speed" ${S.isHost ? '' : 'disabled'} title="${S.isHost ? 'How fast the bots play. Click to change.' : 'Bot speed (the host can change it)'}">Speed: ${SPEED_LABEL[S.speed] || 'Normal'}</button>
-    <button class="btn small" id="mute" title="Sound on/off">${muted ? '♪ Off' : '♪ On'}</button>
+    ${musicBtnHtml('')}
+    <button class="btn small" id="mute" title="Sound effects on/off">${muted ? 'Sound: Off' : 'Sound: On'}</button>
     <button class="btn small" id="rules">Rules</button>
     <button class="btn small" id="quit">Leave</button>
   </div>
