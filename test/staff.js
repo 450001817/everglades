@@ -64,6 +64,27 @@ function idToken(sub, email, verified = true) {
   staff.owned.push('foilall:green'); await A.googleLogin(idToken('sub-staff', 'staff.person@example.com'));
   ok(!staff.owned.includes('foilall:green'), 'the retired green foil is removed from a staff account at its next sign-in');
 
+  console.log('Gifting Eco-bucks');
+  let gerr = ''; try { A.giftByEmail(regular, 'friend@example.com', 500); } catch (e) { gerr = e.message; }
+  ok(/Only Goblin Ink staff/.test(gerr), "ordinary players can't gift Eco-bucks");
+  gerr = ''; try { A.giftByEmail(staff, 'not-an-email', 500); } catch (e) { gerr = e.message; }
+  ok(/valid email/.test(gerr), 'a bad email address is refused');
+  gerr = ''; try { A.giftByEmail(staff, 'friend@example.com', 0); } catch (e) { gerr = e.message; }
+  ok(/between 1/.test(gerr), 'a zero gift is refused');
+  A.giftByEmail(staff, ' Friend@Example.com ', 500);
+  await A.flush();
+  const saved = fs.readdirSync(process.env.DATA_DIR).map(f => fs.readFileSync(path.join(process.env.DATA_DIR, f), 'utf8')).join('');
+  ok(!/friend@example\.com/i.test(saved), "the gift is saved without the person's email address");
+  const friend = (await A.googleLogin(idToken('sub-friend', 'friend@example.com'))).account;
+  ok(friend.balance === A.ECON.startingBalance + 500, 'the gift is paid when that Google account signs in (a brand-new account here)');
+  const friend2 = await A.googleLogin(idToken('sub-friend', 'friend@example.com'));
+  ok(friend2.gift === 0 && friend.balance === A.ECON.startingBalance + 500, 'and only once');
+  A.giftByEmail(staff, 'older@example.com', 250); A.giftByEmail(staff, 'older@example.com', 250);
+  const older = (await A.googleLogin(idToken('sub-older', 'older@example.com', false))).account;
+  ok(older.balance === A.ECON.startingBalance, 'an unverified email does not collect a gift');
+  const older2 = await A.googleLogin(idToken('sub-older', 'older@example.com'));
+  ok(older2.gift === 500, 'two gifts to the same email add up (250 + 250)');
+
   console.log(fails ? `\n${fails} staff check(s) FAILED.` : '\nAll staff checks passed.');
   process.exit(fails ? 1 : 0);
 })();

@@ -204,7 +204,7 @@ async function signInGuest() {
   render();
 }
 async function signInGoogle(credential) {
-  try { const r = await acctApi('auth/google', { credential }); setSession(r.session); acct.me = r.me; ui.err = ''; announceBonus(r.bonus); }
+  try { const r = await acctApi('auth/google', { credential }); setSession(r.session); acct.me = r.me; ui.err = ''; announceBonus(r.bonus); if (r.gift) setTimeout(() => showToast(`You received a gift of <b>${Number(r.gift).toLocaleString()} EB</b> from Goblin Ink!`, false, 6000), 1200); }
   catch (e) { ui.err = e.message; }
   render();
 }
@@ -316,6 +316,14 @@ function profileModal() {
     <div class="avgrid">${chars}</div>
     <div class="panel-title" style="margin:6px 0 0">Wildlife <span class="hint" style="text-transform:none;letter-spacing:0">— ${unlockedN}/${C.avatars.animals.length} unlocked. Win ${need} tricks with an animal card to unlock its picture.</span></div>
     <div class="avgrid">${animals}</div>
+    ${me.staff ? `<div class="giftbox">
+      <div class="panel-title" style="margin:0">Gift Eco-bucks <span class="hint" style="text-transform:none;letter-spacing:0">— Goblin Ink staff only</span></div>
+      <p class="hint" style="margin:0">The Eco-bucks are added the next time that person signs in with Google. Their email address isn't stored.</p>
+      <div class="row" style="flex-wrap:nowrap">
+        <input id="giftEmail" class="field" type="email" placeholder="player's Google email" autocomplete="off" style="flex:2">
+        <input id="giftAmount" class="field" type="number" min="1" max="100000" value="500" style="flex:1;min-width:90px">
+        <button class="btn brass" id="sendGift">Gift</button>
+      </div></div>` : ''}
     <div class="error">${esc(acct.msg)}</div>
   </div></div>`;
 }
@@ -726,7 +734,7 @@ function drawSkinPreview() {
 const acctModalHtml = () => !acct.modal ? '' : acct.modal === 'profile' ? profileModal() : acct.modal.skins ? skinShopModal() : storeModal();
 // clicks inside the profile / store / account panel
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-close],[data-store],[data-profile],[data-avatar],[data-buy],[data-wear],[data-skinshop],[data-skinview],[data-equip],#saveTag,#confirmBuy,#signout,#guest');
+  const t = e.target.closest('[data-close],[data-store],[data-profile],[data-avatar],[data-buy],[data-wear],[data-skinshop],[data-skinview],[data-equip],#saveTag,#confirmBuy,#signout,#guest,#sendGift');
   if (!t) return;
   const run = async (fn) => { try { acct.msg = ''; await fn(); } catch (err) { acct.msg = err.message; SFX.error(); } render(); };
   if (t.matches('[data-close]')) { acct.modal = null; acct.msg = ''; render(); }
@@ -752,6 +760,11 @@ document.addEventListener('click', async e => {
     SFX.end(); showToast(r.item.type === 'skin' ? `You bought <b>${esc(r.item.name)}</b>! Equipped for the ${esc(ROLES[r.item.role].name)}.` : `You bought <b>${esc(r.item.name)}</b>!`);
   });
   else if (t.matches('[data-wear]')) run(async () => { acct.me = (await acctApi('profile', { title: t.dataset.wear || null })).me; });
+  else if (t.matches('#sendGift')) run(async () => {
+    const email = document.getElementById('giftEmail').value, amount = +document.getElementById('giftAmount').value;
+    const r = await acctApi('admin/gift', { email, amount });
+    showToast(`Gift saved: <b>${Number(r.pending).toLocaleString()} EB</b> waiting for that player.<small>It's added the next time they sign in with Google.</small>`, false, 5200);
+  });
   else if (t.matches('#signout')) signOut();
   else if (t.matches('#guest')) signInGuest();
 });
@@ -1071,6 +1084,10 @@ function renderLobby() {
           ? 'Co-op: beat the Anaconda and everyone gets double their bet back. Lose, and everyone loses it.'
           : `1st takes the rest of the pot · 2nd gets their bet back · 3rd gets half back · ${tableSize >= 5 ? 'everyone below loses' : '4th loses'} their bet. The house covers the bots.`}</p>
         ${S.myAccount ? `<p class="hint" style="margin:2px 0 0">Your balance: ${fmtEB(S.myAccount.balance)}${S.myAccount.balance < S.buyIn ? ' — <b style="color:var(--red)">not enough for this buy-in</b>' : ''}</p>` : ''}
+        ${(() => { const mine = S.lobby.find(x => x.pid === S.yourPid); if (!mine) return '';
+          return mine.confirmed
+            ? `<div class="row bidrow"><span class="bidok">✓ You confirmed your ${S.buyIn} EB bid.</span><button class="btn small" data-confirm="0">Cancel</button></div>`
+            : `<div class="row bidrow"><button class="btn primary" data-confirm="1" ${S.myAccount && S.myAccount.balance < S.buyIn ? 'disabled' : ''}>Confirm my ${S.buyIn} EB bid</button><span class="hint">Everyone confirms before the game can start. A new bid or game mode needs confirming again.</span></div>`; })()}
       </div>
       ${S.mode === 'partners' ? `<p class="hint" style="margin:-4px 0 0">Pick a team for yourself${S.isHost ? ' (as host you can also place others and bots)' : ''}. Anyone without a team gets a random partner. Teammates never take turns back to back.</p>` : ''}
       ${S.mode === 'coop' ? `<div class="row" style="flex-wrap:nowrap;gap:12px;align-items:flex-start;margin-top:-4px">
@@ -1084,6 +1101,7 @@ function renderLobby() {
             <div style="flex:1;min-width:0">${bannerHtml(m.profile || { gamertag: m.name, avatarSrc: botAvatar(m.name) }, { you: m.pid === S.yourPid, size: 'small' })}</div>
             ${teamPicker(m)}
             ${!m.bot && !m.canAfford ? `<span class="tag" style="background:var(--red);color:#fff" title="Can't cover the ${S.buyIn} EB buy-in">SHORT</span>` : ''}
+            ${m.bot ? '' : m.confirmed ? `<span class="tag confirmed" title="Confirmed the ${S.buyIn} EB bid">✓ BID</span>` : `<span class="tag unconfirmed" title="Hasn't confirmed the ${S.buyIn} EB bid yet">WAITING</span>`}
             ${m.host ? '<span class="tag host">HOST</span>' : ''}${m.bot ? '<span class="tag bot">BOT</span>' : ''}
             ${S.isHost && m.pid !== S.yourPid ? `<button class="btn small" data-remove="${m.pid}">✕</button>` : ''}
           </div>`).join('')}
@@ -1093,14 +1111,17 @@ function renderLobby() {
           <button id="addbot" class="btn small" ${S.lobby.length >= 6 ? 'disabled' : ''}>+ Add bot</button>
           <span class="hint">${bots ? `${bots} bot${bots > 1 ? 's' : ''} will join when you start, to make ${tableSize} players.` : 'Ready when you are.'}</span>
         </div>
-        <button id="start" class="btn primary" ${S.lobby.some(m => !m.bot && !m.canAfford) ? 'disabled title="Everyone needs enough Eco-bucks for the buy-in"' : ''}>Start game · ${S.buyIn} EB buy-in</button>`
-      : `<p class="hint">Waiting for the host to start… ${humans} player${humans > 1 ? 's' : ''} here.</p>`}
+        ${(() => { const waiting = S.lobby.filter(m => !m.bot && !m.confirmed);
+          return waiting.length ? `<button id="start" class="btn primary" disabled>Waiting for ${waiting.length === 1 ? esc(waiting[0].name) : waiting.length + ' players'} to confirm the bid</button>`
+            : `<button id="start" class="btn primary" ${S.lobby.some(m => !m.bot && !m.canAfford) ? 'disabled title="Everyone needs enough Eco-bucks for the buy-in"' : ''}>Start game · ${S.buyIn} EB buy-in</button>`; })()}`
+      : `<p class="hint">Waiting for the host to start… ${humans} player${humans > 1 ? 's' : ''} here, ${S.lobby.filter(m => !m.bot && m.confirmed).length} confirmed.</p>`}
       <div class="row"><button id="leave" class="btn small">Leave table</button>${acct.me ? '<button class="btn small" data-profile>Profile</button><button class="btn small brass" data-store>Store</button>' : ''}</div>
     </div>
     ${acctModalHtml()}
   </div>`;
   document.getElementById('copy').onclick = () => { navigator.clipboard?.writeText(link); showToast('Link copied — send it to your friends!'); };
   document.getElementById('leave').onclick = async () => { await lobby('leave'); leave(); };
+  $app.querySelectorAll('[data-confirm]').forEach(b => b.onclick = () => lobby('confirm', { on: b.dataset.confirm === '1' }));
   $app.querySelectorAll('[data-team]').forEach(b => b.onclick = () => {
     const m = S.lobby.find(x => x.pid === b.dataset.pid);
     const t = +b.dataset.team;

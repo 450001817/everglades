@@ -51,7 +51,7 @@ const avatarSrc = id => {
 };
 
 // ---------- storage (see storage.js: Upstash Redis when configured, otherwise a local file) ----------
-const TABLES = ['accounts', 'sessions', 'google', 'guests', 'tags', 'escrows', 'payments'];
+const TABLES = ['accounts', 'sessions', 'google', 'guests', 'tags', 'escrows', 'payments', 'gifts'];
 const store = require('./storage.js').pickStore();
 let db = Object.fromEntries(TABLES.map(t => [t, {}]));
 // Load everything before the server lets anyone in (server.js waits for `ready`).
@@ -163,13 +163,32 @@ function grantStaff(a) {
     console.log(`Goblin Ink staff items unlocked for ${a.gamertag}`);
   }
 }
+// ---------- staff gifts of Eco-bucks ----------
+// Accounts don't store email addresses, so a staff member gifts EB to an email and it is paid out the next time
+// that Google account signs in. Only a salted fingerprint of the address is kept, never the address itself.
+const giftKey = email => crypto.createHash('sha256').update('everglades-gift:' + String(email).trim().toLowerCase()).digest('hex');
+function giftByEmail(staff, email, amount) {
+  if (!staff || !staff.staff) throw userErr('Only Goblin Ink staff can gift Eco-bucks.');
+  email = String(email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw userErr('Type a valid email address.');
+  amount = Math.floor(Number(amount));
+  if (!(amount >= 1 && amount <= 100000)) throw userErr('Gift between 1 and 100,000 EB.');
+  const k = giftKey(email), prev = db.gifts[k];
+  db.gifts[k] = { amount: (prev ? prev.amount : 0) + amount, from: staff.id, at: Date.now() };
+  saveNow();
+  console.log(`Gift of ${amount} EB queued by ${staff.gamertag}`);
+  return { pending: db.gifts[k].amount };
+}
 async function googleLogin(credential) {
   const claims = await verifyGoogle(credential);
   let a = db.accounts[db.google[claims.sub]];
   if (!a) { a = newAccount({ google: true }); db.google[claims.sub] = a.id; }
   const email = String(claims.email || '').toLowerCase();
   if (email && claims.email_verified !== false && staffEmails().includes(email)) { grantStaff(a); save(); }
-  return { account: a, session: newSession(a) };
+  let gift = 0; // Eco-bucks a staff member gifted to this email
+  const g = email && claims.email_verified !== false && db.gifts[giftKey(email)];
+  if (g) { gift = g.amount; a.balance += gift; delete db.gifts[giftKey(email)]; saveNow(); console.log(`Gift of ${gift} EB paid to ${a.gamertag}`); }
+  return { account: a, session: newSession(a), gift };
 }
 
 // ---------- profile ----------
@@ -370,5 +389,5 @@ function adjustPurchase(paymentIntent, change) {
 module.exports = {
   ECON, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
-  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, splashFor, ownsChat, creditPurchase, adjustPurchase, grantStaff,
+  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, splashFor, ownsChat, creditPurchase, adjustPurchase, grantStaff, giftByEmail,
 };

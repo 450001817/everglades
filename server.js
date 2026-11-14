@@ -67,6 +67,8 @@ function newRoom() {
 }
 
 // People join with their account (gamertag + profile picture); bots have none.
+// Bid confirmations (see the 'confirm' lobby command): cleared whenever the bid or payout rules change.
+function unconfirmAll(room) { for (const x of room.members) x.confirmed = false; }
 function addMember(room, name, bot = false, account = null) {
   if (room.game.phase !== 'lobby') throw Object.assign(new Error('That game has already started.'), { userError: true });
   if (room.members.length >= G.MAX_PLAYERS) throw Object.assign(new Error('That table is full.'), { userError: true });
@@ -96,7 +98,7 @@ function viewFor(room, member) {
     buyIn: room.buyIn, buyIns: A.ECON.buyIns,
     lobby: room.members.map(m => {
       const a = memberAccount(m);
-      return { pid: m.pid, name: a ? a.gamertag : m.name, bot: m.bot, team: m.team ?? null, host: m.pid === room.hostPid, online: m.bot || connected.has(m.pid),
+      return { pid: m.pid, name: a ? a.gamertag : m.name, bot: m.bot, team: m.team ?? null, host: m.pid === room.hostPid, online: m.bot || connected.has(m.pid), confirmed: m.bot || !!m.confirmed,
         profile: a ? A.publicProfile(a) : null, canAfford: m.bot || (a ? a.balance >= room.buyIn : false) };
     }),
     myAccount: memberAccount(member) ? A.privateProfile(memberAccount(member)) : null,
@@ -413,13 +415,17 @@ const server = http.createServer(async (req, res) => {
       }
       // signing in (or the first visit of the day, below) pays the daily log-in bonus
       if (op === 'auth/guest') { const r = A.guestLogin(body.deviceKey); const bonus = A.dailyBonus(r.account); return send(res, 200, { session: r.session, me: A.privateProfile(r.account), bonus }); }
-      if (op === 'auth/google') { const r = await A.googleLogin(body.credential); const bonus = A.dailyBonus(r.account); return send(res, 200, { session: r.session, me: A.privateProfile(r.account), bonus }); }
+      if (op === 'auth/google') { const r = await A.googleLogin(body.credential); const bonus = A.dailyBonus(r.account); return send(res, 200, { session: r.session, me: A.privateProfile(r.account), bonus, gift: r.gift || 0 }); }
       if (op === 'auth/signout') { A.signOut(body.session); return send(res, 200, { ok: true }); }
       if (op === 'me') {
         const a = A.bySession(body.session);
         if (!a) return send(res, 401, { error: 'Signed out.', needAuth: true });
         const bonus = A.dailyBonus(a);
         return send(res, 200, { me: A.privateProfile(a), bonus });
+      }
+      if (op === 'admin/gift') { // staff only: Eco-bucks for an email, paid at that account's next Google sign-in
+        const a = A.requireAccount(body.session);
+        return send(res, 200, A.giftByEmail(a, body.email, body.amount));
       }
       if (op === 'profile') {
         const a = A.requireAccount(body.session);
@@ -499,6 +505,13 @@ const server = http.createServer(async (req, res) => {
           if (!isHost) return send(res, 403, { error: 'Only the host can change the speed.' });
           room.speed = SPEEDS[body.speed] ? body.speed : 'normal';
           if (room.botTimer) { clearTimeout(room.botTimer); room.botTimer = null; } // re-time the pending bot move
+        } else if (body.cmd === 'confirm' && s.phase === 'lobby') {
+          // each person confirms the table's Eco-buck bid (buy-in) before the game can start
+          if (body.on) {
+            const a = memberAccount(m);
+            if (!a || a.balance < room.buyIn) return send(res, 400, { error: `You need ${room.buyIn} EB to confirm this bid.` });
+          }
+          m.confirmed = !!body.on;
         } else if (body.cmd === 'visibility' && s.phase === 'lobby') {
           // public tables can be joined by anyone (Join a random public table); private ones only with the code
           if (!isHost) return send(res, 403, { error: 'Only the host can change that.' });
@@ -524,6 +537,7 @@ const server = http.createServer(async (req, res) => {
           } else if (body.cmd === 'buyin' && s.phase === 'lobby') {
             // Eco-buck buy-in for this table (every player pays it when the game starts)
             if (!A.ECON.buyIns.includes(+body.amount)) return send(res, 400, { error: 'Pick one of the buy-in amounts.' });
+            if (room.buyIn !== +body.amount) unconfirmAll(room); // a new bid has to be confirmed again
             room.buyIn = +body.amount;
           } else if (body.cmd === 'disruptions' && s.phase === 'lobby') {
             // the Disruptions match modifier (host only)
@@ -531,9 +545,13 @@ const server = http.createServer(async (req, res) => {
             room.disruptions = !!body.on;
           } else if (body.cmd === 'mode' && s.phase === 'lobby') {
             // 'solo' = everyone for themselves, 'partners' = teams of 2, 'coop' = everyone vs The Anaconda
-            room.mode = ['solo', 'partners', 'coop'].includes(body.mode) ? body.mode : 'solo';
+            const mode = ['solo', 'partners', 'coop'].includes(body.mode) ? body.mode : 'solo';
+            if ((room.mode || 'solo') !== mode) unconfirmAll(room); // the mode changes how the pot is paid out
+            room.mode = mode;
           } else if (body.cmd === 'start') {
             if (s.phase !== 'lobby') return send(res, 400, { error: 'Already started.' });
+            const unconfirmed = room.members.filter(x => !x.bot && !x.confirmed);
+            if (unconfirmed.length) return send(res, 400, { error: `Waiting for ${unconfirmed.map(x => x.name).join(', ')} to confirm the ${room.buyIn} EB bid.` });
             // Always play with at least 4: fill empty seats with bots.
             while (room.members.length < MIN_TABLE) {
               const used = new Set(room.members.map(x => x.name));
@@ -571,7 +589,7 @@ const server = http.createServer(async (req, res) => {
             if (i >= 0) { s.players[i].bot = true; s.players[i].name += ' (bot)'; const x = room.members.find(y => y.pid === body.pid); if (x) x.bot = true; }
           } else if (body.cmd === 'rematch') {
             if (room.gameId) { A.refundEscrow(room.gameId); room.gameId = null; } // abandoned before the end: refund
-            room.game = G.newGame(); resetReactions(room); room.settlement = null; room.strikes = {}; clearDeadline(room);
+            room.game = G.newGame(); resetReactions(room); room.settlement = null; room.strikes = {}; clearDeadline(room); unconfirmAll(room);
             for (const x of room.members) x.unlocks = [];
           } else return send(res, 400, { error: 'Unknown command.' });
         }

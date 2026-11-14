@@ -58,9 +58,27 @@ const until = async (fn, ms, step = 100) => { const end = Date.now() + ms; while
   await post('lobby', { room: priv.room, token: priv.token, cmd: 'visibility', public: false });
   await post('lobby', { room: priv.room, token: priv.token, cmd: 'timer', on: false });
 
+  console.log('Confirming the bid');
+  r = await post('lobby', { room: priv.room, token: priv.token, cmd: 'start' });
+  ok(r.status === 400 && /confirm/.test(r.error), "the game can't start until everyone confirms the bid");
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'confirm', on: true }); await sleep(200);
+  ok(wPriv.view.lobby.find(x => x.pid === wPriv.view.yourPid).confirmed, 'confirming shows on my seat');
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'buyin', amount: 50 }); await sleep(200);
+  ok(!wPriv.view.lobby.find(x => x.pid === wPriv.view.yourPid).confirmed, 'changing the bid clears confirmations');
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'buyin', amount: 150 });
+  r = await post('lobby', { room: priv.room, token: priv.token, cmd: 'confirm', on: true });
+  ok(r.status === 400 && /need 150 EB/.test(r.error), "can't confirm a bid you can't cover (a new guest has 50 EB, the bid is 150)");
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'buyin', amount: 5 });
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'confirm', on: true });
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'mode', mode: 'coop' }); await sleep(200);
+  ok(!wPriv.view.lobby.find(x => x.pid === wPriv.view.yourPid).confirmed, 'changing the game mode clears confirmations too');
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'mode', mode: 'solo' });
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'confirm', on: true });
+
   console.log('Timer off (private table)');
   await post('lobby', { room: priv.room, token: priv.token, cmd: 'speed', speed: 'fast' });
-  await post('lobby', { room: priv.room, token: priv.token, cmd: 'start' });
+  r = await post('lobby', { room: priv.room, token: priv.token, cmd: 'start' });
+  ok(r.status === 200, 'once everyone has confirmed, the game starts');
   await until(() => wPriv.view && wPriv.view.phase !== 'lobby' && wPriv.view.waiting === wPriv.view.you, 15000);
   await sleep(3500); // well past 1.2 s
   ok(!wPriv.view.deadline && !wPriv.kicked && wPriv.view.players[wPriv.view.you].strikes === 0, 'nothing happens when the timer is off');
@@ -70,6 +88,7 @@ const until = async (fn, ms, step = 100) => { const end = Date.now() + ms; while
   const t = await post('create', { session: soloS });
   const w = watch(t.room, t.token); await until(() => w.view, 3000);
   await post('lobby', { room: t.room, token: t.token, cmd: 'speed', speed: 'fast' });
+  await post('lobby', { room: t.room, token: t.token, cmd: 'confirm', on: true });
   await post('lobby', { room: t.room, token: t.token, cmd: 'start' });
   await until(() => w.view && w.view.deadline && w.view.deadline.seats.includes(w.view.you), 20000);
   ok(!!(w.view.deadline && w.view.deadline.at > Date.now()), 'when it is my turn the view carries my deadline');

@@ -866,3 +866,12 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 @keyframes clockblink { 50% { opacity: .55; } }
 .idletag { display: inline-block; margin-left: 6px; padding: 0 4px; font-family: var(--font-small); font-size: 12px; color: #fff; background: #8a5a2a; border: 2px solid var(--ink); }
 @media (prefers-reduced-motion: reduce) { .turnclock.low { animation: none; } }
+
+/* staff: gift Eco-bucks (profile) */
+.giftbox { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; padding: 8px 10px; background: #eef8e2; border: 3px dashed #4f8a1e; }
+
+/* bid confirmation (lobby) */
+.tag.confirmed { background: #2a9a4a; color: #fff; }
+.tag.unconfirmed { background: #f2d7c9; color: var(--ink); }
+.bidrow { margin-top: 6px; gap: 8px; align-items: center; }
+.bidok { font-family: var(--font-small); font-size: 17px; color: #1d7a3a; }
