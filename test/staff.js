@@ -64,27 +64,22 @@ function idToken(sub, email, verified = true) {
   staff.owned.push('foilall:green'); await A.googleLogin(idToken('sub-staff', 'staff.person@example.com'));
   ok(!staff.owned.includes('foilall:green'), 'the retired green foil is removed from a staff account at its next sign-in');
 
-  console.log('Gifting Eco-bucks');
-  let gerr = ''; try { A.giftByEmail(regular, 'friend@example.com', 500); } catch (e) { gerr = e.message; }
+  console.log('Gifting Eco-bucks (by gamertag, to the mailbox)');
+  let gerr = ''; try { A.giftByTag(regular, staff.gamertag, 500); } catch (e) { gerr = e.message; }
   ok(/Only Goblin Ink staff/.test(gerr), "ordinary players can't gift Eco-bucks");
-  gerr = ''; try { A.giftByEmail(staff, 'not-an-email', 500); } catch (e) { gerr = e.message; }
-  ok(/valid email/.test(gerr), 'a bad email address is refused');
-  gerr = ''; try { A.giftByEmail(staff, 'friend@example.com', 0); } catch (e) { gerr = e.message; }
+  gerr = ''; try { A.giftByTag(staff, 'NoSuchPlayer123', 500); } catch (e) { gerr = e.message; }
+  ok(/No player has that gamertag/.test(gerr), 'an unknown gamertag is refused');
+  gerr = ''; try { A.giftByTag(staff, regular.gamertag, 0); } catch (e) { gerr = e.message; }
   ok(/between 1/.test(gerr), 'a zero gift is refused');
-  A.giftByEmail(staff, ' Friend@Example.com ', 500);
-  await A.flush();
-  const saved = fs.readdirSync(process.env.DATA_DIR).map(f => fs.readFileSync(path.join(process.env.DATA_DIR, f), 'utf8')).join('');
-  ok(!/friend@example\.com/i.test(saved), "the gift is saved without the person's email address");
-  const friend = (await A.googleLogin(idToken('sub-friend', 'friend@example.com'))).account;
-  ok(friend.balance === A.ECON.startingBalance + 500, 'the gift is paid when that Google account signs in (a brand-new account here)');
-  const friend2 = await A.googleLogin(idToken('sub-friend', 'friend@example.com'));
-  ok(friend2.gift === 0 && friend.balance === A.ECON.startingBalance + 500, 'and only once');
-  A.giftByEmail(staff, 'older@example.com', 250); A.giftByEmail(staff, 'older@example.com', 250);
-  const older = (await A.googleLogin(idToken('sub-older', 'older@example.com', false))).account;
-  ok(older.balance === A.ECON.startingBalance, 'an unverified email does not collect a gift');
-  const older2 = await A.googleLogin(idToken('sub-older', 'older@example.com'));
-  ok(older2.gift === 500, 'two gifts to the same email add up (250 + 250)');
-
+  const before = regular.balance;
+  const g = A.giftByTag(staff, '  ' + regular.gamertag.toUpperCase() + ' ', 500);
+  ok(g.to === regular.gamertag && regular.balance === before && regular.inbox.some(m => m.kind === 'gift' && m.amount === 500), 'a gift (any capitals) lands in their mailbox, not yet in their balance');
+  const letter = regular.inbox.find(m => m.kind === 'gift');
+  A.openMail(regular, letter.id);
+  ok(regular.balance === before + 500, 'opening it adds the 500 EB');
+  const guest2 = A.guestLogin(crypto.randomBytes(16).toString('hex')).account;
+  A.giftByTag(staff, guest2.gamertag, 250);
+  ok(guest2.inbox.length === 1, 'guests can receive gifts too');
   console.log(fails ? `\n${fails} staff check(s) FAILED.` : '\nAll staff checks passed.');
   process.exit(fails ? 1 : 0);
 })();

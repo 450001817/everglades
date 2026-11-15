@@ -875,3 +875,20 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .tag.unconfirmed { background: #f2d7c9; color: var(--ink); }
 .bidrow { margin-top: 6px; gap: 8px; align-items: center; }
 .bidok { font-family: var(--font-small); font-size: 17px; color: #1d7a3a; }
+
+/* ---------- mailbox (daily bonus and gifts) ---------- */
+.mailbtn { position: relative; padding: 2px 8px; line-height: 0; margin-left: auto; }
+.mailbtn svg { display: block; }
+.mailbtn.hasmail { background: #fff3cf; animation: mailwiggle 2.4s steps(1) infinite; }
+.mailcount { position: absolute; top: -8px; right: -8px; min-width: 20px; padding: 2px 4px; line-height: 1; font-family: var(--font-small); font-size: 13px; color: #fff; background: var(--red); border: 2px solid var(--ink); }
+@keyframes mailwiggle { 0%, 80% { transform: none; } 84% { transform: rotate(-6deg); } 88% { transform: rotate(6deg); } 92% { transform: rotate(-4deg); } 96% { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .mailbtn.hasmail { animation: none; } }
+.mailmodal { width: min(520px, 100%); }
+.letters { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; margin-top: 8px; }
+.letter { display: flex; align-items: center; gap: 12px; padding: 8px 10px; background: #fff; border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.letter.gift { background: #eef8e2; }
+.letter .ltext { flex: 1; display: flex; flex-direction: column; }
+.letter .lenv svg { width: 40px; height: 30px; }
+.mailopened { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding: 8px 12px; font-size: 20px; background: #eef8e2; border: 3px dashed #2a9a4a; animation: mailpop .35s steps(3); }
+.mailopened svg { width: 48px; height: 36px; }
+@keyframes mailpop { from { transform: scale(.85); opacity: 0; } }

@@ -204,7 +204,7 @@ async function refreshMe() { // also collects the daily log-in bonus, once per d
 }
 // daily log-in bonus (paid by the server on the first sign-in or visit of the day)
 function announceBonus(n) {
-  if (n > 0) setTimeout(() => showToast(`Daily log-in bonus: +${n} EB!<small>Come back tomorrow for another ${n}.</small>`, false, 5000), 300);
+  if (n > 0) setTimeout(() => showToast(`You've got mail! Your daily bonus is waiting.<small>Click the envelope to open it and collect ${n} EB.</small>`, false, 5000), 300);
 }
 async function signInGuest() {
   try { const r = await acctApi('auth/guest', { deviceKey: deviceKey() }); setSession(r.session); acct.me = r.me; ui.err = ''; announceBonus(r.bonus); }
@@ -212,7 +212,7 @@ async function signInGuest() {
   render();
 }
 async function signInGoogle(credential) {
-  try { const r = await acctApi('auth/google', { credential }); setSession(r.session); acct.me = r.me; ui.err = ''; announceBonus(r.bonus); if (r.gift) setTimeout(() => showToast(`You received a gift of <b>${Number(r.gift).toLocaleString()} EB</b> from Goblin Ink!`, false, 6000), 1200); }
+  try { const r = await acctApi('auth/google', { credential }); setSession(r.session); acct.me = r.me; ui.err = ''; announceBonus(r.bonus); if (r.gift) setTimeout(() => showToast(`You've got mail: a gift from Goblin Ink!<small>Click the envelope to open it.</small>`, false, 6000), 1200); }
   catch (e) { ui.err = e.message; }
   render();
 }
@@ -326,9 +326,9 @@ function profileModal() {
     <div class="avgrid">${animals}</div>
     ${me.staff ? `<div class="giftbox">
       <div class="panel-title" style="margin:0">Gift Eco-bucks <span class="hint" style="text-transform:none;letter-spacing:0">— Goblin Ink staff only</span></div>
-      <p class="hint" style="margin:0">The Eco-bucks are added the next time that person signs in with Google. Their email address isn't stored.</p>
+      <p class="hint" style="margin:0">The Eco-bucks arrive as a letter in that player's mailbox straight away.</p>
       <div class="row" style="flex-wrap:nowrap">
-        <input id="giftEmail" class="field" type="email" placeholder="player's Google email" autocomplete="off" style="flex:2">
+        <input id="giftTag" class="field" maxlength="16" placeholder="player's gamertag" autocomplete="off" spellcheck="false" style="flex:2">
         <input id="giftAmount" class="field" type="number" min="1" max="100000" value="500" style="flex:1;min-width:90px">
         <button class="btn brass" id="sendGift">Gift</button>
       </div></div>` : ''}
@@ -739,7 +739,44 @@ function drawSkinPreview() {
   ctx.drawImage(im, frame * CHAR_ANIM.w, 0, CHAR_ANIM.w, CHAR_ANIM.h, 0, 0, cv.width, cv.height);
   cv.dataset.k = key;
 }
-const acctModalHtml = () => !acct.modal ? '' : acct.modal === 'profile' ? profileModal() : acct.modal.skins ? skinShopModal() : storeModal();
+const acctModalHtml = () => !acct.modal ? '' : acct.modal === 'profile' ? profileModal() : acct.modal === 'mail' ? mailModal() : acct.modal.skins ? skinShopModal() : storeModal();
+
+// ---------- mailbox: daily bonuses and staff gifts arrive as letters to open ----------
+const ENVELOPE_SVG = (open = false) => `<svg viewBox="0 0 16 12" width="32" height="24" shape-rendering="crispEdges" aria-hidden="true">
+  <path fill="#1f1b26" d="M0 ${open ? 4 : 0}h16v${open ? 8 : 12}H0z"/>
+  <path fill="#fff7e0" d="M1 ${open ? 5 : 1}h14v${open ? 6 : 10}H1z"/>
+  ${open ? '<path fill="#e8d9b0" d="M1 5h14L8 0z"/><path fill="#1f1b26" d="M0 4h1v1H0zM15 4h1v1h-1zM1 3h2v1H1zM13 3h2v1h-2zM3 2h2v1H3zM11 2h2v1h-2zM5 1h2v1H5zM9 1h2v1H9zM7 0h2v1H7z"/><path fill="#2a9a4a" d="M5 6h6v4H5z"/><path fill="#fff" d="M7 7h2v2H7z"/>'
+    : '<path fill="#e8d9b0" d="M1 1h14v1h-1v1h-2v1h-2v1H6V4H4V3H2V2H1z"/><path fill="#1f1b26" d="M2 2h1v1H2zM13 2h1v1h-1zM4 3h2v1H4zM10 3h2v1h-2zM6 4h4v1H6z"/><path fill="#d6343c" d="M7 5h2v2H7z"/>'}
+</svg>`;
+function mailButtonHtml(me) {
+  const n = (me.inbox || []).length;
+  return `<button class="btn small mailbtn ${n ? 'hasmail' : ''}" data-mail title="${n ? `You have ${n} unopened letter${n > 1 ? 's' : ''}` : 'Your mailbox is empty'}">${ENVELOPE_SVG(false)}${n ? `<span class="mailcount">${n}</span>` : ''}</button>`;
+}
+function mailModal() {
+  const me = acct.me; if (!me) return '';
+  const inbox = (me.inbox || []).slice().reverse();
+  const letter = m => `<div class="letter ${m.kind}">
+      <div class="lenv">${ENVELOPE_SVG(false)}</div>
+      <div class="ltext"><b>${esc(m.note || (m.kind === 'gift' ? 'A gift' : 'Daily bonus'))}</b><span class="hint">${new Date(m.at).toLocaleDateString()} · ${fmtEB(m.amount)} inside</span></div>
+      <button class="btn primary" data-openmail="${m.id}">Open</button></div>`;
+  return `<div class="modal"><div class="paper spiral acctmodal mailmodal">
+    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Mailbox</div><div class="row">${inbox.length > 1 ? '<button class="btn small brass" data-openmail="all">Open all</button>' : ''}<button class="btn small" data-close>Close</button></div></div>
+    ${acct.mailOpened ? `<div class="mailopened">${ENVELOPE_SVG(true)}<div><b>+${Number(acct.mailOpened).toLocaleString()} EB</b> added to your wallet!</div></div>` : ''}
+    ${inbox.length ? `<div class="letters">${inbox.map(letter).join('')}</div>` : `<p class="hint" style="margin:6px 0">No letters right now. Your daily bonus arrives here each day you visit.</p>`}
+    <div class="error">${esc(acct.msg)}</div>
+  </div></div>`;
+}
+document.addEventListener('click', async e => {
+  const mb = e.target.closest('[data-mail]');
+  if (mb) { acct.modal = 'mail'; acct.msg = ''; acct.mailOpened = 0; if (acct.me) await refreshMe(); render(); return; }
+  const om = e.target.closest('[data-openmail]'); if (!om) return;
+  try {
+    const r = await acctApi('mail/open', { id: om.dataset.openmail });
+    acct.me = r.me; acct.mailOpened = r.amount; acct.msg = '';
+    SFX.trickMine && SFX.trickMine();
+  } catch (err) { acct.msg = err.message; SFX.error(); }
+  render();
+});
 // clicks inside the profile / store / account panel
 document.addEventListener('click', async e => {
   const t = e.target.closest('[data-close],[data-store],[data-profile],[data-avatar],[data-buy],[data-wear],[data-skinshop],[data-skinview],[data-equip],#saveTag,#confirmBuy,#signout,#guest,#sendGift');
@@ -769,9 +806,10 @@ document.addEventListener('click', async e => {
   });
   else if (t.matches('[data-wear]')) run(async () => { acct.me = (await acctApi('profile', { title: t.dataset.wear || null })).me; });
   else if (t.matches('#sendGift')) run(async () => {
-    const email = document.getElementById('giftEmail').value, amount = +document.getElementById('giftAmount').value;
-    const r = await acctApi('admin/gift', { email, amount });
-    showToast(`Gift saved: <b>${Number(r.pending).toLocaleString()} EB</b> waiting for that player.<small>It's added the next time they sign in with Google.</small>`, false, 5200);
+    const tag = document.getElementById('giftTag').value, amount = +document.getElementById('giftAmount').value;
+    const r = await acctApi('admin/gift', { tag, amount });
+    showToast(`Sent <b>${Number(r.amount).toLocaleString()} EB</b> to ${esc(r.to)}.<small>It's waiting in their mailbox.</small>`, false, 5200);
+    document.getElementById('giftTag').value = '';
   });
   else if (t.matches('#signout')) signOut();
   else if (t.matches('#guest')) signInGuest();
@@ -1015,7 +1053,7 @@ function accountPanelHtml() {
   const me = acct.me;
   return `<div class="acctbox">
     ${bannerHtml(me, { extra: `<div class="pb-bal">${fmtEB(me.balance)}</div>` })}
-    <div class="row" style="gap:6px"><button class="btn small" data-profile>Profile</button><button class="btn small brass" data-store>Store</button><button class="btn small" id="signout">Sign out</button></div>
+    <div class="row" style="gap:6px"><button class="btn small" data-profile>Profile</button><button class="btn small brass" data-store>Store</button><button class="btn small" id="signout">Sign out</button>${mailButtonHtml(me)}</div>
     ${me.guest && C.googleClientId && guestAtRisk() ? '<span class="hint guestwarn">You\'re on a guest account. Safari erases guest accounts after 7 days without a visit, so sign out and sign in with Google to keep your progress safe.</span>' : ''}
   </div>`;
 }

@@ -164,30 +164,30 @@ function grantStaff(a) {
   }
 }
 // ---------- staff gifts of Eco-bucks ----------
-// Accounts don't store email addresses, so a staff member gifts EB to an email and it is paid out the next time
-// that Google account signs in. Only a salted fingerprint of the address is kept, never the address itself.
-const giftKey = email => crypto.createHash('sha256').update('everglades-gift:' + String(email).trim().toLowerCase()).digest('hex');
-function giftByEmail(staff, email, amount) {
+// A staff member gifts EB to a player by gamertag: it arrives as a letter in that player's mailbox straight away.
+function giftByTag(staff, tag, amount) {
   if (!staff || !staff.staff) throw userErr('Only Goblin Ink staff can gift Eco-bucks.');
-  email = String(email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw userErr('Type a valid email address.');
+  const a = db.accounts[db.tags[String(tag || '').trim().toLowerCase()]];
+  if (!a) throw userErr('No player has that gamertag.');
   amount = Math.floor(Number(amount));
   if (!(amount >= 1 && amount <= 100000)) throw userErr('Gift between 1 and 100,000 EB.');
-  const k = giftKey(email), prev = db.gifts[k];
-  db.gifts[k] = { amount: (prev ? prev.amount : 0) + amount, from: staff.id, at: Date.now() };
+  sendMail(a, 'gift', amount, 'A gift from Goblin Ink');
   saveNow();
-  console.log(`Gift of ${amount} EB queued by ${staff.gamertag}`);
-  return { pending: db.gifts[k].amount };
+  console.log(`Gift of ${amount} EB sent by ${staff.gamertag} to ${a.gamertag}`);
+  return { to: a.gamertag, amount, accountId: a.id };
 }
+// (Gifts used to be sent to an email address, kept as a salted fingerprint until that Google account signed in.
+// Any still waiting are delivered as letters at sign-in.)
+const giftKey = email => crypto.createHash('sha256').update('everglades-gift:' + String(email).trim().toLowerCase()).digest('hex');
 async function googleLogin(credential) {
   const claims = await verifyGoogle(credential);
   let a = db.accounts[db.google[claims.sub]];
   if (!a) { a = newAccount({ google: true }); db.google[claims.sub] = a.id; }
   const email = String(claims.email || '').toLowerCase();
   if (email && claims.email_verified !== false && staffEmails().includes(email)) { grantStaff(a); save(); }
-  let gift = 0; // Eco-bucks a staff member gifted to this email
+  let gift = 0; // an old-style email gift still waiting: it becomes a letter
   const g = email && claims.email_verified !== false && db.gifts[giftKey(email)];
-  if (g) { gift = g.amount; a.balance += gift; delete db.gifts[giftKey(email)]; saveNow(); console.log(`Gift of ${gift} EB paid to ${a.gamertag}`); }
+  if (g) { gift = g.amount; sendMail(a, 'gift', gift, 'A gift from Goblin Ink'); delete db.gifts[giftKey(email)]; saveNow(); }
   return { account: a, session: newSession(a), gift };
 }
 
@@ -237,8 +237,31 @@ function today() { return new Date().toISOString().slice(0, 10); }
 function dailyBonus(a) {
   if (a.lastBonusDay === today()) return 0;
   a.lastBonusDay = today();
-  a.balance += ECON.dailyBonus; save();
+  sendMail(a, 'daily', ECON.dailyBonus, 'Your daily log-in bonus'); save();
   return ECON.dailyBonus;
+}
+
+// ---------- mailbox ----------
+// Daily bonuses and staff gifts arrive as letters; the player opens them (the envelope on the home page) to collect
+// the Eco-bucks. A mailbox keeps at most 30 letters (the oldest unopened ones are paid out to make room).
+const MAIL_MAX = 30;
+function sendMail(a, kind, amount, note) {
+  a.inbox = a.inbox || [];
+  while (a.inbox.length >= MAIL_MAX) a.balance += a.inbox.shift().amount;
+  const m = { id: rid(6), kind, amount, note, at: Date.now() };
+  a.inbox.push(m);
+  return m;
+}
+// open one letter (by id) or all of them ('all'); returns how many and how many Eco-bucks they held
+function openMail(a, id) {
+  const inbox = a.inbox || [];
+  const list = id === 'all' ? inbox.slice() : inbox.filter(m => m.id === id);
+  if (!list.length) throw userErr('That letter was already opened.');
+  const amount = list.reduce((s, m) => s + m.amount, 0);
+  a.inbox = inbox.filter(m => !list.includes(m));
+  a.balance += amount;
+  saveNow();
+  return { opened: list.length, amount };
 }
 
 // ---------- store ----------
@@ -343,6 +366,7 @@ function privateProfile(a) { // shown to the account owner
   return Object.assign(publicProfile(a), {
     balance: a.balance, owned: a.owned, cardWins: a.cardWins, stats: a.stats, guest: !!a.guest,
     staff: !!a.staff, exclusiveStore: a.staff ? EXCLUSIVE : [], // staff see their exclusive items in their own store
+    inbox: (a.inbox || []).map(m => ({ id: m.id, kind: m.kind, amount: m.amount, note: m.note, at: m.at })), // unopened letters
     unlocked: unlockedAvatars(a),
   });
 }
@@ -389,5 +413,5 @@ function adjustPurchase(paymentIntent, change) {
 module.exports = {
   ECON, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
-  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, splashFor, ownsChat, creditPurchase, adjustPurchase, grantStaff, giftByEmail,
+  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, splashFor, ownsChat, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
 };

@@ -423,9 +423,17 @@ const server = http.createServer(async (req, res) => {
         const bonus = A.dailyBonus(a);
         return send(res, 200, { me: A.privateProfile(a), bonus });
       }
-      if (op === 'admin/gift') { // staff only: Eco-bucks for an email, paid at that account's next Google sign-in
+      if (op === 'admin/gift') { // staff only: Eco-bucks to a gamertag, delivered to their mailbox at once
         const a = A.requireAccount(body.session);
-        return send(res, 200, A.giftByEmail(a, body.email, body.amount));
+        const r = A.giftByTag(a, body.tag, body.amount);
+        for (const room of rooms.values()) if (room.members.some(m => m.accountId === r.accountId)) broadcast(room); // their envelope shows up straight away
+        return send(res, 200, { to: r.to, amount: r.amount });
+      }
+      if (op === 'mail/open') { // open a letter (or 'all') and collect its Eco-bucks
+        const a = A.requireAccount(body.session);
+        const r = A.openMail(a, body.id);
+        for (const room of rooms.values()) if (room.members.some(m => m.accountId === a.id)) broadcast(room);
+        return send(res, 200, Object.assign(r, { me: A.privateProfile(a) }));
       }
       if (op === 'profile') {
         const a = A.requireAccount(body.session);

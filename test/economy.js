@@ -19,8 +19,13 @@ const mk = () => A.guestLogin(require('crypto').randomBytes(24).toString('hex'))
 const [a, b, c] = [mk(), mk(), mk()];
 ok(a.balance === 50, `new accounts start with 50 EB (${a.balance})`);
 ok(A.dailyBonus(a) === 0 && a.balance === 50, "a new account's first day is covered by its starting balance");
-a.lastBonusDay = '2000-01-01'; ok(A.dailyBonus(a) === 50 && a.balance === 100, 'the next day pays the 50 EB log-in bonus');
-ok(A.dailyBonus(a) === 0 && a.balance === 100, 'only once per day');
+a.lastBonusDay = '2000-01-01'; ok(A.dailyBonus(a) === 50 && a.balance === 50 && a.inbox.length === 1 && a.inbox[0].amount === 50, 'the next day the 50 EB log-in bonus arrives as a letter (not paid yet)');
+ok(A.dailyBonus(a) === 0 && a.inbox.length === 1, 'only once per day');
+ok(A.privateProfile(a).inbox.length === 1, 'the letter shows in the player\'s own profile');
+{ const r = A.openMail(a, a.inbox[0].id); ok(r.amount === 50 && a.balance === 100 && a.inbox.length === 0, 'opening the letter pays the 50 EB'); }
+{ let err = ''; try { A.openMail(a, 'nope'); } catch (x) { err = x.message; } ok(/already opened/.test(err), 'a letter can only be opened once'); }
+a.lastBonusDay = '2000-01-01'; A.dailyBonus(a); a.lastBonusDay = '2000-01-02'; A.dailyBonus(a);
+{ const r = A.openMail(a, 'all'); ok(r.opened === 2 && r.amount === 100 && a.balance === 200, 'Open all collects every letter'); a.balance = 100; }
 for (const x of [a, b, c]) x.balance = 500; // give the test players some money to bet
 
 // 3 people + 1 bot at a 50 EB table; scores decide places
