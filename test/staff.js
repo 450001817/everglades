@@ -25,7 +25,7 @@ function idToken(sub, email, verified = true) {
 
 (async () => {
   await A.ready;
-  const EXCL = A.STORE.filter(i => i.exclusive).map(i => i.id);
+  const EXCL = A.STORE.filter(i => i.exclusive && !i.promo).map(i => i.id); // (promo items are log-in gifts, see test/economy.js)
   console.log('The items');
   ok(EXCL.length === 8, `8 staff exclusives (6 goblin skins, stink splash, title): ${EXCL.join(', ')}`);
   ok(!A.config().store.some(i => i.exclusive), 'none of them are in the public store list');

@@ -19,6 +19,19 @@ const mk = () => A.guestLogin(require('crypto').randomBytes(24).toString('hex'))
 const [a, b, c] = [mk(), mk(), mk()];
 ok(a.balance === 50, `new accounts start with 50 EB (${a.balance})`);
 ok(A.dailyBonus(a) === 0 && a.balance === 50, "a new account's first day is covered by its starting balance");
+{ // log-in gift: the Alpha Tester title, mailed once
+  ok(a.inbox.length === 1 && a.inbox[0].item === 'title_alpha' && A.privateProfile(a).inbox[0].itemName === 'Alpha Tester', 'the Alpha Tester title arrives as a letter at log-in');
+  A.dailyBonus(a); a.lastBonusDay = '2000-01-01'; A.dailyBonus(a);
+  ok(a.inbox.filter(m => m.item === 'title_alpha').length === 1, 'it is only ever sent once');
+  a.inbox = a.inbox.filter(m => m.item); // drop the extra daily letter for the checks below
+  const r = A.openMail(a, a.inbox[0].id);
+  ok(r.items[0] === 'Alpha Tester' && r.amount === 0 && a.owned.includes('title_alpha') && a.title === 'title_alpha' && a.balance === 50, 'opening it unlocks and wears the title');
+  ok(A.publicProfile(a).titleStyle === 'alpha' && A.privateProfile(a).exclusiveStore.some(i => i.id === 'title_alpha'), 'others see the green sparkle; it shows in its owner\'s Titles tab');
+  ok(!A.privateProfile(b).exclusiveStore.length && !A.config().store.some(i => i.id === 'title_alpha'), 'it is never in the store for anyone else');
+  let err = ''; try { A.buy(b, 'title_alpha'); } catch (x) { err = x.message; } ok(/not in the store/.test(err), "it can't be bought");
+  A.dailyBonus(b); const sent = b.inbox.length; b.inbox = []; A.dailyBonus(b); ok(sent === 1 && !b.inbox.length, 'a player who already got it (even unopened) is not sent another');
+  a.title = null;
+}
 a.lastBonusDay = '2000-01-01'; ok(A.dailyBonus(a) === 50 && a.balance === 50 && a.inbox.length === 1 && a.inbox[0].amount === 50, 'the next day the 50 EB log-in bonus arrives as a letter (not paid yet)');
 ok(A.dailyBonus(a) === 0 && a.inbox.length === 1, 'only once per day');
 ok(A.privateProfile(a).inbox.length === 1, 'the letter shows in the player\'s own profile');

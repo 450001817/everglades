@@ -618,6 +618,20 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 @keyframes twinkle { 0% { opacity: 1; transform: scale(1); } 50% { opacity: .15; transform: scale(.6); } }
 @media (prefers-reduced-motion: reduce) { .pb-title.sparkle, .pb-title.sparkle::before, .pb-title.sparkle::after { animation: none; } }
+/* "Alpha Tester": the same sparkle, in emerald green */
+.pb-title.alpha {
+  position: relative; align-self: flex-start; font-weight: 700; font-size: 13px; letter-spacing: .5px; line-height: 1.2; padding: 0 12px;
+  background: linear-gradient(100deg, #0f6b34 0%, #5fe08a 22%, #f0fff4 30%, #2fbf63 42%, #138a42 60%, #b8ffd0 74%, #1f9a50 100%);
+  background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shimmer 2.6s linear infinite; filter: drop-shadow(1px 1px 0 rgba(0,0,0,.35));
+}
+.pb-title.alpha::before, .pb-title.alpha::after {
+  content: '✦'; position: absolute; top: -2px; font-size: 11px; color: #d8ffe4; -webkit-text-fill-color: #d8ffe4;
+  text-shadow: 0 0 4px #4dff8a; animation: twinkle 1.4s steps(2) infinite;
+}
+.pb-title.alpha::before { left: 0; }
+.pb-title.alpha::after { right: 0; top: 4px; animation-delay: .7s; }
+@media (prefers-reduced-motion: reduce) { .pb-title.alpha, .pb-title.alpha::before, .pb-title.alpha::after { animation: none; } }
 .acctbox { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; background: var(--paper-2); border: 3px solid var(--ink); }
 .gbtn { min-height: 44px; }
 .buyin { padding: 6px 8px; border: 3px dashed var(--brass); background: #fff9e3; }

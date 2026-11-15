@@ -37,6 +37,14 @@ const STORE = [
   // skins, title and splash effect in games.
   { id: 'title_goblin', type: 'title', style: 'goblin', name: 'Goblin Ink Game Staff', price: 0, exclusive: true,
     blurb: 'Goblin Ink staff exclusive: shimmering green, with a whiff of something awful.' },
+  // ----- log-in gifts (promo: true): never sold; mailed once to each player while listed in LOGIN_GIFTS -----
+  { id: 'title_alpha', type: 'title', style: 'alpha', name: 'Alpha Tester', price: 0, exclusive: true, promo: true,
+    blurb: 'A thank-you for playing during the alpha: a sparkling green title.' },
+];
+// Gifts every player receives once, as a letter, the next time they log in or visit. Remove an entry to stop
+// sending it (players who already got it keep it).
+const LOGIN_GIFTS = [
+  { id: 'alpha2026', item: 'title_alpha', note: 'Thanks for alpha testing Everglades!' },
 ];
 const EXCLUSIVE = STORE.filter(i => i.exclusive);
 const ownsChat = (a, id) => !!a && a.owned.includes('chat:' + id);
@@ -156,7 +164,7 @@ const staffEmails = () => String(process.env.STAFF_EMAILS || '').split(',').map(
 function grantStaff(a) {
   const first = !a.staff;
   a.staff = true;
-  for (const it of EXCLUSIVE) if (!a.owned.includes(it.id)) a.owned.push(it.id);
+  for (const it of EXCLUSIVE) if (!it.promo && !a.owned.includes(it.id)) a.owned.push(it.id);
   a.owned = a.owned.filter(id => id !== 'foilall:green'); // the green foil was retired from the staff set
   if (first) { // wear the staff title and stink cloud straight away the first time
     a.title = 'title_goblin'; a.splash = 'stink';
@@ -235,6 +243,7 @@ function setProfile(a, { gamertag, avatar, title, skin, splash }) {
 // Daily log-in bonus: paid once per calendar day (UTC), the first time the player signs in or visits.
 function today() { return new Date().toISOString().slice(0, 10); }
 function dailyBonus(a) {
+  loginGifts(a);
   if (a.lastBonusDay === today()) return 0;
   a.lastBonusDay = today();
   sendMail(a, 'daily', ECON.dailyBonus, 'Your daily log-in bonus'); save();
@@ -245,23 +254,44 @@ function dailyBonus(a) {
 // Daily bonuses and staff gifts arrive as letters; the player opens them (the envelope on the home page) to collect
 // the Eco-bucks. A mailbox keeps at most 30 letters (the oldest unopened ones are paid out to make room).
 const MAIL_MAX = 30;
-function sendMail(a, kind, amount, note) {
+// a letter holds Eco-bucks (amount) and/or a store item (item: a STORE id, e.g. a title)
+function sendMail(a, kind, amount, note, item) {
   a.inbox = a.inbox || [];
-  while (a.inbox.length >= MAIL_MAX) a.balance += a.inbox.shift().amount;
+  while (a.inbox.length >= MAIL_MAX) deliver(a, a.inbox.shift());
   const m = { id: rid(6), kind, amount, note, at: Date.now() };
+  if (item) m.item = item;
   a.inbox.push(m);
   return m;
 }
-// open one letter (by id) or all of them ('all'); returns how many and how many Eco-bucks they held
+function deliver(a, m) {
+  a.balance += m.amount || 0;
+  const it = m.item && STORE.find(i => i.id === m.item);
+  if (it && !a.owned.includes(it.id)) {
+    a.owned.push(it.id);
+    if (it.type === 'title' && !a.title) a.title = it.id; // wear a gifted title straight away if none is worn
+  }
+  return it;
+}
+// mail each LOGIN_GIFTS entry this player hasn't been sent yet
+function loginGifts(a) {
+  a.promos = a.promos || [];
+  for (const g of LOGIN_GIFTS) {
+    if (a.promos.includes(g.id)) continue;
+    a.promos.push(g.id);
+    if (!a.owned.includes(g.item)) sendMail(a, 'item', 0, g.note, g.item);
+    save();
+  }
+}
+// open one letter (by id) or all of them ('all'); returns how many, the Eco-bucks they held and any items
 function openMail(a, id) {
   const inbox = a.inbox || [];
   const list = id === 'all' ? inbox.slice() : inbox.filter(m => m.id === id);
   if (!list.length) throw userErr('That letter was already opened.');
-  const amount = list.reduce((s, m) => s + m.amount, 0);
   a.inbox = inbox.filter(m => !list.includes(m));
-  a.balance += amount;
+  const amount = list.reduce((s, m) => s + (m.amount || 0), 0);
+  const items = list.map(m => deliver(a, m)).filter(Boolean).map(it => it.name);
   saveNow();
-  return { opened: list.length, amount };
+  return { opened: list.length, amount, items };
 }
 
 // ---------- store ----------
@@ -365,8 +395,8 @@ function publicProfile(a) { // shown to everyone (lobby banner)
 function privateProfile(a) { // shown to the account owner
   return Object.assign(publicProfile(a), {
     balance: a.balance, owned: a.owned, cardWins: a.cardWins, stats: a.stats, guest: !!a.guest,
-    staff: !!a.staff, exclusiveStore: a.staff ? EXCLUSIVE : [], // staff see their exclusive items in their own store
-    inbox: (a.inbox || []).map(m => ({ id: m.id, kind: m.kind, amount: m.amount, note: m.note, at: m.at })), // unopened letters
+    staff: !!a.staff, exclusiveStore: EXCLUSIVE.filter(i => a.owned.includes(i.id) || (a.staff && !i.promo)), // exclusives show only in their owners' stores
+    inbox: (a.inbox || []).map(m => ({ id: m.id, kind: m.kind, amount: m.amount, note: m.note, at: m.at, item: m.item || null, itemName: m.item ? titleName(m.item) : null })), // unopened letters
     unlocked: unlockedAvatars(a),
   });
 }

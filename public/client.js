@@ -288,7 +288,7 @@ function bannerHtml(p, { you = false, extra = '', size = '' } = {}) {
     <img class="pavatar" src="${esc(p.avatarSrc)}" alt="">
     <div class="pb-text">
       <div class="pb-name">${esc(p.gamertag)}${you ? ' <span class="you">(you)</span>' : ''}</div>
-      ${p.titleName ? `<div class="pb-title ${p.titleStyle === 'goblin' ? 'goblin' : 'sparkle'}">${esc(p.titleName)}</div>` : ''}
+      ${p.titleName ? `<div class="pb-title ${['goblin', 'alpha'].includes(p.titleStyle) ? p.titleStyle : 'sparkle'}">${esc(p.titleName)}</div>` : ''}
       ${extra}
     </div></div>`;
 }
@@ -757,11 +757,11 @@ function mailModal() {
   const inbox = (me.inbox || []).slice().reverse();
   const letter = m => `<div class="letter ${m.kind}">
       <div class="lenv">${ENVELOPE_SVG(false)}</div>
-      <div class="ltext"><b>${esc(m.note || (m.kind === 'gift' ? 'A gift' : 'Daily bonus'))}</b><span class="hint">${new Date(m.at).toLocaleDateString()} · ${fmtEB(m.amount)} inside</span></div>
+      <div class="ltext"><b>${esc(m.note || (m.kind === 'gift' ? 'A gift' : 'Daily bonus'))}</b><span class="hint">${new Date(m.at).toLocaleDateString()} · ${m.itemName ? `the “${esc(m.itemName)}” title inside` : `${fmtEB(m.amount)} inside`}</span></div>
       <button class="btn primary" data-openmail="${m.id}">Open</button></div>`;
   return `<div class="modal"><div class="paper spiral acctmodal mailmodal">
     <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Mailbox</div><div class="row">${inbox.length > 1 ? '<button class="btn small brass" data-openmail="all">Open all</button>' : ''}<button class="btn small" data-close>Close</button></div></div>
-    ${acct.mailOpened ? `<div class="mailopened">${ENVELOPE_SVG(true)}<div><b>+${Number(acct.mailOpened).toLocaleString()} EB</b> added to your wallet!</div></div>` : ''}
+    ${acct.mailOpened ? `<div class="mailopened">${ENVELOPE_SVG(true)}<div>${acct.mailOpened.amount ? `<b>+${Number(acct.mailOpened.amount).toLocaleString()} EB</b> added to your wallet!` : ''}${acct.mailOpened.items.map(n => `<div>New title unlocked: <b>${esc(n)}</b>! Wear it from Store → Titles.</div>`).join('')}</div></div>` : ''}
     ${inbox.length ? `<div class="letters">${inbox.map(letter).join('')}</div>` : `<p class="hint" style="margin:6px 0">No letters right now. Your daily bonus arrives here each day you visit.</p>`}
     <div class="error">${esc(acct.msg)}</div>
   </div></div>`;
@@ -772,7 +772,7 @@ document.addEventListener('click', async e => {
   const om = e.target.closest('[data-openmail]'); if (!om) return;
   try {
     const r = await acctApi('mail/open', { id: om.dataset.openmail });
-    acct.me = r.me; acct.mailOpened = r.amount; acct.msg = '';
+    acct.me = r.me; acct.mailOpened = { amount: r.amount, items: r.items || [] }; acct.msg = '';
     SFX.trickMine && SFX.trickMine();
   } catch (err) { acct.msg = err.message; SFX.error(); }
   render();
