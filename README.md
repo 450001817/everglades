@@ -87,7 +87,12 @@ Everyone signs in before they sit down at a table. An account keeps your **gamer
 - **Co-op:** beat the Anaconda and everyone gets double their bet back. Lose, and everyone loses it.
 - **Starting money and daily bonus:** new accounts start with **50 EB**. Each day you also get a **50 EB log-in bonus** the first time you sign in or open the game. Days are counted in UTC, Coordinated Universal Time, so in the US a new day starts in the evening.
 - **Store:** the **Savior of the Everglades** title (10,000 EB) sparkles under your name on your player banner. You can wear it or take it off in the store.
-- **Character skins (500 EB each):** click any of the six characters on the home page to open their skin shop. You can also reach the shops from the Store.
+- **Character profiles:** click any of the six characters on the home page to open its profile. Each character keeps its own loadout, per account:
+  - **Skin:** the skin shop with the animated preview (500 EB each). You can also reach it from the Store.
+  - **Chat lines:** equip up to 5 of your owned lines (any group) per character (`CHAT_SLOTS` in `public/data.js`). The 💬 Chat menu in a game shows only the equipped lines of the character you're playing, and the server rejects any other line. Before roles are picked, any character's equipped lines can be sent. Until you change a character's lines, your first 5 owned lines are equipped, that character's own lines first. A character's own line you buy fills one of its free slots.
+  - **Splash effect:** the account default (the one picked in the Store), no effect, or any owned effect for that character only.
+  - **Card treatments:** for each card you own a treatment for, pick Plain or the treatment (only Foil exists so far), with Everything on / All plain buttons. Owned treatments are on by default. New treatments go in `TREATMENTS` in `public/data.js` (owned as `'<treatment id>:<card id>'`, shown with its CSS class) and appear in the profiles automatically.
+  - Run `node test/characters.js` to check the loadout rules.
   - There are 2 skins per character, 12 in all. Each has a unique name that only shows in the shop.
   - The big preview plays every animation. Click a skin's thumbnail to preview it.
   - Buying a skin equips it straight away. **Equip** switches between the skins you own and the **Original**.

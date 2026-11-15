@@ -928,3 +928,16 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .mailopened { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding: 8px 12px; font-size: 20px; background: #eef8e2; border: 3px dashed #2a9a4a; animation: mailpop .35s steps(3); }
 .mailopened svg { width: 48px; height: 36px; }
 @keyframes mailpop { from { transform: scale(.85); opacity: 0; } }
+
+/* ---------- character profiles (skin, chat lines, splash effect, card treatments) ---------- */
+.charprofile .charhead { width: 64px; cursor: default; }
+.chatslots .chatslot { min-height: 40px; }
+.chatslot.empty { background: var(--paper-2); border-style: dashed; box-shadow: none; justify-content: center; }
+.storeitem.picked { background: #eef7e6; outline: 3px solid var(--native); outline-offset: 1px; }
+.segs { display: flex; flex-wrap: wrap; justify-content: center; gap: 0; }
+.seg { font-family: var(--font-small); font-size: 15px; padding: 2px 8px; background: var(--paper-2); color: var(--ink); border: 2px solid var(--ink); margin-left: -2px; cursor: pointer; }
+.seg:first-child { margin-left: 0; }
+.seg.on { background: var(--brass); font-weight: bold; }
+.seg:hover { outline: 2px solid var(--brass); }
+.linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--red); text-decoration: underline; cursor: pointer; }
+.chatslot .hint { white-space: nowrap; font-size: 14px; }

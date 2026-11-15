@@ -1,6 +1,6 @@
 // Everglades — browser client. Renders whatever the server says the game looks like.
 'use strict';
-const { CARDS, REGIONS, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES, DISRUPTIONS, FOIL_PRICE, SPLASHES } = window.EG_DATA;
+const { CARDS, REGIONS, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES, DISRUPTIONS, FOIL_PRICE, SPLASHES, TREATMENTS, CHAT_SLOTS } = window.EG_DATA;
 const roleInfo = r => r === 'Anaconda' ? BOSS : (r ? ROLES[r] : null);
 const $app = document.getElementById('app');
 const $peek = document.getElementById('peek');
@@ -446,7 +446,7 @@ function splashStoreHtml(me, C) {
         <span>${it.exclusive ? '<span class="staffex">Goblin Ink staff exclusive</span>' : fmtEB(it.price)}${owned ? ` · <span style="color:var(--native)">${using ? 'In use' : 'Owned'}</span>` : me.balance < it.price ? ` · <span class="hint">you need ${(it.price - me.balance).toLocaleString()} more</span>` : ''}</span></div>
       <div>${action}</div></div>`;
   }).join('');
-  return `<p class="hint" style="margin:0 0 8px">Your splash effect bursts from every card you play, and everyone at the table sees it. You use one at a time.</p><div class="storelist">${items}</div>`;
+  return `<p class="hint" style="margin:0 0 8px">Your splash effect bursts from every card you play, and everyone at the table sees it. The one you use here is your default; each character's profile can pick a different one.</p><div class="storelist">${items}</div>`;
 }
 document.addEventListener('click', async e => {
   const pv = e.target.closest('[data-splashpreview]');
@@ -601,10 +601,16 @@ function skinStoreHtml(me) {
 const chatGroupName = g => CHAT_GROUP_NAMES[g] || (ROLES[g] ? ROLES[g].name : g);
 const CHAT_GROUP_ORDER = [...new Set(CHAT.map(c => c.group))];
 function chatDropHtml() {
-  const owned = new Set(((S.myAccount && S.myAccount.owned) || []).filter(x => x.startsWith('chat:')).map(x => x.slice(5)));
-  const mine = CHAT.filter(c => owned.has(c.id));
-  if (!mine.length) return `<div class="paper spiral chat-drop"><div class="panel-title">Chat</div>
+  const me = S.myAccount || {};
+  const owned = new Set((me.owned || []).filter(x => x.startsWith('chat:')).map(x => x.slice(5)));
+  // the lines equipped for your character (before roles are picked: every character's equipped lines)
+  const L = myLoadout(S.role);
+  const equipped = new Set(L ? L.chat : Object.values(me.chars || {}).flatMap(c => c.chat));
+  const mine = CHAT.filter(c => owned.has(c.id) && equipped.has(c.id));
+  if (!owned.size) return `<div class="paper spiral chat-drop"><div class="panel-title">Chat</div>
     <p class="hint" style="margin:0">You don't own any chat lines yet. Buy them in the <b>Store</b> on the home page or in the lobby: every line the bots say, ${CHAT[0].price} EB each.</p></div>`;
+  if (!mine.length) return `<div class="paper spiral chat-drop"><div class="panel-title">Chat</div>
+    <p class="hint" style="margin:0">No chat lines are equipped for this character. Click the character on the home page to open its profile and equip up to ${CHAT_SLOTS}.</p></div>`;
   // your own character's lines first
   const order = CHAT_GROUP_ORDER.slice().sort((a, b) => (b === S.role) - (a === S.role));
   const groups = order.map(g => {
@@ -631,7 +637,7 @@ function chatStoreHtml(me) {
       : `<button class="btn small brass" data-chatarm="${c.id}" ${me.balance < c.price ? 'disabled' : ''}>Buy · ${c.price} EB</button>`;
     return `<div class="chatitem ${owned ? 'owned' : ''}"><span class="chat-quote">“${esc(c.text)}”</span>${btn}</div>`;
   }).join('');
-  return `<div class="panel-title" style="margin:6px 0 0">Chat lines <span class="hint" style="text-transform:none;letter-spacing:0">— ${CHAT[0].price} EB each. Everything the bots say. Send the lines you own from the 💬 Chat button during a game.</span></div>
+  return `<div class="panel-title" style="margin:6px 0 0">Chat lines <span class="hint" style="text-transform:none;letter-spacing:0">— ${CHAT[0].price} EB each. Everything the bots say. Equip up to ${CHAT_SLOTS} per character in its profile (click a character on the home page), then send them from the 💬 Chat button during a game.</span></div>
     <div class="skintabs">${tabs}</div><div class="chatlist">${rows}</div>`;
 }
 // Store section: foil versions of every Ecology and Disruption card (seen only by their owner when dealt)
@@ -649,7 +655,7 @@ function foilStoreHtml(me) {
       : `<button class="btn small brass" data-foilarm="${id}" ${me.balance < FOIL_PRICE ? 'disabled' : ''}>Buy · ${FOIL_PRICE} EB</button>`;
     return `<div class="foilitem">${card}${btn}</div>`;
   }).join('');
-  return `<div class="panel-title" style="margin:6px 0 0">Foil cards <span class="hint" style="text-transform:none;letter-spacing:0">— ${FOIL_PRICE} EB each. Whenever the card is dealt to you, it shines as foil (only you see it). Hover a card to read it.</span></div>
+  return `<div class="panel-title" style="margin:6px 0 0">Foil cards <span class="hint" style="text-transform:none;letter-spacing:0">— ${FOIL_PRICE} EB each. Whenever the card is dealt to you, it shines as foil (only you see it). Switch foils on or off per character in its profile. Hover a card to read it.</span></div>
     <div class="skintabs">${tabs}</div><div class="foilgrid">${items}</div>`;
 }
 document.addEventListener('click', async e => {
@@ -683,15 +689,132 @@ function mySkin(role) {
   const me = acct.me, id = me && me.skins && me.skins[role];
   return id && me.owned.includes('skin:' + id) ? id : null;
 }
+// ---------- character profiles: skin, chat lines, splash effect and card treatments, per character ----------
+// acct.modal = { skins: role, view: skin id being previewed, tab: 'skin' | 'chat' | 'splash' | 'cards' }
+const CHAR_TABS = { skin: 'Skin', chat: 'Chat lines', splash: 'Splash effect', cards: 'Card treatments' };
 function skinShopModal() {
   const role = acct.modal.skins, R = ROLES[role]; if (!R) return '';
-  const me = acct.me, C = acct.config;
+  const me = acct.me;
+  const tab = CHAR_TABS[acct.modal.tab] ? acct.modal.tab : 'skin';
+  const L = myLoadout(role);
+  const roleTabs = Object.keys(ROLES).map(r => `<button class="skintab ${r === role ? 'on' : ''}" data-skinshop="${r}" data-chartab="${tab}">${esc(ROLES[r].name)}</button>`).join('');
+  const count = { chat: L ? ` <small>${L.chat.length}/${CHAT_SLOTS}</small>` : '', cards: L ? ` <small>${Object.keys(L.finish).length}</small>` : '' };
+  const secTabs = Object.entries(CHAR_TABS).map(([k, label]) => `<button class="storetab ${k === tab ? 'on' : ''}" data-chartab="${k}">${label}${count[k] || ''}</button>`).join('');
+  let page;
+  if (tab === 'skin') page = charSkinHtml(role);
+  else if (!me || !L) page = `<p class="hint">Sign in to set up the ${esc(R.name)}'s ${tab === 'chat' ? 'chat lines' : tab === 'splash' ? 'splash effect' : 'card treatments'}.</p>`;
+  else if (tab === 'chat') page = charChatHtml(role, L);
+  else if (tab === 'splash') page = charSplashHtml(role, L);
+  else page = charCardsHtml(role, L);
+  return `<div class="modal"><div class="paper spiral acctmodal storemodal skinshop charprofile">
+    <div class="row" style="justify-content:space-between;flex-wrap:nowrap">
+      <div class="row" style="flex-wrap:nowrap;gap:10px"><div class="pthumb idle charhead" style="background-image:url('${CHAR_ANIM.src(role, 'idle', mySkin(role))}')"></div>
+        <div><div class="panel-title" style="margin:0">${esc(R.name)}</div><span class="hint">Character profile${me ? '' : ' · sign in to customise'}</span></div></div>
+      <div class="row">${me ? `Balance ${fmtEB(me.balance)}` : ''}<button class="btn small" data-close>Close</button></div></div>
+    <div class="skintabs">${roleTabs}</div>
+    <div class="storetabs">${secTabs}</div>
+    <div class="storepage">${page}</div>
+    <div class="error">${esc(acct.msg)}</div>
+  </div></div>`;
+}
+// Send one change to this character's loadout.
+async function saveCharacter(role, change) {
+  try { acct.msg = ''; acct.me = (await acctApi('profile', { character: Object.assign({ role }, change) })).me; }
+  catch (err) { acct.msg = err.message; SFX.error(); }
+  render();
+}
+// Chat lines: up to CHAT_SLOTS equipped per character; they're the ones in the 💬 Chat menu during a game.
+function charChatHtml(role, L) {
+  const me = acct.me, R = ROLES[role];
+  const owned = CHAT.filter(c => me.owned.includes('chat:' + c.id));
+  const full = L.chat.length >= CHAT_SLOTS;
+  const slots = Array.from({ length: CHAT_SLOTS }, (_, i) => {
+    const c = CHAT.find(x => x.id === L.chat[i]);
+    return c ? `<div class="chatitem owned chatslot"><span class="chat-quote">“${esc(c.text)}”</span><span class="row" style="flex-wrap:nowrap;gap:6px"><span class="hint">${esc(chatGroupName(c.group))}</span><button class="btn small" data-chatunequip="${c.id}" title="Unequip">✕</button></span></div>`
+      : `<div class="chatitem chatslot empty"><span class="hint">Empty slot ${i + 1}</span></div>`;
+  }).join('');
+  const groups = CHAT_GROUP_ORDER.slice().sort((a, b) => (b === role) - (a === role)).filter(g => owned.some(c => c.group === g));
+  const g = groups.includes(acct.modal.chatGroup) ? acct.modal.chatGroup : groups[0];
+  const gtabs = groups.map(x => `<button class="skintab ${x === g ? 'on' : ''}" data-charchatgroup="${x}">${esc(chatGroupName(x))} <small>${owned.filter(c => c.group === x).length}</small></button>`).join('');
+  const rows = owned.filter(c => c.group === g).map(c => {
+    const on = L.chat.includes(c.id);
+    const btn = on ? '<span class="tag equipped">Equipped</span>'
+      : `<button class="btn small brass" data-chatequip="${c.id}" ${full ? `disabled title="All ${CHAT_SLOTS} slots are full: unequip a line first"` : ''}>Equip</button>`;
+    return `<div class="chatitem ${on ? 'owned' : ''}"><span class="chat-quote">“${esc(c.text)}”</span>${btn}</div>`;
+  }).join('');
+  return `<p class="hint" style="margin:0 0 8px">Equip up to ${CHAT_SLOTS} of your chat lines for the ${esc(R.name)}. They're the lines in your 💬 Chat menu whenever you play this character.${L.chatCustom ? '' : ' (Until you change them, your first owned lines are equipped, this character\'s own lines first.)'}</p>
+    <div class="chatlist chatslots">${slots}</div>
+    <div class="panel-title" style="margin:12px 0 4px">Your chat lines <span class="hint" style="text-transform:none;letter-spacing:0">— ${owned.length} owned · <button class="linkbtn" data-gostore="chat">buy more in the store</button></span></div>
+    ${owned.length ? `<div class="skintabs">${gtabs}</div><div class="chatlist" style="margin-top:8px">${rows}</div>` : '<p class="hint">You don\'t own any chat lines yet.</p>'}`;
+}
+// Splash effect: the account-wide one (set in the store), none, or a different owned effect for this character.
+function charSplashHtml(role, L) {
+  const me = acct.me, R = ROLES[role];
+  const ownedFx = SPLASHES.filter(s => me.owned.includes('splash:' + s.id));
+  const globalFx = SPLASHES.find(s => s.id === me.splash && me.owned.includes('splash:' + s.id));
+  const pick = L.splashCustom ? (L.splash || 'none') : 'default';
+  const demoCard = id => ({ splash: 'Manatee', stink: 'BurmesePython' }[id] || 'Flamingo');
+  const opt = (val, title, blurb, fx) => `<div class="storeitem ${pick === val ? 'picked' : ''}">
+      <div class="storeprev splashprev">${fx ? `<button class="splashdemo" data-splashpreview="${fx}" title="Preview">${cardEl(demoCard(fx))}<span>▶ Preview</span></button>` : `<div class="splashdemo">${cardEl('Flamingo')}<span>No effect</span></div>`}</div>
+      <div class="storeinfo"><b>${esc(title)}</b><span class="hint">${esc(blurb)}</span></div>
+      <div>${pick === val ? '<span class="tag equipped">In use</span>' : `<button class="btn brass" data-charsplash="${val}">Use</button>`}</div></div>`;
+  return `<p class="hint" style="margin:0 0 8px">The burst that plays over every card you play as the ${esc(R.name)}. Everyone at the table sees it.</p>
+    <div class="storelist">
+      ${opt('default', `Account default${globalFx ? ` (${globalFx.name})` : ' (none)'}`, 'Follows the effect you pick in the store\'s Splash effects tab.', globalFx && globalFx.id)}
+      ${opt('none', 'No effect', `The ${R.name}'s cards land without a splash.`, null)}
+      ${ownedFx.map(s => opt(s.id, s.name, s.blurb, s.id)).join('')}
+    </div>
+    <p class="hint">${ownedFx.length ? '' : 'You don\'t own any splash effects yet. '}<button class="linkbtn" data-gostore="splash">Get splash effects in the store</button></p>`;
+}
+// Card treatments: for each card you own a treatment for (foil, and more later), pick which one this character shows.
+function charCardsHtml(role, L) {
+  const me = acct.me, R = ROLES[role];
+  const ownedTs = id => TREATMENTS.filter(t => me.owned.includes(t.id + ':' + id));
+  const decks = { Native: Object.values(CARDS).filter(c => c.kind === 'Native').map(c => c.id), Invasive: Object.values(CARDS).filter(c => c.kind === 'Invasive').map(c => c.id), Disruption: Object.keys(DISRUPTIONS) };
+  const mine = Object.fromEntries(Object.entries(decks).map(([d, ids]) => [d, ids.filter(id => ownedTs(id).length)]));
+  const all = Object.values(mine).flat();
+  if (!all.length) return `<p class="hint">Card treatments make the cards dealt to you shine (only you see them). You don't own any yet: foil versions of every card are in the store.</p>
+    <button class="btn brass" data-gostore="foil">Browse foil cards</button>`;
+  const deck = mine[acct.modal.deck] && mine[acct.modal.deck].length ? acct.modal.deck : Object.keys(mine).find(d => mine[d].length);
+  const tabs = Object.keys(mine).filter(d => mine[d].length).map(d => `<button class="skintab ${d === deck ? 'on' : ''}" data-chardeck="${d}">${d} <small>${mine[d].filter(id => L.finish[id]).length}/${mine[d].length}</small></button>`).join('');
+  const items = mine[deck].map(id => {
+    const cur = L.finish[id] || 'none', cls = (TREATMENTS.find(t => t.id === cur) || {}).cls || '';
+    const opts = [{ id: 'none', name: 'Plain' }, ...ownedTs(id)].map(t => `<button class="seg ${cur === t.id ? 'on' : ''}" data-charfinish="${id}:${t.id}">${esc(t.name)}</button>`).join('');
+    return `<div class="foilitem">${deck === 'Disruption' ? disEl(id, cls) : cardEl(id, cls)}<div class="segs">${opts}</div></div>`;
+  }).join('');
+  return `<p class="hint" style="margin:0 0 8px">Choose, card by card, how your cards look when they're dealt to you as the ${esc(R.name)} (only you see them). New treatments will show up here as they arrive.</p>
+    <div class="row" style="justify-content:space-between"><div class="skintabs">${tabs}</div>
+      <div class="row"><button class="btn small brass" data-charfinishall="default">Everything on</button><button class="btn small" data-charfinishall="none">All plain</button></div></div>
+    <div class="foilgrid" style="margin-top:8px">${items}</div>
+    <p class="hint"><button class="linkbtn" data-gostore="foil">Get more foil cards in the store</button></p>`;
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-chartab]:not([data-skinshop]),[data-charchatgroup],[data-chardeck],[data-chatequip],[data-chatunequip],[data-charsplash],[data-charfinish],[data-charfinishall],[data-gostore]');
+  if (!t) return;
+  if (t.dataset.gostore) { acct.storeTab = t.dataset.gostore; acct.modal = 'store'; acct.msg = ''; return render(); }
+  if (!acct.modal || !acct.modal.skins) return;
+  const role = acct.modal.skins, L = myLoadout(role);
+  if (t.dataset.chartab) { acct.modal = Object.assign({}, acct.modal, { tab: t.dataset.chartab }); acct.msg = ''; return render(); }
+  if (t.dataset.charchatgroup) { acct.modal = Object.assign({}, acct.modal, { chatGroup: t.dataset.charchatgroup }); return render(); }
+  if (t.dataset.chardeck) { acct.modal = Object.assign({}, acct.modal, { deck: t.dataset.chardeck }); return render(); }
+  if (!L) return;
+  if (t.dataset.chatequip) return saveCharacter(role, { chat: L.chat.concat(t.dataset.chatequip) });
+  if (t.dataset.chatunequip) return saveCharacter(role, { chat: L.chat.filter(id => id !== t.dataset.chatunequip) });
+  if (t.dataset.charsplash) return saveCharacter(role, { splash: t.dataset.charsplash === 'none' ? null : t.dataset.charsplash });
+  if (t.dataset.charfinish) { const [card, tr] = t.dataset.charfinish.split(':'); return saveCharacter(role, { finish: { [card]: tr } }); }
+  if (t.dataset.charfinishall) {
+    const owned = [...Object.keys(CARDS), ...Object.keys(DISRUPTIONS)].filter(id => TREATMENTS.some(x => acct.me.owned.includes(x.id + ':' + id)));
+    return saveCharacter(role, { finish: Object.fromEntries(owned.map(id => [id, t.dataset.charfinishall])) });
+  }
+});
+// The Skin tab: the character's skin shop, with the big animated preview.
+function charSkinHtml(role) {
+  const R = ROLES[role], me = acct.me;
   const skins = SKINS.filter(s => s.role === role && ownsSkinOk(s));
   const on = mySkin(role);
   const view = acct.modal.view !== undefined ? acct.modal.view : on; // which look the big preview shows
   const viewing = skins.find(s => s.id === view);
   const owned = s => !!me && me.owned.includes('skin:' + s.id);
-  const tabs = Object.keys(ROLES).map(r => `<button class="skintab ${r === role ? 'on' : ''}" data-skinshop="${r}">${esc(ROLES[r].name)}</button>`).join('');
   const tile = (s) => { // s = a skin, or null for the original look
     const id = s ? s.id : null, isOn = on === id;
     let action;
@@ -703,11 +826,7 @@ function skinShopModal() {
         <div class="pthumb idle" style="background-image:url('${CHAR_ANIM.src(role, 'idle', id)}')"></div></button>
       <b>${esc(s ? s.name : 'Original')}</b>${action}</div>`;
   };
-  return `<div class="modal"><div class="paper spiral acctmodal skinshop">
-    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">${esc(R.name)} skins</div>
-      <div class="row">${me ? `Balance ${fmtEB(me.balance)}` : ''}<button class="btn small" data-close>Close</button></div></div>
-    <div class="skintabs">${tabs}</div>
-    <div class="skinstage">
+  return `<div class="skinstage">
       <div class="skinprev"><canvas width="${CHAR_ANIM.w}" height="${CHAR_ANIM.h}" data-role="${role}" data-skin="${view || ''}"></canvas></div>
       <div class="skininfo">
         <h3>${esc(viewing ? viewing.name : 'The original')}</h3>
@@ -716,9 +835,7 @@ function skinShopModal() {
         <span class="btn small" ${peekAttrs(role, view)}>Hover here to read the role card</span>
       </div>
     </div>
-    <div class="skingrid">${tile(null)}${skins.map(tile).join('')}</div>
-    <div class="error">${esc(acct.msg)}</div>
-  </div></div>`;
+    <div class="skingrid" style="margin-top:10px">${tile(null)}${skins.map(tile).join('')}</div>`;
 }
 // The big preview in a skin shop plays every animation in turn.
 const PREVIEW_ORDER = ['idle', 'signature', 'cheer', 'think', 'shock', 'idle', 'upset'];
@@ -912,7 +1029,7 @@ document.addEventListener('click', async e => {
   const run = async (fn) => { try { acct.msg = ''; await fn(); } catch (err) { acct.msg = err.message; SFX.error(); } render(); };
   if (t.matches('[data-close]')) { acct.modal = null; acct.msg = ''; render(); }
   else if (t.matches('[data-skinshop]')) {
-    acct.modal = { skins: t.dataset.skinshop }; acct.msg = '';
+    acct.modal = { skins: t.dataset.skinshop, tab: t.dataset.chartab || 'skin' }; acct.msg = ''; // switching character keeps the open tab
     if (t.dataset.skinview) acct.modal.view = t.dataset.skinview;
     if (acct.me) await refreshMe();
     render();
@@ -1111,10 +1228,10 @@ function renderLanding() {
   let qRoom = new URLSearchParams(location.search).get('room') || '';
   if (!qRoom) try { qRoom = sessionStorage.getItem('eg_pending_room') || ''; if (qRoom && acct.me) sessionStorage.removeItem('eg_pending_room'); } catch {}
   // the six characters, gently idling (CSS steps through each one's idle strip), in the skins you have on.
-  // Click one to open its skin shop.
-  const cast = Object.keys(ROLES).map((r, i) => `<button class="castmember" data-skinshop="${r}" title="${esc(ROLES[r].name)} skins">
+  // Click one to open its character profile (skin, chat lines, splash effect, card treatments).
+  const cast = Object.keys(ROLES).map((r, i) => `<button class="castmember" data-skinshop="${r}" title="${esc(ROLES[r].name)}: character profile">
       <div class="pthumb idle" style="background-image:url('${CHAR_ANIM.src(r, 'idle', mySkin(r))}');animation-delay:-${(i * 0.83).toFixed(2)}s"></div>
-      <span class="castname">${esc(ROLES[r].name)}</span><span class="castshop">Skins</span></button>`).join('');
+      <span class="castname">${esc(ROLES[r].name)}</span><span class="castshop">Profile</span></button>`).join('');
   $app.innerHTML = `
   <div class="landing home">
     ${musicBtnHtml()}
@@ -1328,12 +1445,23 @@ function disEl(id, cls = '', extra = '', who = '') {
   return `<div class="card eco dis ${cls}" data-peek="${d.img}" ${extra}><img src="${d.img}" alt="${esc(d.name)}" loading="lazy">${who ? `<div class="who">${esc(who)}</div>` : ''}</div>`;
 }
 const disBack = (who = '') => `<div class="card eco dis facedown"><img src="assets/cards/disruption/back.png" alt="Face-down Disruption">${who ? `<div class="who">${esc(who)}</div>` : ''}</div>`;
-// Foil cards: shown shiny only to the player who owns the foil, for cards dealt to them.
-function ownsFoil(id) {
-  const owned = (S && S.myAccount && S.myAccount.owned) || (acct.me && acct.me.owned) || [];
-  return owned.includes('foil:' + id);
+// Card treatments (foil, …): shown only to the player who owns them, for cards dealt to them. Which treatment a
+// card shows is set per character in its character profile; before a role is chosen, every owned one shows.
+function myLoadout(role) {
+  const me = (S && S.myAccount) || acct.me;
+  return (me && me.chars && role && me.chars[role]) || null;
 }
-const foil = id => ownsFoil(id) ? 'foil' : '';
+function treatmentCls(id, role = S && S.role) {
+  const L = myLoadout(role);
+  let t = L ? L.finish[id] : null;
+  if (!L) {
+    const owned = ((S && S.myAccount) || acct.me || {}).owned || [];
+    t = (TREATMENTS.find(x => owned.includes(x.id + ':' + id)) || {}).id;
+  }
+  const T = TREATMENTS.find(x => x.id === t);
+  return T ? T.cls : '';
+}
+const foil = id => treatmentCls(id);
 function biomeEl(id, cls = '', extra = '') {
   const b = BIOMES[id];
   return `<div class="card bio ${cls}" data-peek="${b.img}" ${extra}><img src="${b.img}" alt="${esc(b.name)}"></div>`;

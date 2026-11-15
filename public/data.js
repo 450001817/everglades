@@ -300,6 +300,15 @@
 
   // Foil cards: a shiny version of any Ecology or Disruption card, seen only by the player who owns it.
   const FOIL_PRICE = 100;
+  // Card treatments: finishes a player can own for a card (stored on accounts as '<id>:<card id>', e.g. 'foil:Manatee').
+  // Each character profile chooses, card by card, which owned treatment shows (or none). `cls` is the CSS class
+  // the card gets in style.css. Add future treatments here (and sell them in accounts.js STORE); they appear in
+  // the character profiles automatically. The first treatment owned in this list is the default for a card.
+  const TREATMENTS = [
+    { id: 'foil', name: 'Foil', cls: 'foil' },
+  ];
+  // How many chat lines each character can have equipped at once (picked in the character profiles).
+  const CHAT_SLOTS = 5;
 
   // Splash effects: a burst that plays over your card whenever you play one (everyone at the table sees it).
   // Bought in the store's Splash effects tab and equipped like a title; drawn by playSplash() in client.js.
@@ -310,7 +319,7 @@
     { id: 'stink', name: 'Stink cloud', price: 0, exclusive: true, blurb: 'Goblin Ink staff exclusive: your card lands in a reeking green cloud.' },
   ];
 
-  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES, DISRUPTIONS, FOIL_PRICE, SPLASHES, SPLASH_PRICE };
+  const DATA = { CARDS, REGIONS, ADJ, BIOMES, ROLES, BOSS, CHAR_ANIM, SKINS, CHAT, CHAT_GROUP_NAMES, DISRUPTIONS, FOIL_PRICE, TREATMENTS, CHAT_SLOTS, SPLASHES, SPLASH_PRICE };
   if (typeof module !== 'undefined' && module.exports) module.exports = DATA;
   else root.EG_DATA = DATA;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -6,7 +6,7 @@
 'use strict';
 const path = require('path');
 const crypto = require('crypto');
-const { CARDS, ROLES, SKINS, CHAT, DISRUPTIONS, FOIL_PRICE, SPLASHES } = require('./public/data.js');
+const { CARDS, ROLES, SKINS, CHAT, DISRUPTIONS, FOIL_PRICE, SPLASHES, TREATMENTS, CHAT_SLOTS } = require('./public/data.js');
 
 // ---------- economy settings (change freely) ----------
 const ECON = {
@@ -206,8 +206,76 @@ function unlockedAvatars(a) {
     ...SKINS.filter(s => a.owned.includes('skin:' + s.id)).map(s => 'skin:' + s.id),
     ...ANIMAL_AVATARS.filter(id => (a.cardWins[id] || 0) >= ECON.unlockWins).map(id => 'animal:' + id)];
 }
+// ---------- character profiles (one loadout per character, per account) ----------
+// a.chars[role] = { chat?: [chat ids], splash?: splash id | null, finish?: { [card id]: treatment id | 'none' } }
+// Anything left unset uses a default: the account-wide splash effect, the first CHAT_SLOTS owned lines (that
+// character's own lines first), and every owned treatment switched on. Only owned items ever count, so a loadout
+// can't show something its owner no longer has. (The skin lives in a.skins[role], as before.)
+const ALL_CARD_IDS = [...Object.keys(CARDS), ...Object.keys(DISRUPTIONS)];
+const charCfg = (a, role) => (a && a.chars && a.chars[role]) || {};
+function chatFor(a, role) {
+  if (!a) return [];
+  const owned = CHAT.filter(c => ownsChat(a, c.id));
+  const cfg = charCfg(a, role);
+  if (Array.isArray(cfg.chat)) return cfg.chat.filter(id => ownsChat(a, id)).slice(0, CHAT_SLOTS);
+  const rank = c => c.group === role ? 0 : c.group === 'Table' ? 1 : 2;
+  return owned.slice().sort((x, y) => rank(x) - rank(y)).slice(0, CHAT_SLOTS).map(c => c.id);
+}
+// the lines a seated player may send: their character's lines, or (before roles are chosen) any character's
+function chatAllowed(a, role) {
+  if (ROLES[role]) return chatFor(a, role);
+  return [...new Set(Object.keys(ROLES).flatMap(r => chatFor(a, r)))];
+}
+const ownsTreatment = (a, t, card) => !!a && a.owned.includes(t + ':' + card);
+function treatmentFor(a, role, card) { // the treatment id this card shows as (null = plain)
+  const pick = (charCfg(a, role).finish || {})[card];
+  if (pick === 'none') return null;
+  if (pick && ownsTreatment(a, pick, card)) return pick;
+  const t = TREATMENTS.find(t => ownsTreatment(a, t.id, card));
+  return t ? t.id : null;
+}
+// Change one character's loadout. chat: the full list of equipped line ids (max CHAT_SLOTS);
+// splash: an effect id, null for none, or 'default' to follow the account-wide effect;
+// finish: { [card id]: treatment id | 'none' | 'default' } (only the cards listed change).
+function setCharacter(a, { role, chat, splash, finish }) {
+  if (!ROLES[role]) throw userErr('That character does not exist.');
+  const c = Object.assign({}, charCfg(a, role));
+  if (chat !== undefined) {
+    if (!Array.isArray(chat)) throw userErr('Bad chat list.');
+    const ids = [...new Set(chat.map(String))];
+    if (ids.length > CHAT_SLOTS) throw userErr(`Each character can have up to ${CHAT_SLOTS} chat lines equipped.`);
+    for (const id of ids) {
+      if (!CHAT.some(l => l.id === id)) throw userErr('That chat line does not exist.');
+      if (!ownsChat(a, id)) throw userErr("You don't own that chat line yet.");
+    }
+    c.chat = ids;
+  }
+  if (splash !== undefined) {
+    if (splash === 'default') delete c.splash;
+    else if (splash === null) c.splash = null;
+    else if (!a.owned.includes('splash:' + splash)) throw userErr("You don't own that splash effect yet.");
+    else c.splash = splash;
+  }
+  if (finish !== undefined) {
+    if (!finish || typeof finish !== 'object' || Array.isArray(finish)) throw userErr('Bad card list.');
+    const f = Object.assign({}, c.finish);
+    for (const [card, t] of Object.entries(finish)) {
+      if (!ALL_CARD_IDS.includes(card)) throw userErr('That card does not exist.');
+      if (t === 'default') delete f[card];
+      else if (t === 'none') f[card] = 'none';
+      else if (!TREATMENTS.some(x => x.id === t)) throw userErr('That card treatment does not exist.');
+      else if (!ownsTreatment(a, t, card)) throw userErr("You don't own that card treatment yet.");
+      else f[card] = t;
+    }
+    c.finish = f;
+  }
+  a.chars = Object.assign({}, a.chars, { [role]: c });
+}
+
 // skin: { role, id } equips skin `id` for that character; id null goes back to the original look.
-function setProfile(a, { gamertag, avatar, title, skin, splash }) {
+// character: a loadout change for one character (see setCharacter).
+function setProfile(a, { gamertag, avatar, title, skin, splash, character }) {
+  if (character !== undefined) setCharacter(a, character || {});
   if (skin !== undefined) {
     const role = skin && skin.role, id = skin && skin.id;
     if (!ROLES[role]) throw userErr('That character does not exist.');
@@ -359,6 +427,10 @@ function buy(a, itemId) {
   if (item.type === 'title' && !a.title) a.title = item.id; // wear it straight away
   if (item.type === 'skin') a.skins = Object.assign({}, a.skins, { [item.role]: item.skin }); // equip it straight away
   if (item.type === 'splash') a.splash = item.splash; // switch to the new effect straight away
+  if (item.type === 'chat' && ROLES[item.group]) { // a character's own line goes into a free slot of that character
+    const c = charCfg(a, item.group);
+    if (Array.isArray(c.chat) && c.chat.length < CHAT_SLOTS) a.chars[item.group] = Object.assign({}, c, { chat: c.chat.concat(item.id.slice(5)) });
+  }
   save();
   return item;
 }
@@ -442,7 +514,21 @@ function skinFor(a, role) {
   const id = a && a.skins && a.skins[role];
   return id && a.owned.includes('skin:' + id) ? id : null;
 }
-const splashFor = a => (a && a.splash && a.owned.includes('splash:' + a.splash) ? a.splash : null); // the effect everyone sees
+// The splash effect everyone sees when this account plays a card as `role` (no role: the account-wide effect).
+function splashFor(a, role) {
+  if (!a) return null;
+  const c = charCfg(a, role);
+  const id = ROLES[role] && c.splash !== undefined ? c.splash : a.splash;
+  return id && a.owned.includes('splash:' + id) ? id : null;
+}
+// Each character's loadout as the owner sees it in its profile (and as the game uses it).
+function charProfiles(a) {
+  return Object.fromEntries(Object.keys(ROLES).map(role => {
+    const c = charCfg(a, role), finish = {};
+    for (const card of ALL_CARD_IDS) { const t = treatmentFor(a, role, card); if (t) finish[card] = t; }
+    return [role, { chat: chatFor(a, role), chatCustom: Array.isArray(c.chat), splash: splashFor(a, role), splashCustom: c.splash !== undefined, finish }];
+  }));
+}
 function publicProfile(a) { // shown to everyone (lobby banner)
   return { id: a.id, gamertag: a.gamertag, avatar: a.avatar, avatarSrc: avatarSrc(a.avatar), title: a.title, titleName: titleName(a.title), titleStyle: titleStyle(a.title),
     skins: Object.fromEntries(Object.keys(ROLES).map(r => [r, skinFor(a, r)]).filter(x => x[1])), splash: splashFor(a) };
@@ -453,6 +539,7 @@ function privateProfile(a) { // shown to the account owner
     staff: !!a.staff, exclusiveStore: EXCLUSIVE.filter(i => a.owned.includes(i.id) || (a.staff && !i.promo)), // exclusives show only in their owners' stores
     inbox: (a.inbox || []).map(m => ({ id: m.id, kind: m.kind, amount: m.amount, note: m.note, at: m.at, item: m.item || null, itemName: m.item ? titleName(m.item) : null })), // unopened letters
     unlocked: unlockedAvatars(a),
+    chars: charProfiles(a), // per-character chat lines, splash effect and card treatments
   });
 }
 function config() {
@@ -498,6 +585,6 @@ function adjustPurchase(paymentIntent, change) {
 module.exports = {
   ECON, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
-  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, splashFor, ownsChat, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
+  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, splashFor, ownsChat, chatFor, chatAllowed, treatmentFor, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
   friendRequest, friendRespond, friendRemove, friendsOf, isFriend,
 };

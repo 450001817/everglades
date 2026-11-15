@@ -147,7 +147,7 @@ function viewFor(room, member) {
         role: p.role, // roles are public
         skin: a && typeof p.role === 'string' ? A.skinFor(a, p.role) : null, // the look everyone sees for this player's character
         profile: a ? A.publicProfile(a) : null,
-        splash: A.splashFor(a), // the splash effect everyone sees when this player plays a card
+        splash: A.splashFor(a, p.role), // the splash effect everyone sees when this player plays a card (set per character)
       };
     }),
     settlement: room.settlement, // Eco-buck payouts once the game is over
@@ -506,7 +506,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (op === 'profile') {
         const a = A.requireAccount(body.session);
-        A.setProfile(a, { gamertag: body.gamertag, avatar: body.avatar, title: body.title, skin: body.skin, splash: body.splash });
+        A.setProfile(a, { gamertag: body.gamertag, avatar: body.avatar, title: body.title, skin: body.skin, splash: body.splash, character: body.character });
         // update lobby banners, and the portraits of anyone already at a table (a skin change shows straight away)
         for (const r of rooms.values()) if (r.members.some(m => m.accountId === a.id)) broadcast(r);
         return send(res, 200, { me: A.privateProfile(a) });
@@ -675,11 +675,13 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { ok: true });
       }
       if (op === 'chat') {
-        // a preset chat line the player owns, shown as a speech bubble over their seat for everyone
+        // a preset chat line the player has equipped for their character (in its character profile), shown as a
+        // speech bubble over their seat for everyone
         const seat = seatOf(room, m.pid);
         if (seat < 0 || s.phase === 'lobby') return send(res, 400, { error: 'Chat lines can be sent during a game.' });
         const line = CHAT.find(c => c.id === body.line);
         if (!line || !A.ownsChat(memberAccount(m), line.id)) return send(res, 400, { error: "You don't own that chat line." });
+        if (!A.chatAllowed(memberAccount(m), s.players[seat].role).includes(line.id)) return send(res, 400, { error: 'That chat line is not equipped for your character.' });
         const now = Date.now();
         if (now - (m.lastChat || 0) < CHAT_COOLDOWN_MS) return send(res, 429, { error: 'Slow down a little!' });
         m.lastChat = now;
