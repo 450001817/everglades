@@ -211,6 +211,7 @@
     { id: 'maribel', role: 'Hunter',          name: 'Maribel', blurb: 'Tracks hogs through the hammocks before sunrise.' },
     { id: 'kenji',   role: 'Fisherman',       name: 'Kenji',   blurb: 'Forty years on Florida Bay. Knows every channel by heart.' },
     { id: 'dot',     role: 'Fisherman',       name: 'Dot',     blurb: 'Out-fishes the whole marina and lets them know it.' },
+    { id: 'wade',    role: 'Fisherman',       name: 'Coastguardsman Wade', blurb: 'Semper Paratus. Always ready to haul you out of the mangroves.' },
     { id: 'tomas',   role: 'Conservationist', name: 'Tomás',   blurb: 'A young ranger with a speech for every occasion.' },
     { id: 'leona',   role: 'Conservationist', name: 'Leona',   blurb: 'Speaks for the River of Grass, and people listen.' },
     { id: 'earl',    role: 'LandDeveloper',   name: 'Earl',    blurb: 'Sold swampland once. Plans to do it again.' },
