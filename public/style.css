@@ -101,7 +101,29 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
   background: linear-gradient(180deg, rgba(25, 12, 30, .05) 0%, rgba(25, 12, 30, .25) 55%, rgba(20, 10, 18, .6) 100%);
 }
 .landing > * { position: relative; }
-.landing > .musicbtn { position: fixed; top: 12px; right: 12px; z-index: 5; }
+.landing > .musicbtn { position: fixed; top: 12px; right: 12px; z-index: 5; display: flex; gap: 6px; }
+/* ---------- friends dropdown (client.js renderFriends) ---------- */
+.friendsbtn .fon { display: inline-block; min-width: 16px; padding: 0 3px; background: #2a9a4a; color: #fff; border: 2px solid var(--ink); font-size: 12px; line-height: 14px; text-align: center; }
+.friendsbtn .fbadge .badge { margin: 0 0 0 3px; }
+.friendspanel { position: fixed; top: 58px; right: 12px; z-index: 60; width: min(380px, calc(100vw - 24px)); max-height: calc(100dvh - 76px);
+  padding: 12px 12px 12px 30px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.friendspanel.hidden { display: none; }
+.friendspanel .flist { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 4px; padding-right: 2px; }
+.friendspanel .fsec { font-family: var(--font-small); font-size: 15px; text-transform: uppercase; letter-spacing: .5px; color: #6b5f48; margin: 6px 0 0; border-bottom: 2px dashed #cfc6a8; }
+.friendspanel .frow { display: flex; align-items: center; gap: 6px; padding: 3px 4px; background: var(--paper-2); border: 2px solid var(--ink); }
+.friendspanel .frow.off { opacity: .7; }
+.friendspanel .frow.invite { background: #fff3cf; }
+.friendspanel .fname { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.1; }
+.friendspanel .fname b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friendspanel .fname .hint { font-size: 13px; margin: 0; }
+.friendspanel .fdot { width: 9px; height: 9px; flex-shrink: 0; background: #9a917c; border: 2px solid var(--ink); }
+.friendspanel .fdot.on { background: #3ccf63; }
+.friendspanel .btn.small { padding: 3px 8px; font-size: 14px; }
+.friendspanel .btn.fx { padding: 3px 6px; }
+.friendspanel .fempty { margin: 2px 0; font-size: 14px; }
+.friendspanel .fmsg { font-size: 15px; color: #2a7a3e; }
+.friendspanel .fmsg.error { color: var(--red); }
+@media (max-width: 700px) { .friendspanel { top: 52px; right: 8px; width: calc(100vw - 16px); padding-left: 24px; } }
 .landing-card { width: min(480px, 100%); padding: 24px 22px 22px 42px; max-height: calc(100dvh - 32px); overflow: auto; }
 .landing-inner { display: grid; grid-template-columns: minmax(0, 600px) minmax(300px, 420px); gap: 28px; align-items: center; width: min(1080px, 100%); margin: auto; }
 .landing-inner .landing-card { width: 100%; max-height: none; }

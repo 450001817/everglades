@@ -21,10 +21,14 @@ const A = require('./accounts.js');
 
 // `retired` packs are no longer sold, but payments for them still credit (a checkout opened before the change).
 const EB_PACKS = [
-  { id: 'eb100', eb: 100, cents: 100, retired: true },
-  { id: 'eb500', eb: 500, cents: 500 },
-  { id: 'eb1000', eb: 1000, cents: 900 },
-  { id: 'eb2000', eb: 2000, cents: 1500, tag: 'Best value' },
+  { id: 'eb100', eb: 100, cents: 100 },
+  { id: 'eb600', eb: 600, cents: 500 },
+  { id: 'eb1400', eb: 1400, cents: 1000 },
+  { id: 'eb3500', eb: 3500, cents: 2000, tag: 'Best value' },
+  // retired
+  { id: 'eb500', eb: 500, cents: 500, retired: true },
+  { id: 'eb1000', eb: 1000, cents: 900, retired: true },
+  { id: 'eb2000', eb: 2000, cents: 1500, retired: true },
 ];
 const API = 'https://api.stripe.com/v1';
 const key = () => process.env.STRIPE_SECRET_KEY || '';

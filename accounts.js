@@ -12,7 +12,8 @@ const { CARDS, ROLES, SKINS, CHAT, DISRUPTIONS, FOIL_PRICE, SPLASHES } = require
 const ECON = {
   startingBalance: 50,         // EB every new account starts with
   dailyBonus: 50,              // EB for the first sign-in or visit of each day (UTC calendar day)
-  buyIns: [5, 50, 150, 500],   // lobby buy-in options
+  buyIns: [0, 5, 50, 150, 500], // lobby buy-in options (0 = a free table, just for fun: no bid, no payouts)
+  defaultBuyIn: 5,             // a new table's buy-in
   unlockWins: 5,               // tricks won with an animal card to unlock its profile picture
 };
 
@@ -176,7 +177,7 @@ function grantStaff(a) {
 function giftByTag(staff, tag, amount) {
   if (!staff || !staff.staff) throw userErr('Only Goblin Ink staff can gift Eco-bucks.');
   const a = db.accounts[db.tags[String(tag || '').trim().toLowerCase()]];
-  if (!a) throw userErr('No player has that gamertag.');
+  if (!a) throw userErr('No player has that username.');
   amount = Math.floor(Number(amount));
   if (!(amount >= 1 && amount <= 100000)) throw userErr('Gift between 1 and 100,000 EB.');
   sendMail(a, 'gift', amount, 'A gift from Goblin Ink');
@@ -219,9 +220,9 @@ function setProfile(a, { gamertag, avatar, title, skin, splash }) {
   }
   if (gamertag !== undefined) {
     const t = String(gamertag).trim();
-    if (!/^[A-Za-z0-9_ .-]{3,16}$/.test(t)) throw userErr('Gamertags are 3–16 letters, numbers, spaces, dots, dashes or underscores.');
+    if (!/^[A-Za-z0-9_ .-]{3,16}$/.test(t)) throw userErr('Usernames are 3–16 letters, numbers, spaces, dots, dashes or underscores.');
     const owner = db.tags[t.toLowerCase()];
-    if (owner && owner !== a.id) throw userErr('That gamertag is taken.');
+    if (owner && owner !== a.id) throw userErr('That username is taken.');
     delete db.tags[a.gamertag.toLowerCase()];
     a.gamertag = t; db.tags[t.toLowerCase()] = a.id;
   }
@@ -292,6 +293,60 @@ function openMail(a, id) {
   const items = list.map(m => deliver(a, m)).filter(Boolean).map(it => it.name);
   saveNow();
   return { opened: list.length, amount, items };
+}
+
+// ---------- friends ----------
+// Friend requests go to a username. a.friends: account ids; a.friendIn: ids who asked you; a.friendOut: ids you asked.
+const FRIENDS_MAX = 200, REQUESTS_MAX = 50;
+function friendLists(a) { a.friends = a.friends || []; a.friendIn = a.friendIn || []; a.friendOut = a.friendOut || []; return a; }
+const drop = (list, id) => list.filter(x => x !== id);
+function befriend(a, b) {
+  friendLists(a); friendLists(b);
+  if (!a.friends.includes(b.id)) a.friends.push(b.id);
+  if (!b.friends.includes(a.id)) b.friends.push(a.id);
+  a.friendIn = drop(a.friendIn, b.id); a.friendOut = drop(a.friendOut, b.id);
+  b.friendIn = drop(b.friendIn, a.id); b.friendOut = drop(b.friendOut, a.id);
+}
+// returns { to, status: 'sent' | 'friends' } ('friends' when they had already asked you: that's an instant yes)
+function friendRequest(a, username) {
+  friendLists(a);
+  const b = db.accounts[db.tags[String(username || '').trim().toLowerCase()]];
+  if (!b) throw userErr('No player has that username.');
+  if (b.id === a.id) throw userErr("That's you!");
+  friendLists(b);
+  if (a.friends.includes(b.id)) throw userErr(`You and ${b.gamertag} are already friends.`);
+  if (a.friendIn.includes(b.id)) { befriend(a, b); save(); return { to: b.gamertag, status: 'friends', accountId: b.id }; }
+  if (a.friendOut.includes(b.id)) throw userErr(`You already sent ${b.gamertag} a request.`);
+  if (a.friends.length >= FRIENDS_MAX) throw userErr(`You can have up to ${FRIENDS_MAX} friends.`);
+  if (a.friendOut.length >= REQUESTS_MAX || b.friendIn.length >= REQUESTS_MAX) throw userErr('Too many friend requests are waiting. Try again later.');
+  a.friendOut.push(b.id); b.friendIn.push(a.id); save();
+  return { to: b.gamertag, status: 'sent', accountId: b.id };
+}
+function friendRespond(a, fromId, accept) {
+  friendLists(a);
+  const b = db.accounts[fromId];
+  if (!b || !a.friendIn.includes(fromId)) throw userErr('That friend request is no longer there.');
+  if (accept) {
+    if (a.friends.length >= FRIENDS_MAX) throw userErr(`You can have up to ${FRIENDS_MAX} friends.`);
+    befriend(a, b);
+  } else { a.friendIn = drop(a.friendIn, fromId); friendLists(b).friendOut = drop(b.friendOut, a.id); }
+  save();
+  return b;
+}
+// unfriend, or cancel a request you sent
+function friendRemove(a, id) {
+  friendLists(a); const b = db.accounts[id];
+  a.friends = drop(a.friends, id); a.friendOut = drop(a.friendOut, id); a.friendIn = drop(a.friendIn, id);
+  if (b) { friendLists(b); b.friends = drop(b.friends, a.id); b.friendIn = drop(b.friendIn, a.id); b.friendOut = drop(b.friendOut, a.id); }
+  save();
+}
+const isFriend = (a, id) => !!a && (a.friends || []).includes(id);
+// what the friends list shows about a player
+const friendCard = b => ({ id: b.id, username: b.gamertag, avatarSrc: avatarSrc(b.avatar), titleName: titleName(b.title), titleStyle: titleStyle(b.title) });
+function friendsOf(a) {
+  friendLists(a);
+  const cards = ids => ids.map(id => db.accounts[id]).filter(Boolean).map(friendCard);
+  return { friends: cards(a.friends), incoming: cards(a.friendIn), outgoing: cards(a.friendOut) };
 }
 
 // ---------- store ----------
@@ -444,4 +499,5 @@ module.exports = {
   ECON, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
   publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, splashFor, ownsChat, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
+  friendRequest, friendRespond, friendRemove, friendsOf, isFriend,
 };

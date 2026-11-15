@@ -49,6 +49,37 @@ const BOT_NAMES = ['Gator Bot', 'Heron Bot', 'Manatee Bot', 'Otter Bot', 'Panthe
 
 const rooms = new Map(); // code -> room
 
+// ---------- friends: who's online, and table invites (kept in memory only) ----------
+// A player counts as online if their browser asked the server anything in the last ONLINE_MS (the home page polls
+// the friends list every 20 seconds), or they're connected to a table.
+const ONLINE_MS = 60e3, INVITE_MS = 10 * 60e3;
+const lastSeen = new Map(); // accountId -> time
+const invites = new Map(); // accountId -> [{ id, fromId, from, room, at }]
+const seen = a => { if (a) lastSeen.set(a.id, Date.now()); };
+// where a player is: { online, where: 'lobby' | 'game' | null, room }
+function presence(accountId) {
+  for (const r of rooms.values()) {
+    const m = r.members.find(x => x.accountId === accountId);
+    if (!m || ![...r.clients].some(c => c.pid === m.pid)) continue;
+    const where = r.tutorial ? 'tutorial' : ['lobby', 'ended'].includes(r.game.phase) ? 'lobby' : 'game';
+    // a friend's table code is shared only if anyone may join it anyway (a public table waiting for players)
+    return { online: true, where, room: where === 'lobby' && r.public && r.game.phase === 'lobby' ? r.code : null };
+  }
+  return { online: Date.now() - (lastSeen.get(accountId) || 0) < ONLINE_MS, where: null, room: null };
+}
+function invitesFor(accountId) {
+  const now = Date.now();
+  const list = (invites.get(accountId) || []).filter(v => now - v.at < INVITE_MS && rooms.has(v.room) && rooms.get(v.room).game.phase === 'lobby');
+  if (list.length) invites.set(accountId, list); else invites.delete(accountId);
+  return list;
+}
+function friendsView(a) {
+  const f = A.friendsOf(a);
+  f.friends = f.friends.map(x => Object.assign(x, presence(x.id)))
+    .sort((x, y) => (y.online - x.online) || x.username.localeCompare(y.username, undefined, { sensitivity: 'base' }));
+  return Object.assign(f, { invites: invitesFor(a.id).map(v => ({ id: v.id, from: v.from, room: v.room, at: v.at })) });
+}
+
 function code() {
   const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   let c;
@@ -61,7 +92,7 @@ function newRoom() {
   const room = { code: code(), members: [], hostPid: null, game: G.newGame(), clients: new Set(), touched: Date.now(), botTimer: null, chatter: [], chatId: 0, pauseUntil: 0, tricksSeen: 0,
     reactions: [], reactId: 0, evSeen: 0, speed: 'normal',
     public: false, turnTimer: true, strikes: {}, deadline: null, deadlineTimer: null, // see TURN_MS
-    buyIn: A.ECON.buyIns[0], gameId: null, settlement: null };
+    buyIn: A.ECON.defaultBuyIn, gameId: null, settlement: null };
   rooms.set(room.code, room);
   return room;
 }
@@ -98,7 +129,7 @@ function viewFor(room, member) {
     buyIn: room.buyIn, buyIns: A.ECON.buyIns,
     lobby: room.members.map(m => {
       const a = memberAccount(m);
-      return { pid: m.pid, name: a ? a.gamertag : m.name, bot: m.bot, team: m.team ?? null, host: m.pid === room.hostPid, online: m.bot || connected.has(m.pid), confirmed: m.bot || !!m.confirmed,
+      return { pid: m.pid, name: a ? a.gamertag : m.name, bot: m.bot, team: m.team ?? null, host: m.pid === room.hostPid, online: m.bot || connected.has(m.pid), confirmed: m.bot || !!m.confirmed || room.buyIn === 0,
         profile: a ? A.publicProfile(a) : null, canAfford: m.bot || (a ? a.balance >= room.buyIn : false) };
     }),
     myAccount: memberAccount(member) ? A.privateProfile(memberAccount(member)) : null,
@@ -420,6 +451,7 @@ const server = http.createServer(async (req, res) => {
       if (op === 'me') {
         const a = A.bySession(body.session);
         if (!a) return send(res, 401, { error: 'Signed out.', needAuth: true });
+        seen(a);
         const bonus = A.dailyBonus(a);
         return send(res, 200, { me: A.privateProfile(a), bonus });
       }
@@ -428,6 +460,43 @@ const server = http.createServer(async (req, res) => {
         const r = A.giftByTag(a, body.tag, body.amount);
         for (const room of rooms.values()) if (room.members.some(m => m.accountId === r.accountId)) broadcast(room); // their envelope shows up straight away
         return send(res, 200, { to: r.to, amount: r.amount });
+      }
+      // ---------- friends (requests by username, who's online, table invites) ----------
+      if (op === 'friends') { const a = A.requireAccount(body.session); seen(a); return send(res, 200, friendsView(a)); }
+      if (op === 'friends/request') {
+        const a = A.requireAccount(body.session); seen(a);
+        const r = A.friendRequest(a, body.username);
+        return send(res, 200, Object.assign(friendsView(a), { to: r.to, status: r.status }));
+      }
+      if (op === 'friends/respond') {
+        const a = A.requireAccount(body.session); seen(a);
+        const b = A.friendRespond(a, String(body.id || ''), !!body.accept);
+        return send(res, 200, Object.assign(friendsView(a), { name: b.gamertag }));
+      }
+      if (op === 'friends/remove') {
+        const a = A.requireAccount(body.session); seen(a);
+        A.friendRemove(a, String(body.id || ''));
+        return send(res, 200, friendsView(a));
+      }
+      if (op === 'friends/invite') { // invite a friend to the table you're sitting at (it must still be in its lobby)
+        const a = A.requireAccount(body.session); seen(a);
+        const to = String(body.id || '');
+        if (!A.isFriend(a, to)) return send(res, 400, { error: 'You can only invite your friends.' });
+        const room = rooms.get(String(body.room || '').toUpperCase());
+        if (!room || !room.members.some(x => x.accountId === a.id)) return send(res, 400, { error: "You're not at that table." });
+        if (room.tutorial || room.game.phase !== 'lobby') return send(res, 400, { error: 'You can invite friends while your table is in its lobby.' });
+        if (room.members.some(x => x.accountId === to)) return send(res, 400, { error: "They're already at your table." });
+        if (room.members.length >= G.MAX_PLAYERS) return send(res, 400, { error: 'Your table is full.' });
+        const list = invitesFor(to).filter(v => !(v.fromId === a.id && v.room === room.code)); // a fresh invite replaces the old one
+        list.push({ id: rid().slice(0, 10), fromId: a.id, from: a.gamertag, room: room.code, at: Date.now() });
+        invites.set(to, list.slice(-10));
+        const b = A.get(to);
+        return send(res, 200, { ok: true, to: b ? b.gamertag : 'your friend' });
+      }
+      if (op === 'friends/dismiss') { // decline (or clear) a table invite
+        const a = A.requireAccount(body.session);
+        invites.set(a.id, invitesFor(a.id).filter(v => v.id !== body.id));
+        return send(res, 200, friendsView(a));
       }
       if (op === 'mail/open') { // open a letter (or 'all') and collect its Eco-bucks
         const a = A.requireAccount(body.session);
@@ -494,6 +563,7 @@ const server = http.createServer(async (req, res) => {
         if (already) return send(res, 200, { room: room.code, token: already.token }); // e.g. a second tab
         if (account.balance < room.buyIn) return send(res, 400, { error: `This table's buy-in is ${room.buyIn} EB, and you have ${account.balance} EB.` });
         const m = addMember(room, null, false, account);
+        if (invites.has(account.id)) invites.set(account.id, invitesFor(account.id).filter(v => v.room !== room.code)); // invite used
         broadcast(room);
         return send(res, 200, { room: room.code, token: m.token });
       }
@@ -558,7 +628,7 @@ const server = http.createServer(async (req, res) => {
             room.mode = mode;
           } else if (body.cmd === 'start') {
             if (s.phase !== 'lobby') return send(res, 400, { error: 'Already started.' });
-            const unconfirmed = room.members.filter(x => !x.bot && !x.confirmed);
+            const unconfirmed = room.buyIn === 0 ? [] : room.members.filter(x => !x.bot && !x.confirmed); // a free table has no bid to confirm
             if (unconfirmed.length) return send(res, 400, { error: `Waiting for ${unconfirmed.map(x => x.name).join(', ')} to confirm the ${room.buyIn} EB bid.` });
             // Always play with at least 4: fill empty seats with bots.
             while (room.members.length < MIN_TABLE) {

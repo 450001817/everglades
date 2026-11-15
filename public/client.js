@@ -139,7 +139,11 @@ function setSceneOnly(on) {
 }
 document.getElementById('sceneEye')?.addEventListener('click', () => setSceneOnly(!document.documentElement.classList.contains('scene-only')));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') setSceneOnly(false); });
-const musicBtnHtml = (cls = 'musicbtn') => `<button class="btn small ${cls}" id="musicBtn" title="Music on/off">${musicOn ? '♪ Music: On' : '♪ Music: Off'}</button>`;
+// The music toggle, with the friends dropdown button beside it (top right of the home page and lobby; in the game's top bar)
+const musicBtnHtml = (cls = 'musicbtn') => {
+  const music = `<button class="btn small" id="musicBtn" title="Music on/off">${musicOn ? '♪ Music: On' : '♪ Music: Off'}</button>`;
+  return cls ? `<div class="topctl ${cls}">${friendsBtnHtml()}${music}</div>` : friendsBtnHtml() + music;
+};
 document.addEventListener('click', e => {
   if (!e.target.closest('#musicBtn')) return;
   musicOn = !musicOn;
@@ -193,7 +197,7 @@ async function initAccounts() {
   try { acct.config = await acctApi('config', {}); } catch {}
   if (acct.session) await refreshMe();
   acct.loading = false; render();
-  if (acct.me) finishPurchase();
+  if (acct.me) { finishPurchase(); pollFriends(); }
 }
 async function refreshMe() { // also collects the daily log-in bonus, once per day
   if (!acct.session) return;
@@ -207,18 +211,19 @@ function announceBonus(n) {
   if (n > 0) setTimeout(() => showToast(`You've got mail! Your daily bonus is waiting.<small>Click the envelope to open it and collect ${n} EB.</small>`, false, 5000), 300);
 }
 async function signInGuest() {
-  try { const r = await acctApi('auth/guest', { deviceKey: deviceKey() }); setSession(r.session); acct.me = r.me; ui.err = ''; announceBonus(r.bonus); }
+  try { const r = await acctApi('auth/guest', { deviceKey: deviceKey() }); setSession(r.session); acct.me = r.me; ui.err = ''; announceBonus(r.bonus); pollFriends(); }
   catch (e) { ui.err = e.message; }
   render();
 }
 async function signInGoogle(credential) {
-  try { const r = await acctApi('auth/google', { credential }); setSession(r.session); acct.me = r.me; ui.err = ''; announceBonus(r.bonus); if (r.gift) setTimeout(() => showToast(`You've got mail: a gift from Goblin Ink!<small>Click the envelope to open it.</small>`, false, 6000), 1200); }
+  try { const r = await acctApi('auth/google', { credential }); setSession(r.session); acct.me = r.me; ui.err = ''; announceBonus(r.bonus); pollFriends(); if (r.gift) setTimeout(() => showToast(`You've got mail: a gift from Goblin Ink!<small>Click the envelope to open it.</small>`, false, 6000), 1200); }
   catch (e) { ui.err = e.message; }
   render();
 }
 async function signOut() {
   try { await acctApi('auth/signout', {}); } catch {}
   setSession(null); acct.me = null; acct.modal = null;
+  fr.data = null; fr.open = false; fr.first = true; renderFriends();
   if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
   render();
 }
@@ -316,8 +321,8 @@ function profileModal() {
     <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Your profile</div><button class="btn small" data-close>Close</button></div>
     ${bannerHtml(me, { size: 'big', extra: `<div class="pb-bal">${fmtEB(me.balance)}</div>` })}
     <div class="row" style="flex-wrap:nowrap">
-      <input id="tagInput" class="field" maxlength="16" value="${esc(me.gamertag)}" aria-label="Gamertag">
-      <button class="btn brass" id="saveTag">Save gamertag</button>
+      <input id="tagInput" class="field" maxlength="16" value="${esc(me.gamertag)}" aria-label="Username">
+      <button class="btn brass" id="saveTag">Save username</button>
     </div>
     <p class="hint" style="margin:0">Games ${me.stats.games} · First places ${me.stats.firsts} · Won ${Number(me.stats.ebWon).toLocaleString()} EB · Lost ${Number(me.stats.ebLost).toLocaleString()} EB${me.guest ? ' · Guest account (this browser only)' : ''}</p>
     <div class="panel-title" style="margin:6px 0 0">Characters <span class="hint" style="text-transform:none;letter-spacing:0">${skinNote}</span></div>
@@ -328,7 +333,7 @@ function profileModal() {
       <div class="panel-title" style="margin:0">Gift Eco-bucks <span class="hint" style="text-transform:none;letter-spacing:0">— Goblin Ink staff only</span></div>
       <p class="hint" style="margin:0">The Eco-bucks arrive as a letter in that player's mailbox straight away.</p>
       <div class="row" style="flex-wrap:nowrap">
-        <input id="giftTag" class="field" maxlength="16" placeholder="player's gamertag" autocomplete="off" spellcheck="false" style="flex:2">
+        <input id="giftTag" class="field" maxlength="16" placeholder="player's username" autocomplete="off" spellcheck="false" style="flex:2">
         <input id="giftAmount" class="field" type="number" min="1" max="100000" value="500" style="flex:1;min-width:90px">
         <button class="btn brass" id="sendGift">Gift</button>
       </div></div>` : ''}
@@ -777,6 +782,129 @@ document.addEventListener('click', async e => {
   } catch (err) { acct.msg = err.message; SFX.error(); }
   render();
 });
+// ---------- friends: requests by username, who's online, and invites to your table ----------
+// The dropdown lives in its own element outside #app, so the constant re-renders of a game don't disturb it
+// (or wipe what you're typing). The list is polled every 20 seconds, which also tells the server you're online.
+const fr = { open: false, data: null, msg: '', busy: false, confirmRemove: null, seenInvites: new Set(), first: true };
+const $friends = document.createElement('div'); $friends.id = 'friendsPanel'; $friends.className = 'paper spiral friendspanel hidden';
+document.body.appendChild($friends);
+const frBadgeCount = () => fr.data ? fr.data.incoming.length + fr.data.invites.length : 0;
+function friendsBtnHtml() {
+  if (!acct.me) return '';
+  const n = frBadgeCount(), on = fr.data ? fr.data.friends.filter(f => f.online).length : 0;
+  return `<button class="btn small friendsbtn ${fr.open ? 'brass' : ''}" data-friends title="Friends${on ? ` (${on} online)` : ''}">👥 Friends${on ? ` <span class="fon">${on}</span>` : ''}<span class="fbadge">${n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : ''}</span> ▾</button>`;
+}
+function refreshFriendsBtns() { // update the buttons in place (no full re-render)
+  for (const b of document.querySelectorAll('[data-friends]')) b.outerHTML = friendsBtnHtml();
+}
+async function pollFriends() {
+  if (!acct.session || !acct.me) { fr.data = null; return; }
+  try { applyFriends(await acctApi('friends', {})); } catch {}
+}
+function applyFriends(d) {
+  fr.data = d;
+  // new table invites: tell the player once
+  for (const v of d.invites) if (!fr.seenInvites.has(v.id)) {
+    fr.seenInvites.add(v.id);
+    if (!fr.first) { SFX.chat(); showToast(`<b>${esc(v.from)}</b> invited you to their table!<small>Open 👥 Friends to join.</small>`, false, 6000); }
+  }
+  fr.first = false;
+  refreshFriendsBtns();
+  if (fr.open) renderFriends();
+}
+setInterval(pollFriends, 20000);
+const atLobbyTable = () => sess && S && S.phase === 'lobby' && !S.tutorial;
+const inRunningGame = () => sess && S && !S.tutorial && S.phase !== 'lobby' && S.phase !== 'ended';
+const STATUS = { game: 'In a game', lobby: 'At a table', tutorial: 'Learning to play' };
+function renderFriends() {
+  if (!fr.open || !acct.me) { $friends.classList.add('hidden'); return; }
+  // keep what's being typed in the add-friend box across re-renders
+  const input = document.getElementById('friendName'), typed = input ? input.value : '', focused = document.activeElement === input;
+  const d = fr.data;
+  const myTable = atLobbyTable() ? new Set(S.lobby.filter(m => m.profile).map(m => m.profile.gamertag.toLowerCase())) : null;
+  const who = (f, sub) => `<img class="pavatar tiny" src="${esc(f.avatarSrc)}" alt=""><div class="fname"><b>${esc(f.username)}</b>${sub ? `<span class="hint">${sub}</span>` : ''}</div>`;
+  const friendRow = f => {
+    if (fr.confirmRemove === f.id) return `<div class="frow">${who(f, 'Remove from friends?')}<button class="btn small" data-unfriend="${f.id}" data-sure="1">Remove</button><button class="btn small" data-unfriend="">Keep</button></div>`;
+    const here = myTable && myTable.has(f.username.toLowerCase());
+    let btns = '';
+    if (f.online && myTable && !here) btns += `<button class="btn small primary" data-invite="${f.id}">Invite</button>`;
+    if (here) btns += '<span class="hint">At your table</span>';
+    else if (f.room && !(sess && S && S.room === f.room)) btns += `<button class="btn small brass" data-joinroom="${f.room}">Join</button>`;
+    btns += `<button class="btn small fx" data-unfriend="${f.id}" title="Remove friend">✕</button>`;
+    return `<div class="frow ${f.online ? 'on' : 'off'}"><span class="fdot ${f.online ? 'on' : ''}"></span>${who(f, f.online ? (STATUS[f.where] || 'Online') : 'Offline')}${btns}</div>`;
+  };
+  let body = '';
+  if (!d) body = '<p class="hint">Loading…</p>';
+  else {
+    if (d.invites.length) body += `<div class="fsec">Table invites</div>` + d.invites.map(v => `<div class="frow invite"><div class="fname"><b>${esc(v.from)}</b><span class="hint">invited you to table ${esc(v.room)}</span></div>
+      <button class="btn small primary" data-joinroom="${v.room}">Join</button><button class="btn small fx" data-dismiss="${v.id}" title="Decline">✕</button></div>`).join('');
+    if (d.incoming.length) body += `<div class="fsec">Friend requests</div>` + d.incoming.map(f => `<div class="frow">${who(f, 'wants to be friends')}
+      <button class="btn small primary" data-frrespond="${f.id}" data-accept="1">Accept</button><button class="btn small" data-frrespond="${f.id}">Decline</button></div>`).join('');
+    const online = d.friends.filter(f => f.online), offline = d.friends.filter(f => !f.online);
+    body += `<div class="fsec">Online · ${online.length}</div>` + (online.length ? online.map(friendRow).join('') : '<p class="hint fempty">No friends online right now.</p>');
+    body += `<div class="fsec">Offline · ${offline.length}</div>` + (offline.length ? offline.map(friendRow).join('') : `<p class="hint fempty">${d.friends.length ? 'Everyone is online!' : 'Add friends by their username above.'}</p>`);
+    if (d.outgoing.length) body += `<div class="fsec">Requests you sent</div>` + d.outgoing.map(f => `<div class="frow">${who(f, 'waiting for them to accept')}<button class="btn small" data-unfriend="${f.id}" data-sure="1">Cancel</button></div>`).join('');
+  }
+  $friends.innerHTML = `<div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Friends</div><button class="btn small" data-friends-close>Close</button></div>
+    <div class="row" style="flex-wrap:nowrap;gap:6px"><input id="friendName" class="field" maxlength="16" placeholder="Friend's username" autocomplete="off" spellcheck="false" style="flex:1;min-width:0">
+      <button class="btn small brass" id="addFriend" ${fr.busy ? 'disabled' : ''}>Add friend</button></div>
+    ${fr.msg ? `<div class="fmsg ${fr.msgErr ? 'error' : ''}">${esc(fr.msg)}</div>` : ''}
+    ${atLobbyTable() ? '' : '<p class="hint" style="margin:2px 0 0;font-size:14px">Sit down at a table to invite online friends to it.</p>'}
+    <div class="flist">${body}</div>`;
+  $friends.classList.remove('hidden');
+  const ni = document.getElementById('friendName');
+  ni.value = typed; if (focused) { ni.focus(); ni.setSelectionRange(typed.length, typed.length); }
+  ni.onkeydown = e => { if (e.key === 'Enter') addFriend(); };
+}
+function frSay(msg, err = false) { fr.msg = msg; fr.msgErr = err; }
+async function frCall(op, body, okMsg) {
+  fr.busy = true;
+  try { const r = await acctApi(op, body); if (r.friends) applyFriends(r); if (okMsg) frSay(okMsg(r)); return r; }
+  catch (e) { frSay(e.message, true); SFX.error(); }
+  finally { fr.busy = false; renderFriends(); }
+}
+async function addFriend() {
+  const el = document.getElementById('friendName'); const name = el ? el.value.trim() : '';
+  if (!name) { frSay("Type your friend's username.", true); return renderFriends(); }
+  const r = await frCall('friends/request', { username: name }, r => r.status === 'friends' ? `You and ${r.to} are now friends!` : `Friend request sent to ${r.to}.`);
+  if (r) { const i = document.getElementById('friendName'); if (i) i.value = ''; }
+}
+// leave the current table (if any) and sit down at another one
+async function joinTable(code) {
+  if (inRunningGame()) { frSay('Finish (or leave) your game first.', true); return renderFriends(); }
+  try {
+    if (sess) { try { if (S && S.phase === 'lobby') await api('lobby', { cmd: 'leave' }); } catch {} if (es) es.close(); es = null; S = null; saveSess(null); }
+    const r = await acctApi('join', { room: code });
+    fr.open = false; renderFriends(); enterRoom(r);
+  } catch (e) { frSay(e.message, true); renderFriends(); render(); }
+}
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-friends],[data-friends-close],#addFriend,[data-frrespond],[data-unfriend],[data-invite],[data-joinroom],[data-dismiss]');
+  if (!t) { // a click anywhere else closes the dropdown
+    if (fr.open && !e.target.closest('#friendsPanel')) { fr.open = false; renderFriends(); refreshFriendsBtns(); }
+    return;
+  }
+  if (t.matches('[data-friends]')) {
+    fr.open = !fr.open; fr.msg = ''; fr.confirmRemove = null;
+    refreshFriendsBtns(); renderFriends();
+    if (fr.open) pollFriends();
+  } else if (t.matches('[data-friends-close]')) { fr.open = false; renderFriends(); refreshFriendsBtns(); }
+  else if (t.matches('#addFriend')) addFriend();
+  else if (t.matches('[data-frrespond]')) {
+    const accept = !!t.dataset.accept;
+    frCall('friends/respond', { id: t.dataset.frrespond, accept }, r => accept ? `You and ${r.name} are now friends!` : 'Request declined.');
+  } else if (t.matches('[data-unfriend]')) {
+    const id = t.dataset.unfriend;
+    if (!id) { fr.confirmRemove = null; return renderFriends(); }
+    if (!t.dataset.sure) { fr.confirmRemove = id; fr.msg = ''; return renderFriends(); }
+    fr.confirmRemove = null; frCall('friends/remove', { id }, () => 'Done.');
+  } else if (t.matches('[data-invite]')) {
+    if (!atLobbyTable()) { frSay('Sit down at a table first.', true); return renderFriends(); }
+    frCall('friends/invite', { id: t.dataset.invite, room: S.room }, r => `Invite sent to ${r.to}.`);
+  } else if (t.matches('[data-dismiss]')) frCall('friends/dismiss', { id: t.dataset.dismiss }, () => 'Invite declined.');
+  else if (t.matches('[data-joinroom]')) joinTable(t.dataset.joinroom);
+});
+
 // clicks inside the profile / store / account panel
 document.addEventListener('click', async e => {
   const t = e.target.closest('[data-close],[data-store],[data-profile],[data-avatar],[data-buy],[data-wear],[data-skinshop],[data-skinview],[data-equip],#saveTag,#confirmBuy,#signout,#guest,#sendGift');
@@ -797,7 +925,7 @@ document.addEventListener('click', async e => {
   });  else if (t.matches('[data-store]')) { acct.modal = 'store'; acct.msg = ''; await refreshMe(); render(); }
   else if (t.matches('[data-profile]')) { acct.modal = 'profile'; acct.msg = ''; await refreshMe(); render(); }
   else if (t.matches('[data-avatar]')) run(async () => { acct.me = (await acctApi('profile', { avatar: t.dataset.avatar })).me; });
-  else if (t.matches('#saveTag')) run(async () => { acct.me = (await acctApi('profile', { gamertag: document.getElementById('tagInput').value })).me; showToast('Gamertag saved.'); });
+  else if (t.matches('#saveTag')) run(async () => { acct.me = (await acctApi('profile', { gamertag: document.getElementById('tagInput').value })).me; showToast('Username saved.'); });
   else if (t.matches('[data-buy]')) { acct.modal = { buy: t.dataset.buy }; acct.msg = ''; render(); }
   else if (t.matches('#confirmBuy')) run(async () => {
     const r = await acctApi('store/buy', { item: acct.modal.buy }); acct.me = r.me;
@@ -965,6 +1093,8 @@ function onUpdate(prev) {
 function render() {
   renderScreen();
   updateMusic();
+  // the friends dropdown follows the table you're at (Invite buttons), unless you're typing in it
+  if (fr.open && !(document.activeElement && document.activeElement.id === 'friendName')) renderFriends();
 }
 function renderScreen() {
   // home page, loading screen and lobby sit on the animated backdrop (scenery.js)
@@ -1012,7 +1142,7 @@ function renderLanding() {
         <button id="join" class="btn brass" style="flex:1" ${acct.me ? '' : 'disabled'}>Join table</button>
       </div>
       <div class="error">${esc(ui.err)}</div>
-      <p class="hint" style="margin:0">Every table has an Eco-buck buy-in. Start a table and share its 4-letter code or link. Bots fill empty seats, so every game has at least 4 players.</p>
+      <p class="hint" style="margin:0">Tables have an Eco-buck buy-in, or the host can make it a free table just for fun. Start a table and share its 4-letter code or link. Bots fill empty seats, so every game has at least 4 players.</p>
       <p class="legal-links"><a href="terms.html" target="_blank" rel="noopener">Terms of Service</a> · <a href="refunds.html" target="_blank" rel="noopener">Refund Policy</a></p>
     </div>
     </div>
@@ -1123,14 +1253,15 @@ function renderLobby() {
       <div class="buyin">
         <div class="row" style="justify-content:space-between">
           <div><div class="panel-title" style="margin:0">Buy-in</div>
-            <span style="font-size:18px">${fmtEB(S.buyIn)} per player</span> <span class="hint">· pot ${fmtEB(S.buyIn * tableSize)} with ${tableSize} seats</span></div>
-          ${S.isHost ? `<div class="modepick">${S.buyIns.map(b => `<button class="btn small ${S.buyIn === b ? 'brass' : ''}" data-buyin="${b}">${b} EB</button>`).join('')}</div>` : ''}
+            ${S.buyIn === 0 ? '<span style="font-size:18px"><b>Free table</b></span> <span class="hint">· just for fun: no risk, no reward</span>'
+              : `<span style="font-size:18px">${fmtEB(S.buyIn)} per player</span> <span class="hint">· pot ${fmtEB(S.buyIn * tableSize)} with ${tableSize} seats</span>`}</div>
+          ${S.isHost ? `<div class="modepick">${S.buyIns.map(b => `<button class="btn small ${S.buyIn === b ? 'brass' : ''}" data-buyin="${b}" ${b === 0 ? 'title="Play just for fun: no Eco-bucks are bet or won"' : ''}>${b === 0 ? 'Free' : b + ' EB'}</button>`).join('')}</div>` : ''}
         </div>
-        <p class="hint" style="margin:2px 0 0">${S.mode === 'coop'
+        ${S.buyIn === 0 ? '<p class="hint" style="margin:2px 0 0">Nobody pays in and nobody gets paid out. Your Eco-bucks stay exactly where they are.</p>' : `<p class="hint" style="margin:2px 0 0">${S.mode === 'coop'
           ? 'Co-op: beat the Anaconda and everyone gets double their bet back. Lose, and everyone loses it.'
-          : `1st takes the rest of the pot · 2nd gets their bet back · 3rd gets half back · ${tableSize >= 5 ? 'everyone below loses' : '4th loses'} their bet. The house covers the bots.`}</p>
+          : `1st takes the rest of the pot · 2nd gets their bet back · 3rd gets half back · ${tableSize >= 5 ? 'everyone below loses' : '4th loses'} their bet. The house covers the bots.`}</p>`}
         ${S.myAccount ? `<p class="hint" style="margin:2px 0 0">Your balance: ${fmtEB(S.myAccount.balance)}${S.myAccount.balance < S.buyIn ? ' — <b style="color:var(--red)">not enough for this buy-in</b>' : ''}</p>` : ''}
-        ${(() => { const mine = S.lobby.find(x => x.pid === S.yourPid); if (!mine) return '';
+        ${(() => { const mine = S.lobby.find(x => x.pid === S.yourPid); if (!mine || S.buyIn === 0) return '';
           return mine.confirmed
             ? `<div class="row bidrow"><span class="bidok">✓ You confirmed your ${S.buyIn} EB bid.</span><button class="btn small" data-confirm="0">Cancel</button></div>`
             : `<div class="row bidrow"><button class="btn primary" data-confirm="1" ${S.myAccount && S.myAccount.balance < S.buyIn ? 'disabled' : ''}>Confirm my ${S.buyIn} EB bid</button><span class="hint">Everyone confirms before the game can start. A new bid or game mode needs confirming again.</span></div>`; })()}
@@ -1159,7 +1290,7 @@ function renderLobby() {
         </div>
         ${(() => { const waiting = S.lobby.filter(m => !m.bot && !m.confirmed);
           return waiting.length ? `<button id="start" class="btn primary" disabled>Waiting for ${waiting.length === 1 ? esc(waiting[0].name) : waiting.length + ' players'} to confirm the bid</button>`
-            : `<button id="start" class="btn primary" ${S.lobby.some(m => !m.bot && !m.canAfford) ? 'disabled title="Everyone needs enough Eco-bucks for the buy-in"' : ''}>Start game · ${S.buyIn} EB buy-in</button>`; })()}`
+            : `<button id="start" class="btn primary" ${S.lobby.some(m => !m.bot && !m.canAfford) ? 'disabled title="Everyone needs enough Eco-bucks for the buy-in"' : ''}>Start game · ${S.buyIn === 0 ? 'free table' : S.buyIn + ' EB buy-in'}</button>`; })()}`
       : `<p class="hint">Waiting for the host to start… ${humans} player${humans > 1 ? 's' : ''} here, ${S.lobby.filter(m => !m.bot && m.confirmed).length} confirmed.</p>`}
       <div class="row"><button id="leave" class="btn small">Leave table</button>${acct.me ? '<button class="btn small" data-profile>Profile</button><button class="btn small brass" data-store>Store</button>' : ''}</div>
     </div>
@@ -1739,6 +1870,7 @@ function rulesModal() {
 // Eco-buck payouts for a finished game (accounts.js settle)
 function settlementHtml() {
   const st = S.settlement; if (!st) return '';
+  if (!st.bet) return '<div class="ebresult"><div class="panel-title" style="margin:0">Free table</div><p class="hint" style="margin:4px 0">Just for fun: no Eco-bucks were won or lost.</p></div>';
   const rows = st.results.slice().sort((a, b) => a.place - b.place || b.payout - a.payout).map(r => {
     const p = S.players[r.seat];
     return `<tr class="${r.seat === S.you ? 'winner' : ''}"><td class="total" style="font-size:20px">${r.place}</td>

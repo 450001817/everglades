@@ -68,7 +68,7 @@ function idToken(sub, email, verified = true) {
   let gerr = ''; try { A.giftByTag(regular, staff.gamertag, 500); } catch (e) { gerr = e.message; }
   ok(/Only Goblin Ink staff/.test(gerr), "ordinary players can't gift Eco-bucks");
   gerr = ''; try { A.giftByTag(staff, 'NoSuchPlayer123', 500); } catch (e) { gerr = e.message; }
-  ok(/No player has that gamertag/.test(gerr), 'an unknown gamertag is refused');
+  ok(/No player has that username/.test(gerr), 'an unknown username is refused');
   gerr = ''; try { A.giftByTag(staff, regular.gamertag, 0); } catch (e) { gerr = e.message; }
   ok(/between 1/.test(gerr), 'a zero gift is refused');
   const before = regular.balance;
