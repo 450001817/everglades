@@ -879,7 +879,7 @@ function mailModal() {
   const inbox = (me.inbox || []).slice().reverse();
   const letter = m => `<div class="letter ${m.kind}">
       <div class="lenv">${ENVELOPE_SVG(false)}</div>
-      <div class="ltext"><b>${esc(m.note || (m.kind === 'gift' ? 'A gift' : 'Daily bonus'))}</b><span class="hint">${new Date(m.at).toLocaleDateString()} · ${m.itemName ? `the “${esc(m.itemName)}” title inside` : `${fmtEB(m.amount)} inside`}</span></div>
+      <div class="ltext"><b>${esc(m.note || (m.kind === 'gift' ? 'A gift' : 'Daily bonus'))}</b><span class="hint">${new Date(m.at).toLocaleDateString()} · ${m.itemName ? `the “${esc(m.itemName)}” title${m.amount ? ` and ${fmtEB(m.amount)}` : ''} inside` : `${fmtEB(m.amount)} inside`}</span></div>
       <button class="btn primary" data-openmail="${m.id}">Open</button></div>`;
   return `<div class="modal"><div class="paper spiral acctmodal mailmodal">
     <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Mailbox</div><div class="row">${inbox.length > 1 ? '<button class="btn small brass" data-openmail="all">Open all</button>' : ''}<button class="btn small" data-close>Close</button></div></div>

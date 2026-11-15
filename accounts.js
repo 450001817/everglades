@@ -44,8 +44,12 @@ const STORE = [
 ];
 // Gifts every player receives once, as a letter, the next time they log in or visit. Remove an entry to stop
 // sending it (players who already got it keep it).
+// A gift can hold an item and/or Eco-bucks (amount). To add something to a gift that's already gone out, give the
+// gift the new contents and add a top-up entry (topUpFor: the gift's id) holding just the addition: players already
+// sent the gift get the top-up as its own letter, and new players get one letter with everything.
 const LOGIN_GIFTS = [
-  { id: 'alpha2026', item: 'title_alpha', note: 'Thanks for alpha testing Everglades!' },
+  { id: 'alpha2026', item: 'title_alpha', amount: 500, note: 'Thanks for alpha testing Everglades!' },
+  { id: 'alpha2026eb', topUpFor: 'alpha2026', amount: 500, note: 'Thanks for alpha testing Everglades! Here are 500 Eco-bucks to go with your title.' },
 ];
 const EXCLUSIVE = STORE.filter(i => i.exclusive);
 const ownsChat = (a, id) => !!a && a.owned.includes('chat:' + id);
@@ -346,8 +350,12 @@ function loginGifts(a) {
   a.promos = a.promos || [];
   for (const g of LOGIN_GIFTS) {
     if (a.promos.includes(g.id)) continue;
+    if (g.topUpFor && !a.promos.includes(g.topUpFor)) continue; // (never happens: sending the gift marks its top-ups done)
     a.promos.push(g.id);
-    if (!a.owned.includes(g.item)) sendMail(a, 'item', 0, g.note, g.item);
+    // the full gift already holds its top-ups' contents
+    if (!g.topUpFor) for (const t of LOGIN_GIFTS) if (t.topUpFor === g.id && !a.promos.includes(t.id)) a.promos.push(t.id);
+    const item = g.item && !a.owned.includes(g.item) ? g.item : null;
+    if (item || g.amount) sendMail(a, item ? 'item' : 'gift', g.amount || 0, g.note, item);
     save();
   }
 }

@@ -25,7 +25,16 @@ ok(A.dailyBonus(a) === 0 && a.balance === 50, "a new account's first day is cove
   ok(a.inbox.filter(m => m.item === 'title_alpha').length === 1, 'it is only ever sent once');
   a.inbox = a.inbox.filter(m => m.item); // drop the extra daily letter for the checks below
   const r = A.openMail(a, a.inbox[0].id);
-  ok(r.items[0] === 'Alpha Tester' && r.amount === 0 && a.owned.includes('title_alpha') && a.title === 'title_alpha' && a.balance === 50, 'opening it unlocks and wears the title');
+  ok(r.items[0] === 'Alpha Tester' && r.amount === 500 && a.owned.includes('title_alpha') && a.title === 'title_alpha' && a.balance === 550, 'opening it unlocks and wears the title and pays 500 EB');
+  ok(!a.inbox.length, 'new players get one letter with both (no separate 500 EB top-up)');
+  a.balance = 50; // back to the starting balance for the checks below
+  { // a player mailed the title before the 500 EB was added gets the Eco-bucks as their own letter, once
+    c.promos = ['alpha2026']; c.owned.push('title_alpha');
+    A.dailyBonus(c); const top = c.inbox.filter(m => m.note && /Alpha|alpha/.test(m.note));
+    ok(top.length === 1 && top[0].amount === 500 && !top[0].item, 'earlier alpha testers get a 500 EB top-up letter');
+    A.dailyBonus(c); ok(c.inbox.filter(m => m.amount === 500).length === 1, 'only once');
+    c.inbox = []; c.owned = c.owned.filter(x => x !== 'title_alpha');
+  }
   ok(A.publicProfile(a).titleStyle === 'alpha' && A.privateProfile(a).exclusiveStore.some(i => i.id === 'title_alpha'), 'others see the green sparkle; it shows in its owner\'s Titles tab');
   ok(!A.privateProfile(b).exclusiveStore.length && !A.config().store.some(i => i.id === 'title_alpha'), 'it is never in the store for anyone else');
   let err = ''; try { A.buy(b, 'title_alpha'); } catch (x) { err = x.message; } ok(/not in the store/.test(err), "it can't be bought");
