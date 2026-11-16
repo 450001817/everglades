@@ -5,6 +5,15 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
+// Compression (gzip), for browsers that accept it: pages, scripts, styles and API answers, and each player's live
+// game updates, which go out as one gzip stream per player, flushed after every message (so nothing is held back).
+// Consecutive game states are nearly identical, so later updates shrink to a few hundred bytes. SSE_GZIP=0 turns off
+// the compression of live updates only (in case a proxy ever holds back compressed streams).
+const acceptsGzip = req => /\bgzip\b/.test(String((req && req.headers['accept-encoding']) || ''));
+const SSE_GZIP = process.env.SSE_GZIP !== '0';
+const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.svg']);
+const gzCache = new Map(); // file -> { etag, buf }: compressed copies of static files
 
 // Settings from a local .env file (KEY=value per line), if there is one. Used on your own computer;
 // on a host like Render, set the same names under Environment instead. Real environment variables win.
@@ -231,7 +240,7 @@ function broadcast(room) {
   room.touched = Date.now();
   for (const c of room.clients) {
     const m = room.members.find(x => x.pid === c.pid);
-    c.res.write(`data: ${JSON.stringify(viewFor(room, m))}\n\n`);
+    c.write(`data: ${JSON.stringify(viewFor(room, m))}\n\n`);
   }
   scheduleBot(room);
 }
@@ -296,7 +305,7 @@ function kickToBot(room, p) {
   if (room.hostPid === oldPid) room.hostPid = (room.members.find(x => !x.bot) || {}).pid || null;
   s.log.push(`${name} ran out of time ${MAX_STRIKES} times and was removed. A bot plays their seat now.`);
   for (const c of [...room.clients]) if (c.pid === oldPid) { // tell their browser, then hang up
-    try { c.res.write(`event: kicked\ndata: ${JSON.stringify({ strikes: MAX_STRIKES })}\n\n`); c.res.end(); } catch (e) {}
+    try { c.write(`event: kicked\ndata: ${JSON.stringify({ strikes: MAX_STRIKES })}\n\n`); c.end(); } catch (e) {}
     room.clients.delete(c);
   }
 }
@@ -356,8 +365,10 @@ function scheduleBot(room) {
 
 // ---------- HTTP plumbing ----------
 function send(res, status, obj) {
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(obj));
+  const body = JSON.stringify(obj), headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Vary: 'Accept-Encoding' };
+  if (body.length > 1024 && acceptsGzip(res.req)) { res.writeHead(status, Object.assign(headers, { 'Content-Encoding': 'gzip' })); return res.end(zlib.gzipSync(body)); }
+  res.writeHead(status, headers);
+  res.end(body);
 }
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -416,9 +427,16 @@ function serveStatic(req, res) {
     const etag = `W/"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
     const headers = { 'Content-Type': TYPES[ext] || 'application/octet-stream', ETag: etag,
       'Cache-Control': u.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'no-cache' };
+    const gz = COMPRESSIBLE.has(ext) && acceptsGzip(req);
+    if (COMPRESSIBLE.has(ext)) headers.Vary = 'Accept-Encoding';
     if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
     fs.readFile(file, (e2, buf) => {
       if (e2) { res.writeHead(404); return res.end('Not found'); }
+      if (gz && buf.length > 1024) {
+        let c = gzCache.get(file);
+        if (!c || c.etag !== etag) gzCache.set(file, c = { etag, buf: zlib.gzipSync(buf, { level: 9 }) });
+        res.writeHead(200, Object.assign(headers, { 'Content-Encoding': 'gzip' })); return res.end(c.buf);
+      }
       res.writeHead(200, headers); res.end(buf);
     });
   });
@@ -437,10 +455,15 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/api/events') {
       const { room, m } = auth({ room: url.searchParams.get('room'), token: url.searchParams.get('token') });
-      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-      const client = { pid: m.pid, res };
+      const gz = SSE_GZIP && acceptsGzip(req) ? zlib.createGzip({ level: 6 }) : null;
+      res.writeHead(200, Object.assign({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' },
+        gz ? { 'Content-Encoding': 'gzip' } : {}));
+      if (gz) gz.pipe(res);
+      const client = { pid: m.pid, res,
+        write: text => { if (gz) { gz.write(text); gz.flush(zlib.constants.Z_SYNC_FLUSH); } else res.write(text); }, // goes out at once
+        end: () => (gz ? gz.end() : res.end()) };
       room.clients.add(client);
-      const ping = setInterval(() => res.write(': ping\n\n'), 20000);
+      const ping = setInterval(() => client.write(': ping\n\n'), 20000);
       req.on('close', () => { clearInterval(ping); room.clients.delete(client); broadcast(room); });
       broadcast(room);
       return;

@@ -71,7 +71,9 @@ Keep the black window open while you play. Closing it stops the game.
 3. Set the Build Command to `npm install` and the Start Command to `npm start`.
 4. Render gives you a link you can share with anyone.
 
-The free tier sleeps when no one is using it, so the first visit can take about 30 seconds.
+The free tier sleeps when no one is using it, so the first visit can take about a minute.
+
+**Bandwidth on the free tier:** Render's free (Hobby) workspace includes 5 GB of outbound traffic a month, and that is what limits how many players it can serve. The server keeps it small without changing anything players see: pages, scripts and styles are sent gzipped, each player's live game updates go out as one gzip stream (about 30 KB for a whole game instead of 1.5 MB), card art is stored as lossless palette PNGs (`tools/optimize_images.js`), and a background tab stops polling the friends list. A new player downloads about 5.5 MB of art once (then it's cached), and a returning player uses roughly 0.1 to 0.3 MB a day. That is room for a few hundred daily players. If a proxy ever holds back the compressed live updates (moves showing up late), set `SSE_GZIP=0` in Render to send them uncompressed.
 
 ## Player accounts and Eco-bucks
 
@@ -244,6 +246,7 @@ Every rule is in **game.js**, and all card stats are in **public/data.js**. Both
 | `public/assets/` | Your art. Biome cards are rotated to lie landscape. |
 | `public/assets/landing-wide.png`, `landing-tall.png` | The pixel-art Everglades backdrop behind the home page and lobby (wide for computers, tall for phones), made with PixelLab. Shown as a still when the system's "reduce motion" setting is on |
 | `public/scenery.js`, `public/assets/landing/` | The animated backdrop: the same painting with rippling, glinting water, fireflies, the egrets and spoonbills flying across the sky, clouds that slowly drift left and keep changing shape, and an alligator that now and then sinks (with rings of ripples) and surfaces at another spot. The water, fireflies and birds repeat every 48 seconds; the clouds and alligator run on the clock. The birds were removed from the painting (`*-plate.png`) and given PixelLab wingbeat animations (`bird-*.png`). The sky is its own layer (`sky-*.png`: the sky made to loop, with a mask of the tree islands below it) and the clouds' motion only ever resamples the painting's own pixels. The alligator is a sprite (`gator-*.png`: the animal and its wake); its surfacing spots are in `SCENES` in scenery.js |
+| `tools/optimize_images.js` | Shrinks every PNG under `public/assets` losslessly (palette PNGs for pixel art, better filtering otherwise), checking every pixel is identical before replacing a file. Run it again after adding or redrawing art |
 | `tools/remaster_landing.js` | Rebuilds the landing art from the original paintings (kept in `../_backup_before_landing_remaster`): cleans loose pixels out of the sky, cuts out the sky layer and the alligator, fills in what was behind them, and prints the sky loop length and open-water spots for scenery.js. Bump `ART_V` in scenery.js (and the `?v=` on the stills in style.css) after changing the art |
 | `public/assets/ecology-back.png`, `biome-back.png`, `cards/disruption/back.png` | The card backs, simple pixel-art covers: the Ecology deck is a green cloth field journal (gold fern), the Biome deck a blue travel log (compass rose), and the Disruption deck a manila case folder with a red stamp. Drawn by `tools/make_card_backs.js` (run it after editing; then bump `BACK_V` in client.js). The earlier PixelLab journals are in `../_backup_card_backs` |
 | `public/assets/characters/` | The animated character portraits: one 9-frame strip per animation, per role. Skins are in each role's `skins/` folder |

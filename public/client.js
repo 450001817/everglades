@@ -916,6 +916,7 @@ function refreshFriendsBtns() { // update the buttons in place (no full re-rende
 }
 async function pollFriends() {
   if (!acct.session || !acct.me) { fr.data = null; return; }
+  if (document.hidden) return; // a background tab doesn't poll (it catches up the moment it's shown again)
   try { applyFriends(await acctApi('friends', {})); } catch {}
 }
 function applyFriends(d) {
@@ -930,6 +931,7 @@ function applyFriends(d) {
   if (fr.open) renderFriends();
 }
 setInterval(pollFriends, 20000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pollFriends(); });
 const atLobbyTable = () => sess && S && S.phase === 'lobby' && !S.tutorial;
 const inRunningGame = () => sess && S && !S.tutorial && S.phase !== 'lobby' && S.phase !== 'ended';
 const STATUS = { game: 'In a game', lobby: 'At a table', tutorial: 'Learning to play' };
