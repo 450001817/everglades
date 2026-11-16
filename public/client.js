@@ -253,7 +253,7 @@ let gsiReady = false;
 function mountGoogleButton() {
   const el = document.getElementById('gbtn');
   const cid = acct.config && acct.config.googleClientId;
-  if (!el || !cid) return;
+  if (!el || !cid || el.childElementCount) return; // (already drawn: the page is patched in place, so it stays)
   const app = inAppBrowser();
   if (app) {
     el.innerHTML = `<div class="inapp">Google doesn't allow signing in inside ${esc(app === 'this app' ? 'this app' : app)}'s built-in browser.
@@ -1207,6 +1207,58 @@ function onUpdate(prev) {
 }
 
 // ---------- screens ----------
+// ---------- updating the page in place ----------
+// Every render builds the screen as HTML, but writing it with innerHTML would throw away and re-create every
+// element: portrait canvases came back blank for a frame (a black flash), animations lost their place and
+// restarted, and the hand's deal-in replayed on every update. view.html = '...' instead patches the page:
+// elements that are still there are kept (only their changed attributes and text are updated), new ones are
+// added and gone ones removed. Elements are matched by data-key or id when they have one (so a card keeps its
+// element when the cards around it change), otherwise by position and tag. data-keep: leave its insides alone
+// (the Google sign-in button draws its own). Event handlers must be set with .onclick or wire()'s on() (not a bare
+// addEventListener), so a kept element never ends up with two.
+const RUNTIME_ATTRS = new Set(['data-k']); // set by the drawing code, not by the HTML
+const ON_PROPS = ['onclick', 'onkeydown', 'onkeyup', 'oninput', 'onchange', 'onsubmit', 'onpointerdown', 'onpointerup', 'onfocus', 'onblur'];
+const keyOf = n => n.nodeType === 1 ? (n.getAttribute('data-key') || n.id || null) : null;
+const sameKind = (a, b) => a.nodeType === b.nodeType && (a.nodeType !== 1 || (a.tagName === b.tagName && keyOf(a) === keyOf(b)));
+function patchNode(o, n) {
+  if (o.nodeType !== 1) { if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue; return; }
+  // forget the last render's handlers: a kept element may now be something else (a lobby button's spot can become
+  // a card), and every render wires its own handlers again straight after patching
+  for (const h of ON_PROPS) if (o[h]) o[h] = null;
+  o.__on = null;
+  for (const { name } of [...o.attributes]) if (!n.hasAttribute(name) && !RUNTIME_ATTRS.has(name)) o.removeAttribute(name);
+  for (const { name, value } of n.attributes) {
+    if (o.getAttribute(name) === value) continue;
+    o.setAttribute(name, value);
+    if (name === 'value' && 'value' in o && o !== document.activeElement) o.value = value;
+    if (name === 'checked') o.checked = true;
+  }
+  if (o.tagName === 'INPUT' && !n.hasAttribute('checked') && (o.type === 'checkbox' || o.type === 'radio')) o.checked = false;
+  if (o.tagName === 'CANVAS' || o.hasAttribute('data-keep')) return;
+  patchChildren(o, n);
+}
+function patchChildren(parent, src) {
+  const olds = [...parent.childNodes], news = [...src.childNodes];
+  const byKey = new Map(); for (const o of olds) { const k = keyOf(o); if (k && !byKey.has(k)) byKey.set(k, o); }
+  const free = olds.filter(o => !keyOf(o)); let fi = 0;
+  // pair each new node with an old one it can update in place
+  const pairs = news.map(n => {
+    const k = keyOf(n);
+    if (k) { const o = byKey.get(k); if (o && sameKind(o, n)) { byKey.delete(k); return o; } return null; }
+    while (fi < free.length) { const o = free[fi++]; if (sameKind(o, n)) return o; }
+    return null;
+  });
+  const kept = new Set(pairs.filter(Boolean));
+  for (const o of olds) if (!kept.has(o)) o.remove();
+  news.forEach((n, i) => {
+    const o = pairs[i], node = o || n;
+    if (o) patchNode(o, n);
+    const at = parent.childNodes[i];
+    if (at !== node) parent.insertBefore(node, at || null);
+  });
+}
+const view = { set html(h) { const t = document.createElement('template'); t.innerHTML = h; patchChildren($app, t.content); } };
+
 function render() {
   renderScreen();
   updateMusic();
@@ -1219,7 +1271,7 @@ function renderScreen() {
   document.body.classList.toggle('scenic', scenic);
   if (!scenic) setSceneOnly(false); // a game starting always brings the screen back
   if (!sess) return renderLanding();
-  if (!S) { $app.innerHTML = `<div class="landing">${musicBtnHtml()}<div class="paper spiral landing-card"><p class="tagline">Paddling out to the Everglades…</p></div></div>`; return; }
+  if (!S) { view.html = `<div class="landing">${musicBtnHtml()}<div class="paper spiral landing-card"><p class="tagline">Paddling out to the Everglades…</p></div></div>`; return; }
   if (S.phase === 'lobby') return renderLobby();
   renderGame();
 }
@@ -1232,7 +1284,7 @@ function renderLanding() {
   const cast = Object.keys(ROLES).map((r, i) => `<button class="castmember" data-skinshop="${r}" title="${esc(ROLES[r].name)}: character profile">
       <div class="pthumb idle" style="background-image:url('${CHAR_ANIM.src(r, 'idle', mySkin(r))}');animation-delay:-${(i * 0.83).toFixed(2)}s"></div>
       <span class="castname">${esc(ROLES[r].name)}</span><span class="castshop">Profile</span></button>`).join('');
-  $app.innerHTML = `
+  view.html = `
   <div class="landing home">
     ${musicBtnHtml()}
     <div class="landing-inner">
@@ -1292,7 +1344,7 @@ function accountPanelHtml() {
   const C = acct.config || {};
   if (!acct.me) return `<div class="signin stack" style="gap:8px">
       <span class="hint" style="margin:0">Sign in to keep your Eco-bucks, profile picture and unlocks.</span>
-      ${C.googleClientId ? '<div id="gbtn" class="gbtn"></div>' : ''}
+      ${C.googleClientId ? '<div id="gbtn" class="gbtn" data-keep></div>' : ''}
       ${C.guestsAllowed !== false ? `<button id="guest" class="btn">${C.googleClientId ? 'Play as a guest instead' : 'Play as guest'}</button>` : ''}
       ${C.guestsAllowed !== false && C.googleClientId && guestAtRisk() ? '<span class="hint" style="margin:0;font-size:15px">On iPhone, iPad and Safari, a guest account is erased if you don\'t play for 7 days. Sign in with Google to keep your Eco-bucks.</span>' : ''}
       ${!C.googleClientId ? '<span class="hint" style="margin:0;font-size:16px">(Google sign-in isn’t set up on this server yet. Guest accounts are saved in this browser.)</span>' : ''}
@@ -1332,7 +1384,7 @@ function renderLobby() {
     return `<span class="teampick">${[...Array(nTeams).keys()].map(t =>
       `<button class="teamopt ${m.team === t ? 'on' : ''}" style="--tc:${TEAMS[t].color}" data-team="${t}" data-pid="${m.pid}" title="Team ${TEAMS[t].name}">${TEAMS[t].name}</button>`).join('')}</span>`;
   };
-  $app.innerHTML = `
+  view.html = `
   <div class="landing">
     ${musicBtnHtml()}
     <div class="paper spiral landing-card stack" style="width:min(620px,100%)">
@@ -1444,7 +1496,9 @@ function disEl(id, cls = '', extra = '', who = '') {
   const d = DISRUPTIONS[id];
   return `<div class="card eco dis ${cls}" data-peek="${d.img}" ${extra}><img src="${d.img}" alt="${esc(d.name)}" loading="lazy">${who ? `<div class="who">${esc(who)}</div>` : ''}</div>`;
 }
-const disBack = (who = '') => `<div class="card eco dis facedown"><img src="assets/cards/disruption/back.png" alt="Face-down Disruption">${who ? `<div class="who">${esc(who)}</div>` : ''}</div>`;
+// Card backs (drawn by tools/make_card_backs.js): change BACK_V whenever they are redrawn, so browsers fetch the new ones.
+const BACK_V = '20261115';
+const disBack = (who = '') => `<div class="card eco dis facedown"><img src="assets/cards/disruption/back.png?v=${BACK_V}" alt="Face-down Disruption">${who ? `<div class="who">${esc(who)}</div>` : ''}</div>`;
 // Card treatments (foil, …): shown only to the player who owns them, for cards dealt to them. Which treatment a
 // card shows is set per character in its character profile; before a role is chosen, every owned one shows.
 function myLoadout(role) {
@@ -1626,7 +1680,7 @@ function tableHtml() {
   const choosing = S.phase === 'choose' || !S.trick;
   const pickNow = S.phase === 'choose' && myTurn;
   const n = S.players.length;
-  const deck = `<div class="deckpile"><img src="assets/biome-back.png" alt="">${S.deckCount} left</div>`;
+  const deck = `<div class="deckpile"><img src="assets/biome-back.png?v=${BACK_V}" alt="">${S.deckCount} left</div>`;
   const travelCards = cls => S.travel.map(id => biomeEl(id, cls, pickNow ? `data-choose="${id}"` : '')).join('');
 
   if (choosing) {
@@ -1690,7 +1744,7 @@ function renderGame() {
     const risk = S.trick ? (S.myRisk ?? S.trick.risk) : 0; // Take Bribes: your own Risk may be higher
     const over = S.trick && c.kind === 'Invasive' && c.impact > risk;
     const badge = over ? `<div class="overrisk" title="Impact ${c.impact} is above the Invasive Risk (${risk}): this card can't win the trick, but it still populates."><span>!</span></div>` : '';
-    return `<div class="slot" style="--i:${hand.indexOf(id)}">${cardEl(id, `${cls} ${ui.sel === id ? 'sel' : ''} ${foil(id)}`, `data-hand="${id}"`, '', badge)}</div>`;
+    return `<div class="slot" data-key="slot-${id}" style="--i:${hand.indexOf(id)}">${cardEl(id, `${cls} ${ui.sel === id ? 'sel' : ''} ${foil(id)}`, `data-hand="${id}"`, '', badge)}</div>`;
   }).join('') || '<span class="hint" style="color:var(--blush)">No cards in hand.</span>';
   const role = S.role ? ROLES[S.role] : null;
   // keep sideways scroll positions (hand, players strip) across re-renders
@@ -1698,7 +1752,7 @@ function renderGame() {
   const tip = coachTip();
   for (const sel of ['.hand', '.players-mini']) { const el = [...$app.querySelectorAll(sel)].find(e => e.offsetParent); if (el) keepScroll[sel] = el.scrollLeft; }
 
-  $app.innerHTML = `
+  view.html = `
   <div class="topbar">
     <span class="logo-sm">EVERGLADES</span>
     <span class="chip">${S.tutorial ? 'Tutorial' : 'Room <span class="code">' + S.room + '</span>'}</span>
@@ -1750,7 +1804,7 @@ function renderGame() {
   if (peekSrc && !document.querySelector(`[data-peek="${CSS.escape(peekSrc)}"]`)) hidePeek();
   const logEl = document.getElementById('log'); if (logEl) logEl.scrollTop = logEl.scrollHeight;
   wire();
-  drawPortraits(true);
+  drawPortraits(true); drawArtboxes(); // new canvases get their picture before the page is shown, never a blank frame
   for (const [sel, x] of Object.entries(keepScroll)) { const el = [...$app.querySelectorAll(sel)].find(e => e.offsetParent); if (el) el.scrollLeft = x; }
   if (isPhone()) {
     // the hand bar is pinned to the bottom of the screen: leave room for it under the page
@@ -1977,7 +2031,8 @@ function coachHtml(t) {
 }
 // keep the bots waiting while a tip is open (the server only honours this at tutorial tables)
 function coachSync() {
-  const want = !!(S && S.tutorial && ui.coach && S.phase !== 'ended');
+  if (!S || !S.tutorial) { ui.coachHold = false; return; } // only tutorial tables take 'hold' (others answered with an error toast)
+  const want = !!(ui.coach && S.phase !== 'ended');
   if (want !== ui.coachHold) { ui.coachHold = want; lobby('hold', { on: want }); }
 }
 function rulesModal() {
@@ -2226,9 +2281,10 @@ const passive = {}; // seat -> time of the next passive animation
 const EMOTE = { think: '?', signature: '♪', cheer: '★', upset: '…', shock: '!' };
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 function clipLength(anim) { const A = CHAR_ANIM.anims[anim]; return CHAR_ANIM.frames / A.fps * 1000 * (A.loops || 1); }
-function react(seat, anim, pri = 1) {
+// at: when the clip starts (pass the frame's own clock reading, so a clip never starts "after" the frame drawing it)
+function react(seat, anim, pri = 1, at = performance.now()) {
   if (!CHAR_ANIM.anims[anim]) return;
-  const now = performance.now(), cur = playing[seat];
+  const now = at, cur = playing[seat];
   if (cur && now < cur.until && cur.pri > pri) return; // something more dramatic is still playing
   playing[seat] = { anim, pri, start: now, until: now + clipLength(anim) };
   passive[seat] = now + clipLength(anim) + 2500 + Math.random() * 3000;
@@ -2241,7 +2297,7 @@ function nowPlaying(seat, now) {
     if (now >= passive[seat]) {
       const myTurn = S && S.waiting === +seat && ['draft', 'choose', 'play'].includes(S.phase);
       const anim = myTurn ? (Math.random() < 0.65 ? 'think' : 'idle') : (Math.random() < 0.12 ? 'signature' : 'idle');
-      react(seat, anim, 0);
+      react(seat, anim, 0, now);
       passive[seat] = now + clipLength(anim) + (myTurn ? 2500 : 4500) + Math.random() * 5000;
       cur = playing[seat];
     }
@@ -2262,7 +2318,8 @@ function drawPortraits(force) {
     const cv = el.querySelector('canvas');
     if (!cv) continue;
     let anim = cur ? cur.anim : 'idle';
-    let frame = cur ? Math.floor((now - cur.start) / 1000 * CHAR_ANIM.anims[anim].fps) % CHAR_ANIM.frames : 0;
+    // (never below frame 0: a negative frame would draw nothing at all, a black flash on the dark portrait)
+    let frame = cur ? Math.floor(Math.max(0, now - cur.start) / 1000 * CHAR_ANIM.anims[anim].fps) % CHAR_ANIM.frames : 0;
     const skin = p.skin || null;
     preloadChar(p.role, skin);
     let im = sprite(p.role, anim, skin);
@@ -2333,7 +2390,7 @@ async function playDeal() {
   const N = 14, cards = [];
   for (let i = 0; i < N; i++) {
     const el = document.createElement('img');
-    el.src = 'assets/ecology-back.png'; el.className = 'deal-card';
+    el.src = 'assets/ecology-back.png?v=' + BACK_V; el.className = 'deal-card';
     Object.assign(el.style, { width: W + 'px', height: H + 'px', left: cx + 'px', top: cy - i * 1.5 + 'px', zIndex: i });
     $deal.appendChild(el); cards.push(el);
   }
@@ -2361,7 +2418,7 @@ async function playDeal() {
   for (let round = 0; round < 3 && ui.dealing; round++) {
     for (let i = 0; i < seats.length && ui.dealing; i++) {
       const el = document.createElement('img');
-      el.src = 'assets/ecology-back.png'; el.className = 'deal-card';
+      el.src = 'assets/ecology-back.png?v=' + BACK_V; el.className = 'deal-card';
       Object.assign(el.style, { width: W + 'px', height: H + 'px', left: cx + 'px', top: cy - N * 1.5 + 'px', zIndex: 100 });
       $deal.appendChild(el);
       const t = seats[i], spin = (Math.random() - 0.5) * 40;
@@ -2380,7 +2437,14 @@ async function playDeal() {
 
 // ---------- wiring ----------
 function wire() {
-  const q = (sel, fn) => $app.querySelectorAll(sel).forEach(el => el.addEventListener('click', e => { e.stopPropagation(); fn(el, e); }));
+  // The page is patched in place (see view.html), so elements live on across renders: each gets a single click
+  // listener once, and this render's handlers are looked up in el.__on (reset here, so stale ones can't fire).
+  for (const el of $app.querySelectorAll('*')) if (el.__on) el.__on = null;
+  const on = (el, sel, fn) => {
+    if (!el.__wired) { el.__wired = true; el.addEventListener('click', e => { for (const h of Object.values(el.__on || {})) h(e); }); }
+    (el.__on = el.__on || {})[sel] = fn;
+  };
+  const q = (sel, fn) => $app.querySelectorAll(sel).forEach(el => on(el, sel, e => { e.stopPropagation(); fn(el, e); }));
   q('#speed', () => lobby('speed', { speed: SPEED_ORDER[(SPEED_ORDER.indexOf(S.speed) + 1) % SPEED_ORDER.length] }));
   q('#mute', () => { muted = !muted; try { localStorage.setItem('eg_mute', muted ? '1' : '0'); } catch {} render(); });
   q('#rules', () => { ui.showRules = true; ui.showLog = false; render(); });
@@ -2396,7 +2460,7 @@ function wire() {
   q('[data-botify]', el => lobby('botify', { pid: el.dataset.botify }));
   q('[data-role]', el => { hidePeek(); act({ type: 'pickRole', role: el.dataset.role }); });
   q('[data-choose]', el => { hidePeek(); act({ type: 'chooseBiome', biome: el.dataset.choose }); });
-  $app.querySelectorAll('[data-place]').forEach(el => el.addEventListener('click', () => act({ type: 'place', region: el.dataset.place })));
+  $app.querySelectorAll('[data-place]').forEach(el => on(el, '[data-place]', () => act({ type: 'place', region: el.dataset.place })));
   q('[data-pick]', el => {
     const [region, kind] = el.dataset.pick.split(':');
     if (ui.mode === 'landdev') { ui.mode = null; act({ type: 'ability', region, kind }); }
@@ -2407,8 +2471,8 @@ function wire() {
   q('[data-ddraft]', el => { hidePeek(); act({ type: 'draftDis', card: el.dataset.ddraft }); });
   q('[data-commit]', el => { hidePeek(); act({ type: 'commitDis', card: el.dataset.commit || null }); });
   q('[data-dpick]', el => { const [region, kind] = el.dataset.dpick.split(':'); act({ type: 'dRemove', region, kind }); });
-  $app.querySelectorAll('[data-ddest]').forEach(el => el.addEventListener('click', () => act({ type: 'dDest', region: el.dataset.ddest })));
-  $app.querySelectorAll('[data-dscatter]').forEach(el => el.addEventListener('click', () => act({ type: 'dScatter', region: el.dataset.dscatter, kind: ui.scatterKind || 'n' })));
+  $app.querySelectorAll('[data-ddest]').forEach(el => on(el, '[data-ddest]', () => act({ type: 'dDest', region: el.dataset.ddest })));
+  $app.querySelectorAll('[data-dscatter]').forEach(el => on(el, '[data-dscatter]', () => act({ type: 'dScatter', region: el.dataset.dscatter, kind: ui.scatterKind || 'n' })));
   q('[data-skind]', el => { ui.scatterKind = el.dataset.skind; render(); });
   q('#dDone', () => { ui.stealFrom = null; act({ type: 'dDone' }); });
   q('[data-stealfrom]', el => { ui.stealFrom = +el.dataset.stealfrom; render(); });
