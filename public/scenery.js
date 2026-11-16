@@ -162,7 +162,7 @@
 
   // Change ART_V whenever the landing art is redrawn (and the ?v= on the still paintings in style.css), so every
   // browser fetches the new images at once instead of mixing in ones it saved earlier.
-  const ART_V = '20261117';
+  const ART_V = '20261118';
   const loadImage = src => new Promise((ok, fail) => { const im = new Image(); im.onload = () => ok(im); im.onerror = fail; im.src = src + '?v=' + ART_V; });
   // a small repeatable pseudo-random generator, so the sparkles and fireflies are the same every visit
   function rng(seed) { return () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }; }

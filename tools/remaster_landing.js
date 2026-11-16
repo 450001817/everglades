@@ -26,7 +26,9 @@ const SCENES = {
     pixelFix: [[188, 93, 'auto'], [226, 79, '#fa9a66'], [227, 82, '#fa9a66'], // a speck in the horizon grass; yellow strays off the lone tree
       [78, 77, 'auto'], [70, 78, 'auto'], [80, 84, 'auto'], [82, 87, 'auto'], [85, 87, 'auto']], // grey specks in the haze under the clouds
     // a flat square of shade in the middle of the central cloud: let the sky show through it instead
-    recolor: [[184, 10, 214, 43, '#9c4c58', '#a95767']],
+    recolor: [[184, 10, 214, 43, '#9c4c58', '#a95767'],
+      // a little vertical block of shade in the lit cloud top (under the title's G): plain lit cloud instead
+      [118, 44, 122, 48, '#d05f64', '#fe854f'], [118, 44, 122, 48, '#d56455', '#fe854f'], [118, 44, 122, 51, '#ee7450', '#fe854f']],
     // single sky pixels to correct (as pixelFix, but in the sky layer, so also behind the islands): two dark pixels
     // hanging below the cloud base into the haze
     skyFix: [[77, 76, 'auto'], [88, 76, 'auto']],
