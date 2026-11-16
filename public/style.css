@@ -78,9 +78,9 @@ input.field:focus { outline: 3px solid var(--brass); }
 /* landing, lobby and loading screens sit on a pixel-art Everglades backdrop (made with PixelLab) */
 .landing {
   height: 100dvh; display: grid; place-items: center; padding: 16px; overflow-y: auto; position: relative;
-  background: #2a1830 url('assets/landing-wide.png?v=20261116') center 70% / cover no-repeat; image-rendering: pixelated;
+  background: #2a1830 url('assets/landing-wide.png?v=20261117') center 70% / cover no-repeat; image-rendering: pixelated;
 }
-@media (orientation: portrait) { .landing { background-image: url('assets/landing-tall.png?v=20261116'); background-position: center bottom; } }
+@media (orientation: portrait) { .landing { background-image: url('assets/landing-tall.png?v=20261117'); background-position: center bottom; } }
 /* the animated backdrop (scenery.js) sits behind the page; once it is running the still painting steps aside */
 #scenery { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 70%; image-rendering: pixelated; display: none; z-index: 0; pointer-events: none; }
 .scenery-live #scenery { display: block; }
@@ -94,8 +94,8 @@ input.field:focus { outline: 3px solid var(--brass); }
 /* scene-only view: everything but the backdrop and the eye steps away */
 .scene-only #app, .scene-only #peek, .scene-only #toast, .scene-only #bubbles { visibility: hidden; }
 /* without the animation (reduce motion), keep the still painting on screen */
-html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landing-wide.png?v=20261116') center 70% / cover no-repeat; image-rendering: pixelated; }
-@media (orientation: portrait) { html.scene-only:not(.scenery-live) body { background-image: url('assets/landing-tall.png?v=20261116'); background-position: center bottom; } }
+html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landing-wide.png?v=20261117') center 70% / cover no-repeat; image-rendering: pixelated; }
+@media (orientation: portrait) { html.scene-only:not(.scenery-live) body { background-image: url('assets/landing-tall.png?v=20261117'); background-position: center bottom; } }
 .landing::before { /* darken toward the bottom so the panels read well */
   content: ''; position: fixed; inset: 0; pointer-events: none;
   background: linear-gradient(180deg, rgba(25, 12, 30, .05) 0%, rgba(25, 12, 30, .25) 55%, rgba(20, 10, 18, .6) 100%);
@@ -941,3 +941,10 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .seg:hover { outline: 2px solid var(--brass); }
 .linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--red); text-decoration: underline; cursor: pointer; }
 .chatslot .hint { white-space: nowrap; font-size: 14px; }
+
+/* a bot's chosen biome, lit up for a moment before it travels there (S.botPick) */
+.card.botpick { position: relative; outline: 4px solid #fff3c4; outline-offset: 2px; transform: translateY(-6px) scale(1.04); animation: glow .5s steps(2) infinite; z-index: 1; }
+.card.botpick::after {
+  content: 'TRAVELING'; z-index: 2; position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%);
+  background: var(--brass); color: var(--ink); border: 3px solid var(--ink); font-weight: 700; font-size: 13px; padding: 0 6px; white-space: nowrap;
+}

@@ -25,15 +25,21 @@ const SCENES = {
     // single pixels to correct by hand: [x, y, colour] ('auto' = the colour most of its neighbours have)
     pixelFix: [[188, 93, 'auto'], [226, 79, '#fa9a66'], [227, 82, '#fa9a66'], // a speck in the horizon grass; yellow strays off the lone tree
       [78, 77, 'auto'], [70, 78, 'auto'], [80, 84, 'auto'], [82, 87, 'auto'], [85, 87, 'auto']], // grey specks in the haze under the clouds
-    cloudFix: [[140, 42, 192, 70, 4, 4], [94, 16, 118, 50, 3, 3], [184, 10, 218, 44, 3, 2], [228, 36, 268, 56, 2, 2]],
-    gator: { box: [45, 154, 124, 176], mode: 'colour' },
+    // a flat square of shade in the middle of the central cloud: let the sky show through it instead
+    recolor: [[184, 10, 214, 43, '#9c4c58', '#a95767']],
+    // single sky pixels to correct (as pixelFix, but in the sky layer, so also behind the islands): two dark pixels
+    // hanging below the cloud base into the haze
+    skyFix: [[77, 76, 'auto'], [88, 76, 'auto']],
+    cloudFix: [[184, 10, 216, 44, 2, 1], [140, 42, 192, 70, 4, 4], [94, 16, 118, 50, 3, 3], [184, 10, 218, 44, 3, 2], [228, 36, 268, 56, 2, 2]],
+    // far: the smaller, sunlit version for spots further up the water (the river in the middle of the scene)
+    gator: { box: [45, 154, 124, 176], mode: 'colour', far: { scale: 0.8, sun: '#f7a070' } },
     water: { y0: 128, still: [] },
   },
   tall: {
     w: 180, h: 320,
     horizon: 160, skyBottom: 155,
     cloudFix: [[106, 34, 134, 82, 3, 3], [128, 126, 165, 154, 2, 2]], // the streak down the big cumulus; crumbs by the pine
-    gator: { box: [84, 254, 179, 304], mode: 'outline', thr: 22 },
+    gator: { box: [84, 254, 179, 304], mode: 'outline', thr: 22, far: { scale: 0.88, sun: '#f0a07a' } },
     water: { y0: 200, still: [[116, 146, 180, 178], [0, 198, 66, 280]] }, // bushes, reeds
   },
 };
@@ -218,6 +224,57 @@ function loopSky(sky, OV) {
   return out;
 }
 
+// The alligator further away, out in the sunlit river: scaled down (each pixel takes the colour covering most of
+// the source pixels under it, the eyes always survive, and the black outline is redrawn round the new silhouette),
+// with its lit pixels warmed towards the sunset on the water and a warm rim of light along the top of its back.
+// spr: frame 0 the animal, frame 1 its wake (both GW wide). far: { scale, sun: '#rrggbb' }.
+function farSprite(spr, far) {
+  const GW = spr.w / 2, H = spr.h, k = far.scale, w = Math.round(GW * k), h = Math.round(H * k);
+  const sun = [1, 3, 5].map(i => parseInt(far.sun.slice(i, i + 2), 16));
+  const out = { w: w * 2, h, data: new Uint8Array(w * 2 * h * 4) };
+  const lum = (r, g, b) => r * 0.3 + g * 0.59 + b * 0.11;
+  for (let layer = 0; layer < 2; layer++) {
+    const opaque = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const sx0 = Math.floor(x / k), sx1 = Math.max(sx0 + 1, Math.floor((x + 1) / k)), sy0 = Math.floor(y / k), sy1 = Math.max(sy0 + 1, Math.floor((y + 1) / k));
+      const count = new Map(); let solid = 0, total = 0, eye = null;
+      for (let sy = sy0; sy < Math.min(H, sy1); sy++) for (let sx = sx0; sx < Math.min(GW, sx1); sx++) {
+        total++; const i = (sy * spr.w + layer * GW + sx) * 4; if (spr.data[i + 3] < 128) continue;
+        solid++; const r = spr.data[i], g = spr.data[i + 1], b = spr.data[i + 2];
+        if (layer === 0 && r > 150 && g > 90 && b < 60) eye = [r, g, b];
+        const key = r + ',' + g + ',' + b; count.set(key, (count.get(key) || 0) + 1);
+      }
+      if (!solid || solid * 2 < total) continue;
+      const c = eye || [...count.entries()].sort((a, b) => b[1] - a[1])[0][0].split(',').map(Number);
+      out.data.set([c[0], c[1], c[2], 255], (y * out.w + layer * w + x) * 4); opaque[y * w + x] = 1;
+    }
+    if (layer) continue;
+    // the outline: silhouette edge pixels go dark again (the shrink can wear the original outline away)
+    const at = (x, y) => (y * out.w + x) * 4, inside = (x, y) => x >= 0 && y >= 0 && x < w && y < h && opaque[y * w + x];
+    const ink = [20, 18, 14];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (!opaque[y * w + x]) continue;
+      const i = at(x, y), d = out.data, isEye = d[i] > 150 && d[i + 1] > 90 && d[i + 2] < 60;
+      const edge = !inside(x - 1, y) || !inside(x + 1, y) || !inside(x, y - 1) || !inside(x, y + 1);
+      if (edge && !isEye) { d.set(ink, i); continue; }
+      if (isEye || lum(d[i], d[i + 1], d[i + 2]) < 30) continue;
+      // sunlight: the lighter a pixel, the more of the sunset's warmth it takes
+      const l = Math.min(1, lum(d[i], d[i + 1], d[i + 2]) / 140), t = 0.06 + 0.26 * l;
+      for (let c = 0; c < 3; c++) d[i + c] = Math.round(d[i + c] + (sun[c] - d[i + c]) * t);
+    }
+    // a rim of warm light along the top of its back: the first pixel inside the outline, in each column
+    for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) {
+      if (!opaque[y * w + x]) continue;
+      if (inside(x, y + 1)) {
+        const i = at(x, y + 1), d = out.data;
+        if (!(d[i] > 150 && d[i + 1] > 90 && d[i + 2] < 60) && lum(d[i], d[i + 1], d[i + 2]) >= 30) for (let c = 0; c < 3; c++) d[i + c] = Math.round(d[i + c] + (sun[c] - d[i + c]) * 0.6);
+      }
+      break;
+    }
+  }
+  return out;
+}
+
 function gatorMask(img, G) {
   const [x0, y0, x1, y1] = G.box, W = x1 - x0 + 1, H = y1 - y0 + 1, { w, data: d } = img;
   const at = (x, y) => ((y0 + y) * w + x0 + x) * 4;
@@ -319,6 +376,11 @@ for (const [name, S] of Object.entries(SCENES)) {
   inpaintRows(sky, crumbs, S.skyBottom, p => !crumbs[p]);
   //    Redraw the clouds' flat, rectangular patches (generation artifacts) as rounded billows, then put the
   //    redrawn sky back into the plate and the still painting too (but never over the still painting's birds).
+  fixPixels(sky, S.skyFix || []);
+  for (const [x0, y0, x1, y1, from, to] of S.recolor || []) { // [box, colour, new colour]
+    const hx = h => [1, 3, 5].map(k => parseInt(h.slice(k, k + 2), 16)), [a, b] = [hx(from), hx(to)];
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = (y * S.w + x) * 4; if (sky.data[i] === a[0] && sky.data[i + 1] === a[1] && sky.data[i + 2] === a[2]) sky.data.set(b, i); }
+  }
   for (const box of S.cloudFix || []) majority(sky, ...box);
   // and no pixel may stand alone in the moving sky (one that matches none of its four neighbours twinkles as the
   // clouds carry it along, like the grey specks under the clouds): it takes its neighbours' most common colour
@@ -349,6 +411,7 @@ for (const [name, S] of Object.entries(SCENES)) {
   P.write(path.join(OUT, 'landing', name + '-plate.png'), plate);
   P.write(path.join(OUT, 'landing', 'sky-' + name + '.png'), strip);
   P.write(path.join(OUT, 'landing', 'gator-' + name + '.png'), spr);
+  if (S.gator.far) P.write(path.join(OUT, 'landing', 'gator-' + name + '-far.png'), farSprite(spr, S.gator.far));
   P.write(path.join(OUT, 'landing-' + name + '.png'), still);
 
   // 4. where can it surface? spots whose footprint is all open water (no lily pads or grass), spread apart

@@ -1678,10 +1678,12 @@ function tableHtml() {
   if (holding()) return trickDoneHtml();
   const myTurn = isMine();
   const choosing = S.phase === 'choose' || !S.trick;
-  const pickNow = S.phase === 'choose' && myTurn;
+  const pickNow = S.phase === 'choose' && myTurn && !(S.players[S.you] && S.players[S.you].bot); // (a seat a bot took over: the bot picks)
   const n = S.players.length;
   const deck = `<div class="deckpile"><img src="assets/biome-back.png?v=${BACK_V}" alt="">${S.deckCount} left</div>`;
-  const travelCards = cls => S.travel.map(id => biomeEl(id, cls, pickNow ? `data-choose="${id}"` : '')).join('');
+  // a bot's pick lights up for a moment before it travels there (S.botPick, from the server)
+  const botPick = !pickNow && S.botPick && S.botPick.seat === S.leader ? S.botPick.biome : null;
+  const travelCards = cls => S.travel.map(id => biomeEl(id, `${cls} ${id === botPick ? 'botpick' : ''}`, pickNow ? `data-choose="${id}"` : '')).join('');
 
   if (choosing) {
     // Picking the next biome: the travel row is the star.
@@ -1689,7 +1691,7 @@ function tableHtml() {
     const guide = pickNow && S.guide && S.guide.p === S.you && S.guide.options.length ? S.guide.options : null; // Traveler's Guidebook
     return `<div class="tabletop choose"><div class="players-mini">${playersHtml(true)}</div>
       <div class="row" style="justify-content:space-between;flex-wrap:nowrap">
-        <h3>${pickNow ? '▶ Choose where to travel' : `${esc(S.players[S.leader].name)} is choosing where to travel…`}</h3>${deck}
+        <h3>${pickNow ? '▶ Choose where to travel' : botPick ? `${esc(S.players[S.leader].name)} travels to ${esc(BIOMES[botPick].name)}…` : `${esc(S.players[S.leader].name)} is choosing where to travel…`}</h3>${deck}
       </div>
       <div class="travel ${pickNow ? 'choosing' : ''}">${travelCards(pickNow ? 'choosable' : '')}</div>
       ${guide ? `<div class="strip"><h3>Traveler's Guidebook — or travel to one of the top 5 biome cards</h3>

@@ -155,6 +155,7 @@ function viewFor(room, member) {
     leader: s.leader, turn: s.turn, waiting: G.waitingOn(s), round: s.round,
     lastTrick: s.lastTrick, log: s.log.slice(-40),
     chatter: room.chatter, // short in-character lines from bots: [{ id, seat, text }]
+    botPick: s.phase === 'choose' ? room.botPick || null : null, // a bot's chosen biome, shown highlighted a moment before it travels
     reactions: room.reactions, // character portrait reactions: [{ id, seat, anim, pri }]
     step: s.step ? (s.step.type === 'dis' ? s.step // Disruption choices: nothing secret in them
       : { type: s.step.type, card: s.step.card, left: s.step.left, line: s.step.line, regions: s.step.regions }) : null,
@@ -313,6 +314,30 @@ function scheduleBot(room) {
   const w = G.waitingOn(s);
   if (w < 0 || !s.players[w].bot) return;
   const B = pace(room).bot;
+  if (s.phase === 'choose') {
+    // A bot choosing where to travel: once the finished trick has been seen, everyone gets a moment with the
+    // travel row, then the bot's pick lights up (room.botPick), and a moment later it travels there.
+    const look = Math.max(B * 0.55, room.pauseUntil - Date.now() + B * 0.5);
+    room.botTimer = setTimeout(() => {
+      const w2 = G.waitingOn(s);
+      if (w2 < 0 || !s.players[w2].bot || room.hold || s.phase !== 'choose') { room.botTimer = null; return; }
+      let a;
+      try { a = G.botAction(s, w2); } catch (e) { console.error('bot error', e); room.botTimer = null; return; }
+      room.botPick = { seat: w2, biome: a.biome };
+      broadcast(room);
+      room.botTimer = setTimeout(() => {
+        room.botTimer = null; room.botPick = null;
+        if (G.waitingOn(s) !== w2 || s.phase !== 'choose' || room.hold) return broadcast(room);
+        try {
+          const text = G.botSay(s, w2, a);
+          G.applyAction(s, w2, a);
+          if (text) say(room, w2, text);
+        } catch (e) { console.error('bot error', e); }
+        broadcast(room);
+      }, B * 0.45);
+    }, look);
+    return;
+  }
   const base = s.step ? B * 0.4 : B * (0.8 + Math.random() * 0.4); // token-by-token steps go quicker
   const wait = Math.max(base, room.pauseUntil - Date.now());
   room.botTimer = setTimeout(() => {
@@ -582,7 +607,7 @@ const server = http.createServer(async (req, res) => {
           // Bot speed: host only, any time (also mid-game)
           if (!isHost) return send(res, 403, { error: 'Only the host can change the speed.' });
           room.speed = SPEEDS[body.speed] ? body.speed : 'normal';
-          if (room.botTimer) { clearTimeout(room.botTimer); room.botTimer = null; } // re-time the pending bot move
+          if (room.botTimer) { clearTimeout(room.botTimer); room.botTimer = null; room.botPick = null; } // re-time the pending bot move
         } else if (body.cmd === 'confirm' && s.phase === 'lobby') {
           // each person confirms the table's Eco-buck bid (buy-in) before the game can start
           if (body.on) {

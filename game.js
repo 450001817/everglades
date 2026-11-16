@@ -113,7 +113,7 @@ function startTutorial(s) {
   s.coop = false; s.partners = false; s.disruptions = false; s.tutorial = true; s.np = s.players.length;
   const dealt = new Set(TUTORIAL.hands.flat());
   s.players.forEach((pl, i) => {
-    pl.team = null; pl.role = TUTORIAL.roles[i]; pl.hand = TUTORIAL.hands[i].slice();
+    pl.team = null; pl.role = TUTORIAL.roles[i]; pl.hand = TUTORIAL.hands[i].slice(); nameAfterRole(pl);
     pl.pile = []; pl.biomesWon = []; pl.triggeredCrisis = false; pl.stats = newStats();
   });
   s.discard = Object.keys(CARDS).filter(c => !dealt.has(c));
@@ -206,12 +206,18 @@ function bossPopulate(s, c) {
   putTokens(s, region, 'i', c.pop);
 }
 
+// Bots go by their role for the rest of the game ('Gator Bot' becomes 'Fisherman Bot'). Not a human's seat that a
+// bot took over (those keep the player's name, marked '(bot)'), and not the Anaconda.
+function nameAfterRole(pl) {
+  if (pl.bot && !pl.boss && ROLES[pl.role] && !/\(bot\)$/.test(pl.name)) pl.name = ROLES[pl.role].name + ' Bot';
+}
 function pickRole(s, p, role) {
   if (s.phase !== 'draft') err('Roles have already been chosen.');
   if (p !== s.draftTurn) err('It is not your turn to choose a role.');
   if (!availableRoles(s).includes(role)) err('That role is not available.');
   s.players[p].role = role;
   log(s, `${pname(s, p)} becomes the ${ROLES[role].name}.`);
+  nameAfterRole(s.players[p]);
   emit(s, { type: 'role', p, role });
   s.draftTurn += 1;
   if (s.draftTurn >= s.np) {

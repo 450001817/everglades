@@ -118,8 +118,9 @@
       sky: 'assets/landing/sky-wide.png', skyLoop: 272, // the sky repeats every skyLoop columns (printed by tools/remaster_landing.js)
       // the alligator: sprite (frame 0 the animal, frame 1 its wake), the open-water spots it surfaces at
       // (top-left corner of the sprite; flip = facing the other way) and how far it settles as it sinks
-      gator: { src: 'assets/landing/gator-wide.png', sink: 2,
-        spots: [{ x: 45, y: 154 }, { x: 146, y: 138, flip: true }, { x: 94, y: 150, flip: true }, { x: 146, y: 138 }] },
+      // far: spots further up the water use farSrc, a smaller, sunlit alligator (centred on the same spot, same waterline)
+      gator: { src: 'assets/landing/gator-wide.png', farSrc: 'assets/landing/gator-wide-far.png', sink: 2,
+        spots: [{ x: 45, y: 154 }, { x: 146, y: 138, flip: true, far: true }, { x: 94, y: 150, flip: true }, { x: 146, y: 138, far: true }] },
       // spots that must stay still even though their colours look like water
       still: [],
       fireflies: { n: 12, y0: 110, y1: 172 },
@@ -136,8 +137,8 @@
       plate: 'assets/landing/tall-plate.png', w: 180, h: 320, position: 'center bottom',
       horizon: 160, grassFrom: 228,
       sky: 'assets/landing/sky-tall.png', skyLoop: 153,
-      gator: { src: 'assets/landing/gator-tall.png', sink: 0,
-        spots: [{ x: 84, y: 254 }, { x: 76, y: 257, flip: true }, { x: 86, y: 239 }] },
+      gator: { src: 'assets/landing/gator-tall.png', farSrc: 'assets/landing/gator-tall-far.png', sink: 0,
+        spots: [{ x: 84, y: 254 }, { x: 76, y: 257, flip: true }, { x: 86, y: 239, far: true }] },
       still: [[116, 146, 180, 178], [0, 198, 66, 280]], // bushes, reeds
       fireflies: { n: 10, y0: 175, y1: 300 },
       flock: {
@@ -161,7 +162,7 @@
 
   // Change ART_V whenever the landing art is redrawn (and the ?v= on the still paintings in style.css), so every
   // browser fetches the new images at once instead of mixing in ones it saved earlier.
-  const ART_V = '20261116';
+  const ART_V = '20261117';
   const loadImage = src => new Promise((ok, fail) => { const im = new Image(); im.onload = () => ok(im); im.onerror = fail; im.src = src + '?v=' + ART_V; });
   // a small repeatable pseudo-random generator, so the sparkles and fireflies are the same every visit
   function rng(seed) { return () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }; }
@@ -169,7 +170,7 @@
   async function prepare(name) {
     if (cache[name]) return cache[name];
     const S = SCENES[name];
-    const [plate, skyIm, gatorIm, ...sprites] = await Promise.all([loadImage(S.plate), loadImage(S.sky), loadImage(S.gator.src), ...S.flock.birds.map(b => loadImage(b.src))]);
+    const [plate, skyIm, gatorIm, farIm, ...sprites] = await Promise.all([loadImage(S.plate), loadImage(S.sky), loadImage(S.gator.src), loadImage(S.gator.farSrc), ...S.flock.birds.map(b => loadImage(b.src))]);
     const c = document.createElement('canvas'); c.width = S.w; c.height = S.h;
     const cx = c.getContext('2d', { willReadFrequently: true });
     // the sky layer (alpha 0 = a tree island in front of it) and the alligator sprite, read as pixels
@@ -182,15 +183,20 @@
     // top half: the sky; bottom half: its mask (white = sky that moves, black = a tree island in front)
     const SH = skyIm.height / 2, sky = { loop: S.skyLoop, h: SH, rgb: new Uint32Array(skyD.data.buffer.slice(0, S.w * SH * 4)), move: new Uint8Array(S.w * SH) };
     for (let p = 0; p < S.w * SH; p++) sky.move[p] = skyD.data[(S.w * SH + p) * 4] > 127 ? 1 : 0;
-    const gD = pixelsOf(gatorIm), GW = gatorIm.width / 2, GH = gatorIm.height, gator = { w: GW, h: GH, body: [], wake: [], eye: [0, 0] };
-    let eyes = 0;
-    for (let y = 0; y < GH; y++) for (let x = 0; x < gatorIm.width; x++) {
-      const j = (y * gatorIm.width + x) * 4; if (gD.data[j + 3] < 128) continue;
-      const r = gD.data[j], g = gD.data[j + 1], b = gD.data[j + 2], isEye = r > 150 && g > 90 && b < 90; // the yellow eyes
-      if (x < GW) { gator.body.push({ x, y, r, g, b, eye: isEye }); if (isEye) { gator.eye[0] += x; gator.eye[1] += y; eyes++; } }
-      else gator.wake.push({ x: x - GW, y, r, g, b });
-    }
-    if (eyes) { gator.eye[0] /= eyes; gator.eye[1] /= eyes; } else gator.eye = [GW / 2, GH / 2];
+    // an alligator sprite sheet (frame 0 the animal, frame 1 its wake) as lists of pixels
+    const readGator = im => {
+      const gD = pixelsOf(im), GW = im.width / 2, GH = im.height, G = { w: GW, h: GH, body: [], wake: [], eye: [0, 0] };
+      let eyes = 0;
+      for (let y = 0; y < GH; y++) for (let x = 0; x < im.width; x++) {
+        const j = (y * im.width + x) * 4; if (gD.data[j + 3] < 128) continue;
+        const r = gD.data[j], g = gD.data[j + 1], b = gD.data[j + 2], isEye = r > 150 && g > 90 && b < 60; // the yellow eyes
+        if (x < GW) { G.body.push({ x, y, r, g, b, eye: isEye }); if (isEye) { G.eye[0] += x; G.eye[1] += y; eyes++; } }
+        else G.wake.push({ x: x - GW, y, r, g, b });
+      }
+      if (eyes) { G.eye[0] /= eyes; G.eye[1] /= eyes; } else G.eye = [GW / 2, GH / 2];
+      return G;
+    };
+    const gator = readGator(gatorIm), gatorFar = readGator(farIm);
     cx.drawImage(plate, 0, 0);
     const src = cx.getImageData(0, 0, S.w, S.h);
     const px = new Uint32Array(src.data.buffer.slice(0)); // the still plate, one 32-bit pixel per entry
@@ -221,7 +227,7 @@
       pb: [3, 4, 6][Math.floor(rand() * 3)], ph: rand(),
     });
     const out = cx.createImageData(S.w, S.h);
-    return (cache[name] = { S, px, water, grass, glints, flies, sprites, sky, gator, out, out32: new Uint32Array(out.data.buffer), work: c, wctx: cx });
+    return (cache[name] = { S, px, water, grass, glints, flies, sprites, sky, gator, gatorFar, out, out32: new Uint32Array(out.data.buffer), work: c, wctx: cx });
   }
 
   // The alligator at its spot, s of the way under: it darkens into the water and breaks up (ordered dither) as it
@@ -279,15 +285,19 @@
       const j = s.i * 4; o[j] += (255 - o[j]) * k; o[j + 1] += (240 - o[j + 1]) * k; o[j + 2] += (215 - o[j + 2]) * k;
     }
     // the alligator, the ripples where it went down or came up, and a few bubbles just before it surfaces
-    const GT = S.gator, G = prep.gator, st = gatorState(T, GT.spots.length);
-    drawGator(o, W, H, water, G, GT.spots[st.spot], st.s, GT.sink);
+    const GT = S.gator, st = gatorState(T, GT.spots.length);
+    // a spot's alligator: the far (smaller, sunlit) one is centred on the near one's place, on the same waterline
+    const at = k => {
+      const sp = GT.spots[k], N = prep.gator, G = sp.far ? prep.gatorFar : N;
+      return { G, sp: { x: sp.x + Math.round((N.w - G.w) / 2), y: sp.y + (N.h - G.h), flip: sp.flip } };
+    };
+    { const { G, sp } = at(st.spot); drawGator(o, W, H, water, G, sp, st.s, GT.sink); }
     st.rings.forEach((t0, i) => {
-      const sp = GT.spots[st.ringSpots[i]];
-      const cy = sp.y + G.h * 0.62;
+      const { G, sp } = at(st.ringSpots[i]), cy = sp.y + G.h * 0.62;
       drawRings(o, W, H, water, sp.x + G.w / 2, cy, T - t0, G.w, Math.max(0, Math.min(1, (cy - S.horizon) / (H - S.horizon))));
     });
     if (st.bubbling) {
-      const sp = GT.spots[st.next], ex = sp.x + (sp.flip ? G.w - 1 - G.eye[0] : G.eye[0]), ey = sp.y + G.eye[1];
+      const { G, sp } = at(st.next), ex = sp.x + (sp.flip ? G.w - 1 - G.eye[0] : G.eye[0]), ey = sp.y + G.eye[1];
       for (let b = 0; b < 3; b++) {
         if (Math.sin(TAU * (T * 1.7 + b * 0.37)) < 0.3) continue;
         const X = Math.round(ex + (b - 1) * 4 + Math.sin(b * 2.1) * 2), Y = Math.round(ey + 2 + Math.cos(b * 1.3) * 2);
