@@ -799,8 +799,14 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
   .hand-cap .myrole { color: var(--brass); cursor: help; white-space: nowrap; }
   .hand-cap .myrole small { color: var(--blush); font-size: 13px; }
   .hand-cap .swipe { color: var(--blush); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .handrow { display: block; }
+  .handrow { display: flex; gap: 6px; align-items: flex-end; }
+  .handrow .hand { flex: 1 1 auto; min-width: 0; }
   .rolebox { display: none; }
+  /* Disruption cards sit beside the hand, sized off the hand cards (not the screen height) so the pinned hand stays small */
+  .dishand { padding-bottom: 4px; }
+  .dishand .cap { font-size: 13px; }
+  .dishand-cards { gap: 4px; }
+  .dishand .card.dis { width: calc(var(--cw) * .5); }
   .hand {
     display: flex; align-items: flex-end; gap: 8px; overflow-x: auto; overflow-y: hidden; padding: 18px 4px 4px;
     scroll-snap-type: x proximity; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: thin;
