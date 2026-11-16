@@ -137,7 +137,7 @@
       horizon: 160, grassFrom: 228,
       sky: 'assets/landing/sky-tall.png', skyLoop: 153,
       gator: { src: 'assets/landing/gator-tall.png', sink: 0,
-        spots: [{ x: 84, y: 254 }, { x: 76, y: 257, flip: true }, { x: 92, y: 233 }] },
+        spots: [{ x: 84, y: 254 }, { x: 76, y: 257, flip: true }, { x: 86, y: 239 }] },
       still: [[116, 146, 180, 178], [0, 198, 66, 280]], // bushes, reeds
       fireflies: { n: 10, y0: 175, y1: 300 },
       flock: {
@@ -161,7 +161,7 @@
 
   // Change ART_V whenever the landing art is redrawn (and the ?v= on the still paintings in style.css), so every
   // browser fetches the new images at once instead of mixing in ones it saved earlier.
-  const ART_V = '20261115';
+  const ART_V = '20261116';
   const loadImage = src => new Promise((ok, fail) => { const im = new Image(); im.onload = () => ok(im); im.onerror = fail; im.src = src + '?v=' + ART_V; });
   // a small repeatable pseudo-random generator, so the sparkles and fireflies are the same every visit
   function rng(seed) { return () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }; }
@@ -226,11 +226,12 @@
 
   // The alligator at its spot, s of the way under: it darkens into the water and breaks up (ordered dither) as it
   // sinks, settling a little lower; the eyes go last and come up first. Its wake shows only while it's up.
-  function drawGator(o, W, H, G, spot, s, sink) {
+  // It only ever covers open water: flowers, grasses, reeds and lily pads in front of it stay in front.
+  function drawGator(o, W, H, water, G, spot, s, sink) {
     if (s >= 1) return;
     const fx = x => spot.flip ? G.w - 1 - x : x;
     const put = (X, Y, r, g, b, k) => { // k = how much of the water under it shows through
-      if (X < 0 || Y < 0 || X >= W || Y >= H) return;
+      if (X < 0 || Y < 0 || X >= W || Y >= H || !water[Y * W + X]) return;
       const j = (Y * W + X) * 4; o[j] = r + (o[j] - r) * k; o[j + 1] = g + (o[j + 1] - g) * k; o[j + 2] = b + (o[j + 2] - b) * k;
     };
     for (const p of G.wake) { const X = spot.x + fx(p.x), Y = spot.y + p.y; if (BAYER[(Y & 3) * 4 + (X & 3)] >= 1 - s * 2.2) continue; put(X, Y, p.r, p.g, p.b, 0.35); }
@@ -241,16 +242,21 @@
       put(X, Y, p.r, p.g, p.b, p.eye ? tint * 0.4 : tint);
     }
   }
-  // Rings of ripples spreading from where it went down or came up (flattened ellipses, on the water only).
-  function drawRings(o, W, H, water, cx, cy, age, size) {
+  // Rings of ripples spreading from where it went down or came up, seen in perspective: the further up the water
+  // (towards the horizon) the smaller and flatter they are, and each ring's far half is narrower and fainter than
+  // its near half. depth: 0 at the horizon, 1 at the bottom of the scene. On open water only.
+  function drawRings(o, W, H, water, cx, cy, age, size, depth) {
+    const scale = 0.45 + 0.65 * depth, flat = 0.1 + 0.2 * depth;
     for (const [delay, k] of [[0, 0.55], [0.7, 0.35]]) {
       const a = age - delay; if (a < 0 || a > 2.6) continue;
-      const rx = size * 0.25 + a * size * 0.22, ry = rx * 0.3, fade = k * (1 - a / 2.6);
+      const rx = (size * 0.25 + a * size * 0.22) * scale, ry = rx * flat, fade = k * (1 - a / 2.6);
       const n = Math.ceil(rx * 4);
       for (let i = 0; i < n; i++) {
-        const ang = (i / n) * TAU, X = Math.round(cx + Math.cos(ang) * rx), Y = Math.round(cy + Math.sin(ang) * ry);
+        const ang = (i / n) * TAU, far = Math.sin(ang) < 0;
+        const X = Math.round(cx + Math.cos(ang) * rx), Y = Math.round(cy + Math.sin(ang) * ry * (far ? 0.7 : 1.15));
         if (X < 0 || Y < 0 || X >= W || Y >= H || !water[Y * W + X]) continue;
-        const j = (Y * W + X) * 4; o[j] += (205 - o[j]) * fade; o[j + 1] += (215 - o[j + 1]) * fade; o[j + 2] += (225 - o[j + 2]) * fade;
+        const f = far ? fade * 0.6 : fade, j = (Y * W + X) * 4;
+        o[j] += (205 - o[j]) * f; o[j + 1] += (215 - o[j + 1]) * f; o[j + 2] += (225 - o[j + 2]) * f;
       }
     }
   }
@@ -274,10 +280,11 @@
     }
     // the alligator, the ripples where it went down or came up, and a few bubbles just before it surfaces
     const GT = S.gator, G = prep.gator, st = gatorState(T, GT.spots.length);
-    drawGator(o, W, H, G, GT.spots[st.spot], st.s, GT.sink);
+    drawGator(o, W, H, water, G, GT.spots[st.spot], st.s, GT.sink);
     st.rings.forEach((t0, i) => {
       const sp = GT.spots[st.ringSpots[i]];
-      drawRings(o, W, H, water, sp.x + G.w / 2, sp.y + G.h * 0.62, T - t0, G.w);
+      const cy = sp.y + G.h * 0.62;
+      drawRings(o, W, H, water, sp.x + G.w / 2, cy, T - t0, G.w, Math.max(0, Math.min(1, (cy - S.horizon) / (H - S.horizon))));
     });
     if (st.bubbling) {
       const sp = GT.spots[st.next], ex = sp.x + (sp.flip ? G.w - 1 - G.eye[0] : G.eye[0]), ey = sp.y + G.eye[1];

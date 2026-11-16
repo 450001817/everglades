@@ -1,5 +1,5 @@
-// Fills in the support contact on the legal pages (SUPPORT_EMAIL on the server). Without it, the pages point
-// players to the support contact shown on their Stripe receipt.
+// The legal pages name the support contact (goblininksupport@gmail.com) in their HTML. Setting SUPPORT_EMAIL on the
+// server replaces it with another address without editing the pages.
 fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
   .then(r => r.json())
   .then(c => {

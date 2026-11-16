@@ -21,12 +21,18 @@ const SCENES = {
     w: 320, h: 180,
     horizon: 93,   // the grass line: loose pixels are cleaned above it
     skyBottom: 82, // rows above this are sky (they drift); below is the distant treeline and the grass
+    // flat rectangular patches in the clouds to redraw as billows: [x0, y0, x1, y1, radius, passes]
+    // single pixels to correct by hand: [x, y, colour] ('auto' = the colour most of its neighbours have)
+    pixelFix: [[188, 93, 'auto'], [226, 79, '#fa9a66'], [227, 82, '#fa9a66'], // a speck in the horizon grass; yellow strays off the lone tree
+      [78, 77, 'auto'], [70, 78, 'auto'], [80, 84, 'auto'], [82, 87, 'auto'], [85, 87, 'auto']], // grey specks in the haze under the clouds
+    cloudFix: [[140, 42, 192, 70, 4, 4], [94, 16, 118, 50, 3, 3], [184, 10, 218, 44, 3, 2], [228, 36, 268, 56, 2, 2]],
     gator: { box: [45, 154, 124, 176], mode: 'colour' },
     water: { y0: 128, still: [] },
   },
   tall: {
     w: 180, h: 320,
     horizon: 160, skyBottom: 155,
+    cloudFix: [[106, 34, 134, 82, 3, 3], [128, 126, 165, 154, 2, 2]], // the streak down the big cumulus; crumbs by the pine
     gator: { box: [84, 254, 179, 304], mode: 'outline', thr: 22 },
     water: { y0: 200, still: [[116, 146, 180, 178], [0, 198, 66, 280]] }, // bushes, reeds
   },
@@ -132,6 +138,62 @@ function inpaintRows(img, mask, rows, ok = () => true) {
   }
 }
 
+function fixPixels(img, list) {
+  const { w, data: d } = img;
+  for (const [x, y, col] of list) {
+    const i = (y * w + x) * 4;
+    let rgb;
+    if (col === 'auto') { // the most common colour among its eight neighbours
+      const count = new Map();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) { const j = ((y + dy) * w + x + dx) * 4, k = d[j] + ',' + d[j + 1] + ',' + d[j + 2]; count.set(k, (count.get(k) || 0) + 1); }
+      rgb = [...count.entries()].sort((a, b) => b[1] - a[1])[0][0].split(',').map(Number);
+    } else rgb = [1, 3, 5].map(k => parseInt(col.slice(k, k + 2), 16));
+    d[i] = rgb[0]; d[i + 1] = rgb[1]; d[i + 2] = rgb[2];
+  }
+}
+
+// Majority filter inside a box: each pixel takes the most common colour within radius r (ties keep its own), for
+// `passes` rounds. Square corners round off and streaks thinner than about r vanish, so flat rectangular
+// patches become soft billows, using only colours already in the painting.
+function majority(img, x0, y0, x1, y1, r = 2, passes = 2) {
+  const { w, h, data: d } = img;
+  for (let pass = 0; pass < passes; pass++) {
+    const src = Uint8Array.from(d);
+    for (let y = Math.max(0, y0); y <= Math.min(h - 1, y1); y++) for (let x = Math.max(0, x0); x <= Math.min(w - 1, x1); x++) {
+      const count = new Map(); let best = null, bn = 0;
+      const own = ((y * w + x) * 4), ownKey = (src[own] << 16) | (src[own + 1] << 8) | src[own + 2];
+      for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) {
+        if (i * i + j * j > r * r + r) continue;
+        const X = x + i, Y = y + j; if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+        const s = (Y * w + X) * 4, key = (src[s] << 16) | (src[s + 1] << 8) | src[s + 2];
+        const n = (count.get(key) || 0) + 1; count.set(key, n);
+        if (n > bn || (n === bn && key === ownKey)) { bn = n; best = key; }
+      }
+      if (best !== ownKey && bn > (count.get(ownKey) || 0)) { d[own] = best >> 16; d[own + 1] = (best >> 8) & 255; d[own + 2] = best & 255; }
+    }
+  }
+  // then little islands of one colour left inside the box (blobs and crumbs) melt into what surrounds them
+  const key = p => (d[p * 4] << 16) | (d[p * 4 + 1] << 8) | d[p * 4 + 2];
+  const inBox = (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1 && x >= 0 && y >= 0 && x < w && y < h;
+  const seen = new Uint8Array(w * h);
+  for (let y = Math.max(0, y0); y <= Math.min(h - 1, y1); y++) for (let x = Math.max(0, x0); x <= Math.min(w - 1, x1); x++) {
+    const p0 = y * w + x; if (seen[p0]) continue;
+    const k = key(p0), piece = [p0], border = new Map(); seen[p0] = 1;
+    for (let q = 0; q < piece.length; q++) {
+      const p = piece[q], px = p % w, py = (p / w) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const X = px + dx, Y = py + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+        const n = Y * w + X, kn = key(n);
+        if (kn === k) { if (!seen[n] && inBox(X, Y)) { seen[n] = 1; piece.push(n); } }
+        else border.set(kn, (border.get(kn) || 0) + 1);
+      }
+    }
+    if (piece.length >= 30 || !border.size) continue;
+    const to = [...border.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    for (const p of piece) { d[p * 4] = to >> 16; d[p * 4 + 1] = (to >> 8) & 255; d[p * 4 + 2] = to & 255; }
+  }
+}
+
 // Make the sky loop on itself, so the clouds can drift left for ever: its right end overlaps its left start by OV
 // columns, joined along the path down the overlap where the two differ least (so the join hides in similar
 // colours). The result is W - OV columns wide and wraps around seamlessly; the first OV columns are the join.
@@ -205,6 +267,7 @@ function waterMask(img, S) {
 for (const [name, S] of Object.entries(SCENES)) {
   const plate = P.read(path.join(ORIG, 'landing', name + '-plate.png'));
   const still = P.read(path.join(ORIG, 'landing-' + name + '.png'));
+  for (const img of [plate, still]) fixPixels(img, S.pixelFix || []);
   const stillOrig = Uint8Array.from(still.data);
   const N = S.w * S.h;
 
@@ -254,6 +317,26 @@ for (const [name, S] of Object.entries(SCENES)) {
     if (l < 60 || (g > b + 10 && g >= r * 0.75 && l < 150)) crumbs[p] = 1;
   }
   inpaintRows(sky, crumbs, S.skyBottom, p => !crumbs[p]);
+  //    Redraw the clouds' flat, rectangular patches (generation artifacts) as rounded billows, then put the
+  //    redrawn sky back into the plate and the still painting too (but never over the still painting's birds).
+  for (const box of S.cloudFix || []) majority(sky, ...box);
+  // and no pixel may stand alone in the moving sky (one that matches none of its four neighbours twinkles as the
+  // clouds carry it along, like the grey specks under the clouds): it takes its neighbours' most common colour
+  for (let pass = 0; pass < 2; pass++) {
+    const src = Uint8Array.from(sky.data), list = [];
+    const df = (i, j) => Math.abs(src[i] - src[j]) + Math.abs(src[i + 1] - src[j + 1]) + Math.abs(src[i + 2] - src[j + 2]);
+    for (let y = 1; y < S.skyBottom - 1; y++) for (let x = 1; x < S.w - 1; x++) {
+      const i = (y * S.w + x) * 4; // (the sky filled in behind the islands too: it drifts into view)
+      if ([i - 4, i + 4, i - S.w * 4, i + S.w * 4].some(j => df(i, j) <= 40)) continue;
+      list.push([x, y, 'auto']);
+    }
+    fixPixels(sky, list);
+  }
+  for (let p = 0; p < S.w * S.skyBottom; p++) {
+    if (fol[p]) continue;
+    const i = p * 4, same = Math.abs(still.data[i] - plate.data[i]) + Math.abs(still.data[i + 1] - plate.data[i + 1]) + Math.abs(still.data[i + 2] - plate.data[i + 2]) < 30;
+    for (let k = 0; k < 3; k++) { if (same) still.data[i + k] = sky.data[i + k]; plate.data[i + k] = sky.data[i + k]; }
+  }
   //    Then made to loop; the image stays a screen wide (the loop carries on into the last columns). Below it, a
   //    mask of what moves (white = sky, black = a tree island in front, drawn from the plate). (Not in the alpha:
   //    browsers lose the colour of fully transparent pixels, and the sky behind the islands comes into view.)
