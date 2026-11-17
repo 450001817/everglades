@@ -182,15 +182,17 @@ function setSceneOnly(on) {
 document.getElementById('sceneEye')?.addEventListener('click', () => setSceneOnly(!document.documentElement.classList.contains('scene-only')));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') setSceneOnly(false); });
 // The music toggle, with the friends dropdown button beside it (top right of the home page and lobby; in the game's top bar)
+// (phones show the short labels: <span class="lbl-l"> is hidden and <span class="lbl-s"> shown; see style.css)
+const musicLabel = () => `♪ <span class="lbl-l">Music: </span>${musicOn ? 'On' : 'Off'}`;
 const musicBtnHtml = (cls = 'musicbtn') => {
-  const music = `<button class="btn small" id="musicBtn" title="Music on/off">${musicOn ? '♪ Music: On' : '♪ Music: Off'}</button>`;
+  const music = `<button class="btn small" id="musicBtn" title="Music on/off">${musicLabel()}</button>`;
   return cls ? `<div class="topctl ${cls}">${lbBtnHtml()}${statsBtnHtml()}${friendsBtnHtml()}${music}</div>` : lbBtnHtml() + statsBtnHtml() + friendsBtnHtml() + music;
 };
 document.addEventListener('click', e => {
   if (!e.target.closest('#musicBtn')) return;
   musicOn = !musicOn;
   try { localStorage.setItem('eg_music', musicOn ? '1' : '0'); } catch {}
-  e.target.closest('#musicBtn').textContent = musicOn ? '♪ Music: On' : '♪ Music: Off';
+  e.target.closest('#musicBtn').innerHTML = musicLabel();
   updateMusic();
 });
 document.addEventListener('click', e => { if (e.target.closest('.btn')) SFX.click(); }, true);
@@ -977,7 +979,7 @@ const frBadgeCount = () => fr.data ? fr.data.incoming.length + fr.data.invites.l
 function friendsBtnHtml() {
   if (!acct.me) return '';
   const n = frBadgeCount(), on = fr.data ? fr.data.friends.filter(f => f.online).length : 0;
-  return `<button class="btn small friendsbtn ${fr.open ? 'brass' : ''}" data-friends title="Friends${on ? ` (${on} online)` : ''}">👥 Friends${on ? ` <span class="fon">${on}</span>` : ''}<span class="fbadge">${n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : ''}</span> ▾</button>`;
+  return `<button class="btn small friendsbtn ${fr.open ? 'brass' : ''}" data-friends title="Friends${on ? ` (${on} online)` : ''}">👥 Friends${on ? ` <span class="fon">${on}</span>` : ''}<span class="fbadge">${n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : ''}</span><span class="caret"> ▾</span></button>`;
 }
 function refreshFriendsBtns() { // update the buttons in place (no full re-render)
   for (const b of document.querySelectorAll('[data-friends]')) b.outerHTML = friendsBtnHtml();
@@ -1099,7 +1101,7 @@ const $stats = document.createElement('div'); $stats.id = 'statsPanel'; $stats.c
 document.body.appendChild($stats);
 function statsBtnHtml() {
   if (!acct.me) return '';
-  return `<button class="btn small ${st.open ? 'brass' : ''}" data-stats title="Your win rate and record">📊 Stats ▾</button>`;
+  return `<button class="btn small ${st.open ? 'brass' : ''}" data-stats title="Your win rate and record">📊 Stats<span class="caret"> ▾</span></button>`;
 }
 const refreshStatsBtns = () => { for (const b of document.querySelectorAll('[data-stats]')) b.outerHTML = statsBtnHtml(); };
 const pctOf = (w, g) => g ? Math.round(100 * w / g) : 0;
@@ -1225,7 +1227,7 @@ const $lb = document.createElement('div'); $lb.id = 'lbPanel'; $lb.className = '
 document.body.appendChild($lb);
 function lbBtnHtml() {
   if (!acct.me) return '';
-  return `<button class="btn small ${lb.open ? 'brass' : ''}" data-lb title="Who earned the most Eco-bucks">🏆 Leaders ▾</button>`;
+  return `<button class="btn small ${lb.open ? 'brass' : ''}" data-lb title="Who earned the most Eco-bucks">🏆 <span class="lbl-l">Leaders</span><span class="lbl-s">Top</span><span class="caret"> ▾</span></button>`;
 }
 const refreshLbBtns = () => { for (const b of document.querySelectorAll('[data-lb]')) b.outerHTML = lbBtnHtml(); };
 const LB_TABS = [['day', 'Today'], ['month', 'This month'], ['all', 'All time']];
@@ -1320,7 +1322,7 @@ function showPeek(src, role, skin) {
   $peek.innerHTML = role && ROLES[role] ? roleCardHtml(role, skin) : `<img src="${src}" alt="">`;
   $peek.classList.remove('hidden');
 }
-function hidePeek() { clearTimeout(peekTimer); peekTimer = null; peekSrc = null; peekKey = null; $peek.classList.add('hidden'); }
+function hidePeek() { clearTimeout(peekTimer); peekTimer = null; peekSrc = null; peekKey = null; peekPinned = false; $peek.classList.add('hidden'); $peek.classList.remove('pinned'); }
 function armPeek(el) {
   const src = el.dataset.peek, role = el.dataset.peekrole || null, skin = el.dataset.peekskin || null;
   const key = src + '|' + (skin || '');
@@ -1328,17 +1330,40 @@ function armPeek(el) {
   hidePeek(); peekSrc = src; peekKey = key;
   peekTimer = setTimeout(() => showPeek(src, role, skin), 1000);
 }
+// Touch screens: a tap on a role card (a player, "You are the ...", a portrait) shows it straight away and keeps it up
+// until it's tapped again (the card itself or the same player); tapping another player switches to theirs. Holding
+// covered the card with the finger. Other cards (hand, biomes) still show while held, since a tap on them plays/picks.
+let peekPinned = false, lastPointer = 'mouse';
+const roleTap = el => !!(el && el.dataset.peekrole && !el.dataset.role); // (a role you can pick in the draft: a tap picks it)
+const peekKeyOf = el => el.dataset.peek + '|' + (el.dataset.peekskin || '');
+function pinPeek(el) {
+  hidePeek();
+  peekSrc = el.dataset.peek; peekKey = peekKeyOf(el); peekPinned = true;
+  showPeek(el.dataset.peek, el.dataset.peekrole, el.dataset.peekskin || null);
+  $peek.insertAdjacentHTML('beforeend', '<div class="peekclose">Tap to close</div>');
+  $peek.classList.add('pinned');
+}
 document.addEventListener('mouseover', e => {
+  if (lastPointer === 'touch') return; // (a tap also sends a pretend mouseover)
   const el = e.target.closest('[data-peek]');
   if (el) armPeek(el); else if (peekSrc) hidePeek();
 });
 document.addEventListener('pointerdown', e => {
+  lastPointer = e.pointerType;
   if (e.pointerType !== 'touch') return;
   const el = e.target.closest('[data-peek]');
-  if (el) armPeek(el);
-});
-document.addEventListener('pointerup', e => { if (e.pointerType === 'touch') hidePeek(); });
-document.addEventListener('pointercancel', hidePeek);
+  if (el && !roleTap(el) && !peekPinned) armPeek(el);
+}, true);
+document.addEventListener('pointerup', e => { if (e.pointerType === 'touch' && !peekPinned) hidePeek(); });
+document.addEventListener('pointercancel', () => { if (!peekPinned) hidePeek(); });
+document.addEventListener('click', e => {
+  if (lastPointer !== 'touch') return;
+  if (e.target.closest('#peek')) { if (peekPinned) hidePeek(); return; } // tapping the card closes it
+  const el = e.target.closest('[data-peek]');
+  if (!roleTap(el)) return;
+  if (peekPinned && peekKeyOf(el) === peekKey) hidePeek(); else pinPeek(el);
+}, true);
+$peek.addEventListener('click', () => { if (peekPinned) hidePeek(); });
 document.addEventListener('contextmenu', e => { if (e.target.closest('[data-peek]')) e.preventDefault(); });
 document.addEventListener('click', e => {
   if (ui.showLog && S && !e.target.closest('.notes-wrap')) { ui.showLog = false; render(); }
@@ -1509,9 +1534,20 @@ const view = { set html(h) { const t = document.createElement('template'); t.inn
 function render() {
   renderScreen();
   updateMusic();
+  swipeHints();
   // the friends dropdown follows the table you're at (Invite buttons), unless you're typing in it
   if (fr.open && !(document.activeElement && document.activeElement.id === 'friendName')) renderFriends();
 }
+// Button rows that swipe sideways on phones (the game's top bar, the home page's button row) fade out at an edge
+// that has more buttons beyond it, so it's clear they can be swiped.
+const SWIPE_ROWS = '.topbar, .landing > .musicbtn';
+function swipeHint(el) {
+  el.classList.toggle('more-r', el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  el.classList.toggle('more-l', el.scrollLeft > 4);
+}
+function swipeHints() { for (const el of document.querySelectorAll(SWIPE_ROWS)) swipeHint(el); }
+document.addEventListener('scroll', e => { if (e.target.matches && e.target.matches(SWIPE_ROWS)) swipeHint(e.target); }, true);
+addEventListener('resize', swipeHints);
 function renderScreen() {
   // home page, loading screen and lobby sit on the animated backdrop (scenery.js)
   const scenic = !sess || !S || S.phase === 'lobby';
@@ -1999,7 +2035,7 @@ function renderGame() {
   // keep sideways scroll positions (hand, players strip) across re-renders
   const keepScroll = {};
   const tip = coachTip();
-  for (const sel of ['.hand', '.players-mini']) { const el = [...$app.querySelectorAll(sel)].find(e => e.offsetParent); if (el) keepScroll[sel] = el.scrollLeft; }
+  for (const sel of ['.hand', '.players-mini', '.topbar']) { const el = [...$app.querySelectorAll(sel)].find(e => e.offsetParent); if (el) keepScroll[sel] = el.scrollLeft; }
 
   view.html = `
   <div class="topbar">
@@ -2030,7 +2066,7 @@ function renderGame() {
     <section class="tablecol">${tableHtml()}</section>
     <section class="handarea">
       ${promptHtml()}
-      <div class="hand-cap">${role ? `<span class="myrole" ${peekAttrs(S.role, tableSkin(S.role))}>You are the <b>${esc(role.name)}</b> <small>(hold to read)</small></span>` : ''}<span class="swipe">${hand.length} card${hand.length === 1 ? '' : 's'} · swipe ↔ · hold a card to read it</span></div>
+      <div class="hand-cap">${role ? `<span class="myrole" ${peekAttrs(S.role, tableSkin(S.role))}>You are the <b>${esc(role.name)}</b> <small>(tap to read)</small></span>` : ''}<span class="swipe">${hand.length} card${hand.length === 1 ? '' : 's'} · swipe ↔ · hold a card to read it</span></div>
       <div class="handrow">
         <div class="hand ${ui.dealing ? 'dealing' : ''} ${Date.now() - (ui.handIntro || 0) < 1400 ? 'intro' : ''}">${handHtml}</div>
         ${S.disruptions && (S.dis || []).length ? `<div class="dishand"><div class="cap">Disruptions</div><div class="dishand-cards">${S.dis.map(id => {
@@ -2125,7 +2161,7 @@ function promptHtml() {
     if (S.step?.type === 'predate') what = `to hunt with ${CARDS[S.step.card].name}`;
     if (S.step?.type === 'dis') what = `to resolve ${DISRUPTIONS[S.step.card].name}`;
     if (S.step?.type === 'protect') what = `(Conservationist) to decide whether to stop ${S.players[S.step.by].name}'s ${CARDS[S.step.card].name} from populating`;
-    return `<div class="paper spiral prompt"><div class="msg">Waiting for ${esc(w ? w.name : '…')} ${what}…<small>${isPhone() ? 'Press and hold any card or player' : 'Hover any card'} for a second to read it.</small></div></div>`;
+    return `<div class="paper spiral prompt"><div class="msg">Waiting for ${esc(w ? w.name : '…')} ${what}…<small>${isPhone() ? 'Tap a player to read their role, or press and hold any card' : 'Hover any card'} for a second to read it.</small></div></div>`;
   }
   const box = (msg, buttons = '') => `<div class="paper spiral prompt yours">${clockFor(S.you, true)}<div class="msg">${msg}</div>${buttons}</div>`;
   if (S.phase === 'draft') return box(`Choose your role! ${isPhone() ? 'Tap' : 'Click'} a role card in the play area.<small>${isPhone() ? 'Press and hold' : 'Hover over'} a card to read its objectives. Your hand is already dealt, so plan around it.</small>`);
@@ -2224,7 +2260,7 @@ const COACH = [
   { id: 'welcome', when: () => S.phase !== 'ended', title: 'Welcome to the Everglades!',
     body: () => `This is a short practice game: <b>5 rounds</b> against two friendly bots, with nothing at stake. Each time something new comes up, I'll pause the game and explain it.` },
   { id: 'role', when: () => S.phase !== 'ended', focus: '.rolebox', title: 'You are the Conservationist',
-    body: () => `Your role card (bottom right) shows how you score. ${isPhone() ? 'Press and hold' : 'Hover'} it to read it.<ul>
+    body: () => `Your role card (${isPhone() ? '"You are the…" above your hand' : 'bottom right'}) shows how you score. ${isPhone() ? 'Tap' : 'Hover'} it to read it${isPhone() ? ', and tap the card to close it' : ''}.<ul>
       <li><b>10 points</b> for each of Fakahatchee, Big Cypress and Everglades National Park that ends with more ${NAT('Native')} than ${INV('Invasive')} tokens</li>
       <li><b>15</b> if ${NAT('Natives')} outnumber ${INV('Invasives')} across the whole map</li>
       <li><b>5</b> if you never win a trick with an Invasive card</li>
@@ -2263,7 +2299,7 @@ const COACH = [
   { id: 'offsuit', when: () => S.lastTrick && S.lastTrick.matched === false, title: 'Nobody matched',
     body: () => 'When no card matches the suit, the highest-Impact <b>off-suit</b> card wins. Invasive cards above the Invasive Risk can never win this way.' },
   { id: 'rivals', when: () => S.lastTrick && S.phase !== 'ended' && !S.trick, focus: '.players', title: 'Your rivals',
-    body: () => `Everyone's role is public. ${isPhone() ? 'Press and hold' : 'Hover'} a player to read their goals. ${S.players.map((p, i) => i === S.you ? '' : `<b>${esc(p.name)}</b> is the ${esc(ROLES[p.role].name)}.`).join(' ')} The Land Developer wants Invasives in Miami, empty regions and the most tricks. Get in their way when you can.` },
+    body: () => `Everyone's role is public. ${isPhone() ? 'Tap' : 'Hover'} a player to read their goals. ${S.players.map((p, i) => i === S.you ? '' : `<b>${esc(p.name)}</b> is the ${esc(ROLES[p.role].name)}.`).join(' ')} The Land Developer wants Invasives in Miami, empty regions and the most tricks. Get in their way when you can.` },
   { id: 'end', when: () => S.phase === 'ended' && !holding(), title: 'Final scoring',
     body: () => "The game ends when the cards run out. Each player scores 5 points per trick plus their role's objectives, and the table shows how every score was made. That's the whole game! Real tables have 2 to 6 players, a role draft, character abilities, Partners and Co-op modes, and optional Disruption cards." },
 ];

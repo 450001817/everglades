@@ -102,6 +102,11 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
 }
 .landing > * { position: relative; }
 .landing > .musicbtn { position: fixed; top: 12px; right: 12px; z-index: 5; display: flex; gap: 6px; }
+.lbl-s { display: none; } /* short button labels, used on phones (see the phone layout) */
+/* a swipeable button row fades out at an edge with more buttons beyond it (client.js swipeHints) */
+.more-r { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent); }
+.more-l { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 30px), transparent); }
+.more-l.more-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 30px, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(to right, transparent, #000 30px, #000 calc(100% - 30px), transparent); }
 /* ---------- title screen (client.js intro) ---------- */
 /* just the title on the backdrop, then the menu fades in once it has glided into place */
 .titlescreen { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
@@ -143,6 +148,14 @@ html.intro-hold .hero .logo, html.intro-hold .hero .tagline { visibility: hidden
 .friendspanel .fmsg { font-size: 15px; color: #2a7a3e; }
 .friendspanel .fmsg.error { color: var(--red); }
 @media (max-width: 700px) { .friendspanel { top: 52px; right: 8px; width: calc(100vw - 16px); padding-left: 24px; } }
+/* phones: the home / lobby button row starts after the eye button, stays on one line and swipes sideways when needed
+   (the first button's auto margin keeps the row right-aligned whenever it fits) */
+@media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) {
+  .landing > .musicbtn { left: 56px; right: 8px; top: 10px; gap: 5px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding: 0 0 4px; }
+  .landing > .musicbtn::-webkit-scrollbar { display: none; }
+  .landing > .musicbtn > :first-child { margin-left: auto; }
+  .landing > .musicbtn .btn.small { font-size: 13px; padding: 4px 7px; }
+}
 /* ---------- stats dropdown (client.js renderStats) ---------- */
 .statspanel.wide { width: min(900px, calc(100vw - 24px)); }
 .statspanel .stabs { gap: 6px; }
@@ -547,6 +560,10 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
   animation: peekin .12s steps(3);
 }
 .peek img { max-height: min(66dvh, 720px); max-width: min(80vw, 860px); width: auto; height: auto; }
+/* a role card opened with a tap (touch screens) stays up until it's tapped */
+.peek.pinned { pointer-events: auto; cursor: pointer; }
+.peek .peekclose { position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%); z-index: 3; white-space: nowrap; padding: 1px 8px;
+  font-family: var(--font-small); font-size: 14px; background: var(--brass); color: var(--ink); border: 2px solid var(--ink); }
 @keyframes peekin { from { transform: translate(-50%, 20px); opacity: 0; } }
 
 /* modals may scroll inside; the page never does */
@@ -793,6 +810,13 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
   .topbar .chip { font-size: 16px; padding: 0 6px; }
   .topbar .spacer { display: none; }
   .topbar .btn.small { font-size: 13px; padding: 4px 7px; }
+  /* the top buttons stay on one line: shorter labels, and the row swipes sideways if it still doesn't fit */
+  .lbl-l, .topctl .caret, .topbar .caret { display: none; }
+  .lbl-s { display: inline; }
+  .topbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .topbar::-webkit-scrollbar { display: none; }
+  .topbar > * { flex-shrink: 0; }
+  .topbar .btn, .topctl .btn { white-space: nowrap; flex-shrink: 0; }
   .notes-drop, .chat-drop { position: fixed; left: 8px; right: 8px; top: auto; width: auto; max-height: 60dvh; }
 
   /* page flow */
