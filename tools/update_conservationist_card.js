@@ -5,6 +5,7 @@
 //    drawn in the hand-made pixel font from pixelfont.py (the same lettering as the Anaconda boss card).
 // Works on the card as it was before this change, so it can't be run twice on its own output.
 // Usage: node tools/update_conservationist_card.js <original Conservationist.png> <out.png>
+// After replacing a role card, bump CARD_V in public/data.js so browsers fetch the new image.
 'use strict';
 const fs = require('fs'), path = require('path');
 const PNG = require('./png.js');
