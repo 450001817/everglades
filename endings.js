@@ -19,12 +19,12 @@ const CITY_INVADERS = ['MonkParakeet', 'MuscovyDuck', 'BlackRat', 'FeralCat'];
 const ENDINGS = {
   Conservationist: {
     good: [
-      { when: x => x.stats.refused >= 2, title: 'The Line You Held',
-        text: x => `Every time an invader landed in your hands, you refused to let it take root, ${x.stats.refused} times in all. Word of your stubbornness spread from the ranger stations to the statehouse. When the hearings came, you didn't bring slides. You brought a jar of clear slough water and set it on the table. The vote to protect the entire watershed passed by a landslide. The Everglades have a guardian, and everyone knows your name.` },
       { when: x => x.has(...KEYSTONES), title: 'Keystone',
         text: x => `Standing waist-deep in sawgrass beside the ${x.pick(KEYSTONES)}, you finally understood how the whole system hangs together: pull one thread and everything unravels, protect it and everything holds. You carried that lesson back to the city, and it became the slogan of a movement. Today the Everglades are a national treasure, guarded by law and loved by millions. The water runs clean, and the future runs bright.` },
       { when: x => !x.stats.crises && x.nativeMajority, title: 'Clean Hands',
         text: x => `You crossed the whole watershed without once tipping it toward collapse. Natives outnumber invaders across the map, and your record is spotless. Your advocacy groups grew into a coalition no politician dares ignore, and the Everglades were raised from national park to national treasure. On quiet mornings you still paddle out alone, just to listen to the marsh breathe.` },
+      { when: x => x.stats.refused >= 8, title: 'The Line You Held',
+        text: x => `Again and again you stood between the invaders and the wetlands and refused to let them take root, ${x.stats.refused} times in all. Word of your stubbornness spread from the ranger stations to the statehouse. When the hearings came, you didn't bring slides. You brought a jar of clear slough water and set it on the table. The vote to protect the entire watershed passed by a landslide. The Everglades have a guardian, and everyone knows your name.` },
       { title: 'A National Treasure',
         text: x => `You walked the Everglades and saw the invasive crisis with your own eyes. You came home with fire in your chest and built advocacy groups to raise the entire watershed from national park to national treasure. Today the Everglades are protected by law and held in the nation's heart with pride. There is a bright future ahead.` },
     ],

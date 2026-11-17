@@ -168,7 +168,7 @@ function viewFor(room, member) {
     botPick: s.phase === 'choose' ? room.botPick || null : null, // a bot's chosen biome, shown highlighted a moment before it travels
     reactions: room.reactions, // character portrait reactions: [{ id, seat, anim, pri }]
     step: s.step ? (s.step.type === 'dis' ? s.step // Disruption choices: nothing secret in them
-      : { type: s.step.type, card: s.step.card, left: s.step.left, line: s.step.line, regions: s.step.regions }) : null,
+      : { type: s.step.type, card: s.step.card, left: s.step.left, line: s.step.line, regions: s.step.regions, by: s.step.by }) : null,
     // Disruptions: your own cards and draft pack are private; others only show how many they hold / whether they decided
     dis: myP ? (myP.dis || []) : [],
     disCounts: s.players.map(p => (p.dis || []).length),
@@ -520,7 +520,7 @@ const server = http.createServer(async (req, res) => {
       // ---------- stats: your own record; admins also get the server-wide summary ----------
       if (op === 'stats') {
         const a = A.requireAccount(body.session);
-        return send(res, 200, { me: A.playerStats(a), server: a.admin ? A.serverStats(a) : null });
+        return send(res, 200, { me: A.playerStats(a), server: A.canSeeServerStats(a) ? A.serverStats(a) : null });
       }
       // ---------- friends (requests by username, who's online, table invites) ----------
       if (op === 'friends') { const a = A.requireAccount(body.session); seen(a); return send(res, 200, friendsView(a)); }

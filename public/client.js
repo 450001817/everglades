@@ -1850,7 +1850,7 @@ function tableHtml() {
       ${disPanelHtml()}
     </div>
     <div class="played" style="--n:${slots}">${S.trick.plays.length
-      ? S.trick.plays.map(pl => captioned(cardEl(pl.card, pl.p === S.you ? foil(pl.card) : '', `data-played="${pl.card}"`), seatName(pl.p))).join('')
+      ? S.trick.plays.map(pl => captioned(cardEl(pl.card, pl.p === S.you ? foil(pl.card) : '', `data-played="${pl.card}"`), seatName(pl.p) + (S.trick.shield && S.trick.shield.card === pl.card ? ' · stopped' : ''), S.trick.shield && S.trick.shield.card === pl.card ? 'stopped' : '')).join('')
       : `<span class="lastline" style="color:var(--blush)">${S.phase === 'disrupt' ? 'Cards are played once the Disruptions are resolved.' : 'No cards played yet.'}</span>`}</div>
     <div class="strip">
       <h3>Travel row</h3>
@@ -2005,6 +2005,7 @@ function promptHtml() {
     if (S.step?.type === 'place') what = `to spread ${CARDS[S.step.card].name}`;
     if (S.step?.type === 'predate') what = `to hunt with ${CARDS[S.step.card].name}`;
     if (S.step?.type === 'dis') what = `to resolve ${DISRUPTIONS[S.step.card].name}`;
+    if (S.step?.type === 'protect') what = `(Conservationist) to decide whether to stop ${S.players[S.step.by].name}'s ${CARDS[S.step.card].name} from populating`;
     return `<div class="paper spiral prompt"><div class="msg">Waiting for ${esc(w ? w.name : '…')} ${what}…<small>${isPhone() ? 'Press and hold any card or player' : 'Hover any card'} for a second to read it.</small></div></div>`;
   }
   const box = (msg, buttons = '') => `<div class="paper spiral prompt yours">${clockFor(S.you, true)}<div class="msg">${msg}</div>${buttons}</div>`;
@@ -2033,6 +2034,11 @@ function promptHtml() {
         others.map(x => `<button class="btn brass" data-stealfrom="${x.i}">${esc(x.p.name)} (${x.p.pileCount})</button>`).join('') + done);
     }
   }
+  if (st?.type === 'protect') { // the Conservationist's ability, on someone else's Invasive card
+    const c = CARDS[st.card];
+    return box(`Stop <b>${esc(S.players[st.by].name)}'s ${esc(c.name)}</b> from populating?<small>Once each round you may stop 1 Invasive card from ${c.predatory ? 'hunting or ' : ''}adding its ${c.pop} token${c.pop === 1 ? '' : 's'}. Let it through to save your block for later this round.</small>`,
+      `<button class="btn primary" data-protect="1">Stop it</button><button class="btn" data-protect="0">Let it populate</button>`);
+  }
   if (st?.type === 'place') return box(`Migratory: place ${st.left} more ${CARDS[st.card].kind} token${st.left > 1 ? 's' : ''}.<small>Click a glowing region on the map. Tokens spread in a continuous line from the current region.</small>`);
   if (st?.type === 'predate') return box(`Predatory: first remove up to ${st.left} token${st.left > 1 ? 's' : ''} — Native or Invasive.<small>Click a blinking green or red counter on the map. ${esc(CARDS[st.card].name)}'s own tokens are added after the hunt.</small>`, `<button class="btn" id="predDone">Done hunting</button>`);
   if (S.tourPeek) {
@@ -2046,12 +2052,13 @@ function promptHtml() {
   let buttons = '';
   if (S.role && ACTIVE_ABILITY[S.role] && !S.abilityUsed) buttons += `<button class="btn brass" id="ability">${ACTIVE_ABILITY[S.role]}</button>`;
   const sel = ui.sel && S.legal.includes(ui.sel) ? CARDS[ui.sel] : null;
-  if (sel && S.role === 'Conservationist' && sel.kind === 'Invasive') {
+  const shieldUsed = !!(S.trick && S.trick.shield);
+  if (sel && S.role === 'Conservationist' && sel.kind === 'Invasive' && !shieldUsed) {
     buttons += `<button class="btn primary" id="play">Play &amp; populate</button><button class="btn" id="playNoPop">Don't populate</button>`;
   } else {
     buttons += `<button class="btn primary" id="play" ${sel ? '' : 'disabled'}>${sel ? 'Play ' + esc(sel.name) : 'Play card'}</button>`;
   }
-  return box(`Your turn — pick a card to play.<small>${follow}${S.abilityUsed ? ' Ability used.' : ''}</small>`, buttons);
+  return box(`Your turn — pick a card to play.<small>${follow}${S.abilityUsed ? ' Ability used.' : ''}${S.role === 'Conservationist' && shieldUsed ? " You've already stopped an Invasive card this round." : ''}</small>`, buttons);
 }
 
 // Liberation: pick a card from the chosen player's scoring pile.
@@ -2116,7 +2123,7 @@ const COACH = [
   { id: 'play', when: tutPlaying, focus: '.hand', title: 'Play a card',
     body: () => `This round's suit is <b>${tutSuit()}</b>. If you hold a ${tutSuit()} Native card, you must play one (or an Invasive card). The cards you can play glow. The <b>highest-Impact card that matches the suit</b> wins the trick. Click a card, then press <b>Play</b>.` },
   { id: 'invasive', when: () => tutPlaying() && S.legal.some(id => CARDS[id].kind === 'Invasive'), focus: '.hand', title: 'Invasive cards',
-    body: () => `Invasive cards can be played at any time. One matches the suit only if its Impact is at or below the round's <b>Invasive Risk</b> (now ${S.myRisk ?? S.trick.risk}). A <b>!</b> badge means the card is above the Risk and can't win. If an Invasive card wins a trick, it sets off an ${INV('Invasive Crisis')}. As the Conservationist, you may play one without adding its tokens: choose <b>Don't populate</b>.` },
+    body: () => `Invasive cards can be played at any time. One matches the suit only if its Impact is at or below the round's <b>Invasive Risk</b> (now ${S.myRisk ?? S.trick.risk}). A <b>!</b> badge means the card is above the Risk and can't win. If an Invasive card wins a trick, it sets off an ${INV('Invasive Crisis')}. As the Conservationist, once each round you may stop 1 Invasive card from adding its tokens: yours (choose <b>Don't populate</b>) or anyone else's (you'll be asked when they play it).` },
   { id: 'cantfollow', when: () => tutPlaying() && !S.hand.some(id => CARDS[id].kind === 'Native' && CARDS[id].habitat === tutSuit()), title: "Can't follow suit",
     body: () => `You have no ${tutSuit()} Native card, so you may play anything. An off-suit card wins only when <b>nobody</b> matched the suit; then the highest-Impact off-suit card wins. An Invasive card above the Risk can never win this way. A weak card here saves your strong ones.` },
   { id: 'predate', when: () => tutMine() && S.step && S.step.type === 'predate', focus: '.boardwrap', title: 'Predatory cards',
@@ -2609,6 +2616,7 @@ function wire() {
   q('#stealBack', () => { ui.stealFrom = null; render(); });
   q('[data-steal]', el => { const from = ui.stealFrom; ui.stealFrom = null; hidePeek(); act({ type: 'dSteal', from, card: el.dataset.steal }); });
   q('[data-tour]', el => act({ type: 'tourDecide', bottom: el.dataset.tour === '1' }));
+  q('[data-protect]', el => act({ type: 'protect', block: el.dataset.protect === '1' }));
   q('#cancelMode', () => { ui.mode = null; ui.swapHand = ui.swapPile = null; render(); });
   q('#ability', () => {
     if (S.role === 'Tourist') return act({ type: 'ability' });
@@ -2623,7 +2631,7 @@ function wire() {
     if (!isMine() || S.phase !== 'play' || S.step || S.tourPeek || ui.mode) return;
     if (!S.legal.includes(id)) { SFX.error(); return showToast(`You must follow ${S.trick.suit || BIOMES[S.trick.biome].suit} or play an Invasive card.`); }
     hidePeek();
-    if (ui.sel === id && !(S.role === 'Conservationist' && CARDS[id].kind === 'Invasive')) return tryPlay(id);
+    if (ui.sel === id && !(S.role === 'Conservationist' && CARDS[id].kind === 'Invasive' && !(S.trick && S.trick.shield))) return tryPlay(id);
     ui.sel = id; render();
   });
   q('#play', () => tryPlay(ui.sel));

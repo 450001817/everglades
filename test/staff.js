@@ -80,6 +80,19 @@ function idToken(sub, email, verified = true) {
   const guest2 = A.guestLogin(crypto.randomBytes(16).toString('hex')).account;
   A.giftByTag(staff, guest2.gamertag, 250);
   ok(guest2.inbox.length === 1, 'guests can receive gifts too');
+
+  console.log('Server stats (admins only)');
+  ok(A.canSeeServerStats(staff) && A.privateProfile(staff).admin, 'staff accounts can see the server stats');
+  ok(!!A.serverStats(staff).accounts, 'and get the server summary');
+  ok(!A.canSeeServerStats(regular) && !A.privateProfile(regular).admin && !A.canSeeServerStats(guest), "ordinary players and guests can't");
+  let serr = ''; try { A.serverStats(regular); } catch (e) { serr = e.message; }
+  ok(/Only admins/.test(serr), 'asking for it anyway is refused');
+  process.env.ADMIN_EMAILS = 'Boss@Example.com';
+  const boss = (await A.googleLogin(idToken('sub-boss', 'boss@example.com'))).account;
+  ok(!boss.staff && A.canSeeServerStats(boss), 'an ADMIN_EMAILS account (any capitals) can see them without being staff');
+  process.env.ADMIN_EMAILS = '';
+  await A.googleLogin(idToken('sub-boss', 'boss@example.com'));
+  ok(!A.canSeeServerStats(boss), 'and loses access at its next sign-in once removed from ADMIN_EMAILS');
   console.log(fails ? `\n${fails} staff check(s) FAILED.` : '\nAll staff checks passed.');
   process.exit(fails ? 1 : 0);
 })();

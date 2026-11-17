@@ -420,6 +420,8 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .pname { max-width: 100%; font-family: var(--font-small); font-size: 16px; line-height: 1; color: var(--paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pcard.win .pname { color: var(--brass); }
 .pcard.lose .pname { opacity: .7; }
+.pcard.stopped .pname { color: #9fe3a8; } /* an Invasive card the Conservationist stopped from populating */
+.pcard.stopped .card { filter: saturate(.55); }
 .tt-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .tt-info .was { font-family: var(--font-small); font-size: 15px; line-height: 1; color: var(--blush); }
 .tt-info .keynote { font-family: var(--font-small); font-size: 15px; line-height: 1.05; color: var(--blush); max-width: 22ch; }

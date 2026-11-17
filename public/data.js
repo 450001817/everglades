@@ -133,9 +133,9 @@
   const ROLES = {
     Conservationist: {
       name: 'Conservationist', img: 'assets/cards/roles/Conservationist.png', ending: 'assets/cards/roles/ConservationistEND.png',
-      map: { FSP: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 20, majorityPts: 15, noCrisisPts: 25,
-      ability: 'You may choose not to populate when you play Invasive cards.',
-      goals: ['20 pts for each map objective met', '15 pts if the total population majority is Native', '25 pts if you never trigger an Invasive Crisis'],
+      map: { FSP: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 12, majorityPts: 15, noCrisisPts: 25,
+      ability: 'Once each round, you may stop any 1 Invasive card (yours or anyone else’s) from populating.',
+      goals: ['12 pts for each map objective met', '15 pts if the total population majority is Native', '25 pts if you never trigger an Invasive Crisis'],
     },
     Fisherman: {
       name: 'Fisherman', img: 'assets/cards/roles/Fisherman.png', ending: 'assets/cards/roles/FishermanENDING.png',

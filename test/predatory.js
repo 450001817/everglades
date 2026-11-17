@@ -46,6 +46,8 @@ const id = name => Object.values(CARDS).find(c => c.name === name).id;
   const c = CARDS[id('Burmese Python')];
   const { s, p, region } = setup(c.id, { n: 4, i: 0 });
   G.applyAction(s, p, { type: 'play', card: c.id });
+  // a Conservationist at the table may be asked whether to stop this Invasive card: she lets it through
+  if (s.step && s.step.type === 'protect') G.applyAction(s, s.step.p, { type: 'protect', block: false });
   G.applyAction(s, p, { type: 'predate', region, kind: 'n' });
   G.applyAction(s, p, { type: 'predateDone' });
   ok(s.board[region].n === 3 && s.board[region].i === c.pop, `Done after 1 removal: 3 Natives left, then ${c.pop} Invasive tokens added`);

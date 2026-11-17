@@ -147,7 +147,7 @@ const reveal = (id, suit, board, region) => { const s = trickAt(biomeOf(suit, re
   const s = reveal('TravelersGuidebook', 'Land');
   ok(s.guidebook === 0, "Traveler's Guidebook marks its owner to lead next round");
   let guard = 0;
-  while (s.phase === 'play' && guard++ < 50) { G.applyAction(s, s.turn, G.botAction(s, s.turn)); }
+  while (s.phase === 'play' && guard++ < 50) { const w = G.waitingOn(s); G.applyAction(s, w, G.botAction(s, w)); } // (waitingOn: the Conservationist may be asked mid-turn)
   ok(s.phase === 'choose' && s.leader === 0 && s.guide && s.guide.options.length === 5, '...who then leads, with the top 5 biome cards to choose from');
   const pick = s.guide.options[4], before = s.biomeDeck.length;
   G.applyAction(s, 0, { type: 'chooseBiome', biome: pick });

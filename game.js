@@ -139,7 +139,7 @@ function availableRoles(s) {
 // The Anaconda sits at the end of s.players with boss: true (s.np = number of real players).
 const BOSS = 'Anaconda';
 // Points the Anaconda scores (balanced with simulated games for 1-6 players; see README)
-// Bot-vs-Anaconda win rates with these values (logic-engine bots, test/coopsim.js 250): 1p 46%, 2p 48%, 3p 55%, 4p 62%, 5p 63%, 6p 41%.
+// Bot-vs-Anaconda win rates with these values (logic-engine bots, test/coopsim.js 150, 2026-11-17): 1p 72%, 2p 66%, 3p 67%, 4p 71%, 5p 81%, 6p 55%.
 const COOP = { unmetMap: 9, trick: 8, infestedRegion: 5 };
 
 function startCoop(s) {
@@ -320,6 +320,13 @@ function chooseBiome(s, p, biomeId) {
   if (s.disruptions && s.players.slice(0, s.np).some(pl => (pl.dis || []).length)) startDisPhase(s);
 }
 
+// The Conservationist's ability: once each round she may stop one Invasive card (anyone's, the Anaconda's too) from
+// populating. In co-op this tips the game toward the players (~90% wins in test/coopsim.js); the Anaconda is to be
+// rebalanced to make up for it. Her own card is decided as she plays it (populate: false); for anyone else's, play pauses on a
+// 'protect' step that waits on her (waitingOn) until she blocks it or lets it through.
+const conservationistSeat = s => s.players.findIndex(pl => !pl.boss && pl.role === 'Conservationist');
+const canProtect = s => !!s.trick && !s.trick.shield && conservationistSeat(s) >= 0;
+
 function playCard(s, p, cardId, populate) {
   if (s.phase !== 'play' || s.step) err('You cannot play a card right now.');
   if (p !== s.turn) err('It is not your turn.');
@@ -327,17 +334,45 @@ function playCard(s, p, cardId, populate) {
   if (!pl.hand.includes(cardId)) err('That card is not in your hand.');
   if (!isBoss(s, p) && !legalCards(s, p).includes(cardId)) err(`You must follow ${leadSuit(s)} (or play an Invasive card).`);
   const c = CARDS[cardId];
+  const block = populate === false && pl.role === 'Conservationist' && c.kind === 'Invasive';
+  if (block && !canProtect(s)) err('You have already stopped an Invasive card this round.');
   pl.hand.splice(pl.hand.indexOf(cardId), 1);
   s.trick.plays.push({ p, card: cardId });
   s.tourPeek = null;
   let msg = `${pname(s, p)} plays ${c.name} (${c.kind === 'Invasive' ? 'Invasive ' : ''}${c.habitat}, Impact ${c.impact}).`;
   log(s, msg);
-  const skip = populate === false && pl.role === 'Conservationist' && c.kind === 'Invasive';
-  emit(s, { type: 'play', p, card: cardId, region: trickRegion(s), populate: !skip });
+  if (block) return resolveProtect(s, p, cardId, true);
+  const cons = conservationistSeat(s);
+  if (c.kind === 'Invasive' && cons !== p && canProtect(s)) {
+    s.step = { type: 'protect', p: cons, by: p, card: cardId }; // over to the Conservationist
+    return;
+  }
+  emit(s, { type: 'play', p, card: cardId, region: trickRegion(s), populate: true });
+  populateCard(s, p, cardId);
+}
+// The Conservationist answers a 'protect' step: block (stop the card populating) or let it through.
+function protect(s, p, block) {
+  const st = s.step;
+  if (s.phase !== 'play' || !st || st.type !== 'protect' || st.p !== p) err('There is no Invasive card to stop right now.');
+  s.step = null;
+  resolveProtect(s, st.by, st.card, !!block);
+}
+function resolveProtect(s, by, cardId, block) {
+  emit(s, { type: 'play', p: by, card: cardId, region: trickRegion(s), populate: !block });
+  if (!block) return populateCard(s, by, cardId);
+  const cons = conservationistSeat(s);
+  s.trick.shield = { p: cons, card: cardId };
+  s.players[cons].stats.refused++;
+  log(s, cons === by ? `${pname(s, cons)} (Conservationist) keeps ${CARDS[cardId].name} from populating.`
+    : `${pname(s, cons)} (Conservationist) stops ${pname(s, by)}'s ${CARDS[cardId].name} from populating!`);
+  emit(s, { type: 'protect', p: cons, by, card: cardId });
+  return endTurn(s);
+}
 
+// A played card takes effect on the map: hunting (Predatory), then its tokens. The Anaconda populates on its own.
+function populateCard(s, p, cardId) {
+  const c = CARDS[cardId];
   if (isBoss(s, p)) { bossPopulate(s, c); return endTurn(s); }
-  const kind = c.kind === 'Invasive' ? 'i' : 'n';
-  if (skip) { pl.stats.refused++; log(s, `${pname(s, p)} (Conservationist) chooses not to populate.`); return endTurn(s); }
   // Predators hunt first: remove up to X tokens (Native or Invasive) from the region the card is played in,
   // and only then add the card's own tokens (addTokens() below runs when the hunt is done).
   const region = trickRegion(s);
@@ -953,6 +988,7 @@ function applyAction(s, p, a) {
     case 'pickRole': pickRole(s, p, a.role); break;
     case 'chooseBiome': chooseBiome(s, p, a.biome); break;
     case 'play': playCard(s, p, a.card, a.populate); break;
+    case 'protect': protect(s, p, a.block); break;
     case 'place': placeToken(s, p, a.region); break;
     case 'predate': predate(s, p, a.region, a.kind); break;
     case 'predateDone': predateDone(s, p); break;
@@ -971,7 +1007,7 @@ function applyAction(s, p, a) {
 function waitingOn(s) {
   if (s.phase === 'draft') return s.draftTurn;
   if (s.phase === 'choose') return s.leader;
-  if (s.phase === 'play') return s.turn;
+  if (s.phase === 'play') return s.step && s.step.type === 'protect' ? s.step.p : s.turn; // the Conservationist may stop an Invasive card
   if (s.phase === 'disrupt' && s.step) return s.turn;
   return -1;
 }
@@ -1005,6 +1041,7 @@ function simpleBot(s, p) {
   }
   if (s.phase === 'draft') { const av = availableRoles(s); return { type: 'pickRole', role: av[Math.floor(Math.random() * av.length)] }; }
   if (s.phase === 'disrupt' && s.step && s.step.type === 'dis') return botDis(s, p);
+  if (s.step && s.step.type === 'protect') return { type: 'protect', block: true }; // the quick policy always blocks
   const role = ROLES[pl.role];
   const wantKind = r => role.map[r] === 'I' ? 'i' : 'n'; // what the bot wants to keep in region r
   if (s.phase === 'choose') {
@@ -1047,7 +1084,7 @@ function simpleBot(s, p) {
   let card;
   if (!wantsFew && (nativeWin || (winners.length && pl.role !== 'Conservationist'))) card = nativeWin || winners[0];
   else card = legal.slice().sort(byImpact)[0];
-  const populate = !(pl.role === 'Conservationist' && CARDS[card].kind === 'Invasive') ? undefined : false;
+  const populate = pl.role === 'Conservationist' && CARDS[card].kind === 'Invasive' && canProtect(s) ? false : undefined;
   return { type: 'play', card, populate };
 }
 

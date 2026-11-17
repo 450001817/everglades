@@ -167,8 +167,10 @@ async function verifyGoogle(credential) {
 // Goblin Ink staff: Google accounts whose email is listed in the STAFF_EMAILS setting (comma-separated, set on the
 // host, never in the code). Checked at every Google sign-in; the email itself is never saved.
 const staffEmails = () => String(process.env.STAFF_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-// Admins: Google accounts whose email is listed in ADMIN_EMAILS (comma-separated, set on the host). They can see the
-// server-wide stats. Checked (granted or taken away) at every Google sign-in; the email itself is never saved.
+// Admins can see the server-wide stats: Goblin Ink staff accounts (STAFF_EMAILS, above), plus any Google account whose
+// email is listed in ADMIN_EMAILS (comma-separated, set on the host). ADMIN_EMAILS is checked (granted or taken away)
+// at every Google sign-in; the email itself is never saved.
+const isAdmin = a => !!(a && (a.admin || a.staff));
 const adminEmails = () => String(process.env.ADMIN_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 function grantStaff(a) {
   const first = !a.staff;
@@ -550,7 +552,7 @@ function publicProfile(a) { // shown to everyone (lobby banner)
 function privateProfile(a) { // shown to the account owner
   return Object.assign(publicProfile(a), {
     balance: a.balance, owned: a.owned, cardWins: a.cardWins, stats: a.stats, guest: !!a.guest,
-    staff: !!a.staff, admin: !!a.admin, exclusiveStore: EXCLUSIVE.filter(i => a.owned.includes(i.id) || (a.staff && !i.promo)), // exclusives show only in their owners' stores
+    staff: !!a.staff, admin: isAdmin(a), exclusiveStore: EXCLUSIVE.filter(i => a.owned.includes(i.id) || (a.staff && !i.promo)), // exclusives show only in their owners' stores
     inbox: (a.inbox || []).map(m => ({ id: m.id, kind: m.kind, amount: m.amount, note: m.note, at: m.at, item: m.item || null, itemName: m.item ? titleName(m.item) : null })), // unopened letters
     unlocked: unlockedAvatars(a),
     chars: charProfiles(a), // per-character chat lines, splash effect and card treatments
@@ -567,8 +569,9 @@ const get = id => db.accounts[id] || null;
 // ---------- game records (see stats.js) ----------
 function recordGame(summary) { STATS.record(db, summary); save(); }
 const playerStats = a => STATS.playerView(a);
+const canSeeServerStats = isAdmin;
 function serverStats(a) {
-  if (!a || !a.admin) throw userErr('Only admins can see the server stats.');
+  if (!isAdmin(a)) throw userErr('Only admins can see the server stats.');
   return STATS.serverView(db);
 }
 
@@ -607,6 +610,6 @@ function adjustPurchase(paymentIntent, change) {
 module.exports = {
   ECON, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
-  publicProfile, privateProfile, config, recordGame, playerStats, serverStats, avatarSrc, titleName, skinFor, splashFor, ownsChat, chatFor, chatAllowed, treatmentFor, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
+  publicProfile, privateProfile, config, recordGame, playerStats, serverStats, canSeeServerStats, avatarSrc, titleName, skinFor, splashFor, ownsChat, chatFor, chatAllowed, treatmentFor, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
   friendRequest, friendRespond, friendRemove, friendsOf, isFriend,
 };

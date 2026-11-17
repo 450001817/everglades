@@ -220,6 +220,8 @@ module.exports = function makeAI(G) {
     if (s.phase === 'disrupt' && s.step && s.step.type === 'dis') return disStep(s, p);
     if (s.phase === 'choose') return chooseBiome(s, p);
     if (s.tourPeek) return tourDecide(s, p);
+    // the Conservationist's ability: stop this Invasive card populating, or save the block for later in the round
+    if (s.step && s.step.type === 'protect') return greedy(s, p, [{ type: 'protect', block: true }, { type: 'protect', block: false }])[0];
     if (s.step && s.step.type === 'place') return greedy(s, p, G.placeTargets(s).map(r => ({ type: 'place', region: r })))[0];
     if (s.step && s.step.type === 'predate') {
       const c = [{ type: 'predateDone' }];
@@ -235,7 +237,7 @@ module.exports = function makeAI(G) {
     const cands = [];
     for (const card of G.legalCards(s, p)) {
       cands.push({ type: 'play', card });
-      if (pl.role === 'Conservationist' && CARDS[card].kind === 'Invasive') cands.push({ type: 'play', card, populate: false });
+      if (pl.role === 'Conservationist' && CARDS[card].kind === 'Invasive' && !s.trick.shield) cands.push({ type: 'play', card, populate: false });
     }
     return search(s, p, cands, (c, a) => G.applyAction(c, p, a));
   }
