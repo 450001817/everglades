@@ -152,8 +152,9 @@ function updateMusic() {
     const pairs = [['.logo', '.hero .logo'], ['.tagline', '.hero .tagline']].map(([a, b]) => [el.querySelector(a), $app.querySelector(b)]);
     for (const [from, to] of pairs) {
       if (!from || !to || still) continue;
-      const f = textBox(from), t = textBox(to);
-      from.animate([{ transform: 'translate(0, 0)' }, { transform: `translate(${t.left - f.left}px, ${t.top - f.top}px)` }],
+      const f = textBox(from), t = textBox(to), k = t.height / f.height; // (k < 1 when the home page is scaled to fit)
+      const o = from.getBoundingClientRect(); from.style.transformOrigin = `${f.left - o.left}px ${f.top - o.top}px`;
+      from.animate([{ transform: 'translate(0, 0)' }, { transform: `translate(${t.left - f.left}px, ${t.top - f.top}px) scale(${k.toFixed(3)})` }],
         { duration: MOVE, easing: 'cubic-bezier(.5, 0, .25, 1)', fill: 'forwards' });
     }
     setTimeout(() => { root.classList.add('intro-reveal'); root.classList.remove('intro-on'); }, still ? 0 : MOVE * 0.55); // the menu fades in
@@ -183,18 +184,66 @@ document.getElementById('sceneEye')?.addEventListener('click', () => setSceneOnl
 document.addEventListener('keydown', e => { if (e.key === 'Escape') setSceneOnly(false); });
 // The music toggle, with the friends dropdown button beside it (top right of the home page and lobby; in the game's top bar)
 // (phones show the short labels: <span class="lbl-l"> is hidden and <span class="lbl-s"> shown; see style.css)
-const musicLabel = () => `♪ <span class="lbl-l">Music: </span>${musicOn ? 'On' : 'Off'}`;
+const musicLabel = () => `♪ Music: ${musicOn ? 'On' : 'Off'}`;
 const musicBtnHtml = (cls = 'musicbtn') => {
-  const music = `<button class="btn small" id="musicBtn" title="Music on/off">${musicLabel()}</button>`;
-  return cls ? `<div class="topctl ${cls}">${lbBtnHtml()}${statsBtnHtml()}${friendsBtnHtml()}${music}</div>` : lbBtnHtml() + statsBtnHtml() + friendsBtnHtml() + music;
+  const music = `<button class="btn small" id="musicBtn" data-music title="Music on/off">${musicLabel()}</button>`;
+  // phones get the single Menu button instead of the row (see menuHtml)
+  return cls ? `<div class="topctl ${cls}">${lbBtnHtml()}${statsBtnHtml()}${friendsBtnHtml()}${music}</div>${menuHtml()}` : lbBtnHtml() + statsBtnHtml() + friendsBtnHtml() + music;
 };
 document.addEventListener('click', e => {
-  if (!e.target.closest('#musicBtn')) return;
+  if (!e.target.closest('[data-music]')) return;
   musicOn = !musicOn;
   try { localStorage.setItem('eg_music', musicOn ? '1' : '0'); } catch {}
-  e.target.closest('#musicBtn').innerHTML = musicLabel();
+  for (const b of document.querySelectorAll('[data-music]')) {
+    if (b.classList.contains('mi')) b.querySelector('.mi-v').textContent = musicOn ? 'On' : 'Off'; else b.innerHTML = musicLabel();
+  }
   updateMusic();
 });
+
+// ---------- the phone menu ----------
+// Phones have no room for a row of buttons, so everything that sits along the top on a computer (leaderboard, stats,
+// friends, music, and in a game: chat, field notes, sound, speed, rules, leave) lives in one Menu button with a list.
+// Desktop keeps its buttons; style.css shows one or the other.
+function menuHtml(game = false) {
+  const nFr = frBadgeCount(), badge = n => n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : '';
+  const on = fr.data ? fr.data.friends.filter(f => f.online).length : 0;
+  const item = (attrs, icon, label, extra = '', cls = '') => `<button class="mi ${cls}" ${attrs}><span class="mi-ic">${icon}</span><span class="mi-l">${label}</span>${extra}</button>`;
+  const val = v => `<span class="mi-v">${v}</span>`;
+  let main = '', more = '';
+  if (game) {
+    if (S.you >= 0) main += item('data-g="chat"', '💬', 'Chat lines');
+    main += item('data-g="notes"', '📜', 'Field notes', badge(ui.unread || 0));
+    main += item('data-g="rules"', '📖', 'Rules');
+  }
+  if (acct.me) {
+    main += item('data-lb', '🏆', 'Leaderboard') + item('data-stats', '📊', 'Stats');
+    main += item('data-friends', '👥', 'Friends', (on ? `<span class="fon">${on}</span>` : '') + badge(nFr));
+  }
+  more += item('data-music', '♪', 'Music', val(musicOn ? 'On' : 'Off'), 'keep');
+  if (game) {
+    more += item('data-g="mute"', '🔊', 'Sound', val(muted ? 'Off' : 'On'), 'keep');
+    more += item(`data-g="speed" ${S.isHost ? '' : 'disabled'}`, '⏩', 'Bot speed', val(SPEED_LABEL[S.speed] || 'Normal'), 'keep');
+    more += item('data-g="quit"', '🚪', 'Leave game', '', 'danger');
+  }
+  const head = game ? `<div class="mi-head">${S.tutorial ? 'Tutorial' : `Room <span class="code">${S.room}</span>`}${S.coop ? ' · Co-op' : S.partners ? ' · Partners' : ''}</div>` : '';
+  return `<div class="mmenu ${ui.menuOpen ? 'open' : ''}">
+    <button class="btn small menubtn ${ui.menuOpen ? 'brass' : ''}" data-menu aria-expanded="${ui.menuOpen ? 'true' : 'false'}" aria-label="Menu">☰ Menu${badge(nFr)}</button>
+    <div class="paper menusheet" role="menu">${head}${main}<div class="mi-sep"></div>${more}</div></div>`;
+}
+function syncMenu() {
+  for (const m of document.querySelectorAll('.mmenu')) {
+    m.classList.toggle('open', !!ui.menuOpen);
+    const b = m.querySelector('[data-menu]'); b.classList.toggle('brass', !!ui.menuOpen); b.setAttribute('aria-expanded', ui.menuOpen ? 'true' : 'false');
+  }
+}
+// (capture: runs before the item's own handler, which may stop the click from bubbling)
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-menu]')) { ui.menuOpen = !ui.menuOpen; return syncMenu(); }
+  if (!ui.menuOpen) return;
+  if (e.target.closest('.menusheet') && !e.target.closest('.mi:not(.keep)')) return; // toggles keep the menu open
+  ui.menuOpen = false; syncMenu();
+}, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && ui.menuOpen) { ui.menuOpen = false; syncMenu(); } });
 document.addEventListener('click', e => { if (e.target.closest('.btn')) SFX.click(); }, true);
 
 // ---------- utilities ----------
@@ -982,7 +1031,10 @@ function friendsBtnHtml() {
   return `<button class="btn small friendsbtn ${fr.open ? 'brass' : ''}" data-friends title="Friends${on ? ` (${on} online)` : ''}">👥 Friends${on ? ` <span class="fon">${on}</span>` : ''}<span class="fbadge">${n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : ''}</span><span class="caret"> ▾</span></button>`;
 }
 function refreshFriendsBtns() { // update the buttons in place (no full re-render)
-  for (const b of document.querySelectorAll('[data-friends]')) b.outerHTML = friendsBtnHtml();
+  for (const b of document.querySelectorAll('[data-friends]:not(.mi)')) b.outerHTML = friendsBtnHtml();
+  // the phone menu's badge (friend requests and table invites)
+  const n = frBadgeCount();
+  for (const b of document.querySelectorAll('[data-menu]')) { b.querySelector('.badge')?.remove(); if (n) b.insertAdjacentHTML('beforeend', `<span class="badge">${n > 9 ? '9+' : n}</span>`); }
 }
 async function pollFriends() {
   if (!acct.session || !acct.me) { fr.data = null; return; }
@@ -1103,7 +1155,7 @@ function statsBtnHtml() {
   if (!acct.me) return '';
   return `<button class="btn small ${st.open ? 'brass' : ''}" data-stats title="Your win rate and record">📊 Stats<span class="caret"> ▾</span></button>`;
 }
-const refreshStatsBtns = () => { for (const b of document.querySelectorAll('[data-stats]')) b.outerHTML = statsBtnHtml(); };
+const refreshStatsBtns = () => { for (const b of document.querySelectorAll('[data-stats]:not(.mi)')) b.outerHTML = statsBtnHtml(); };
 const pctOf = (w, g) => g ? Math.round(100 * w / g) : 0;
 const pctTxt = (w, g) => g ? pctOf(w, g) + '%' : '—';
 const avg = (sum, n, d = 1) => n ? (sum / n).toFixed(d) : '—';
@@ -1229,7 +1281,7 @@ function lbBtnHtml() {
   if (!acct.me) return '';
   return `<button class="btn small ${lb.open ? 'brass' : ''}" data-lb title="Who earned the most Eco-bucks">🏆 <span class="lbl-l">Leaders</span><span class="lbl-s">Top</span><span class="caret"> ▾</span></button>`;
 }
-const refreshLbBtns = () => { for (const b of document.querySelectorAll('[data-lb]')) b.outerHTML = lbBtnHtml(); };
+const refreshLbBtns = () => { for (const b of document.querySelectorAll('[data-lb]:not(.mi)')) b.outerHTML = lbBtnHtml(); };
 const LB_TABS = [['day', 'Today'], ['month', 'This month'], ['all', 'All time']];
 function lbUntil(ts) { // "resets in 5 h 12 min" / "in 3 days"
   const m = Math.max(1, Math.round((ts - Date.now()) / 60000));
@@ -1399,7 +1451,8 @@ function onUpdate(prev) {
   ui.unlockSeen = un.length;
   if (S && S.myAccount) acct.me = Object.assign(acct.me || {}, S.myAccount); // keep the wallet current
   if (prev && S && S.phase === 'ended' && prev.phase !== 'ended') setTimeout(() => refreshMe(), 500);
-  if (!S || S.phase === 'lobby') { ui.lastRound = null; return; }
+  if (!S || S.phase === 'lobby') { ui.lastRound = null; ui.stage = 'table'; ui.mapNew = false; return; }
+  if (!prev || prev.phase === 'lobby') { ui.stage = 'table'; ui.mapNew = false; } // a game starts (or you rejoin one) on the table
   if (S.waiting !== S.you || (S.step && ui.mode)) ui.mode = null;
   // phones: scroll to the map when you must click it, or to the play area when you must pick a biome or role
   if (prev && S.waiting === S.you && S.phase !== 'ended') {
@@ -1408,6 +1461,12 @@ function onUpdate(prev) {
     if (mapStep && (stepNow !== stepBefore || (stepNow === 'dis' && prev.step.mode !== S.step.mode))) ui.scrollTo = 'board';
     else if (prev.waiting !== S.you && (S.phase === 'choose' || S.phase === 'draft')) ui.scrollTo = 'table';
   }
+  // phones: after you've finished clicking the map, go back to the table; while you look at the table, the Map
+  // switch shows a dot when the map changes
+  const myMapStep = v => v && v.waiting === v.you && v.step && (['place', 'predate'].includes(v.step.type) || (v.step.type === 'dis' && ['remove', 'dest', 'scatter'].includes(v.step.mode)));
+  if (prev && myMapStep(prev) && !myMapStep(S) && !ui.scrollTo) ui.scrollTo = 'table';
+  if (prev && prev.board && S.board && ui.stage === 'map' && !myMapStep(S) && !ui.scrollTo && S.lastTrick && (!prev.lastTrick || prev.lastTrick.round !== S.lastTrick.round)) ui.scrollTo = 'table'; // a trick just ended: show it
+  if (prev && prev.board && S.board && ui.stage !== 'map' && JSON.stringify(prev.board) !== JSON.stringify(S.board)) ui.mapNew = true;
   if (S.waiting !== S.you || S.phase !== 'play' || S.step) ui.confirm = null;
   if (S.hand && ui.sel && !S.hand.includes(ui.sel)) ui.sel = null;
   const live = prev && prev.phase !== 'lobby' && prev.board;
@@ -1534,20 +1593,26 @@ const view = { set html(h) { const t = document.createElement('template'); t.inn
 function render() {
   renderScreen();
   updateMusic();
-  swipeHints();
+  fitScreen();
   // the friends dropdown follows the table you're at (Invite buttons), unless you're typing in it
   if (fr.open && !(document.activeElement && document.activeElement.id === 'friendName')) renderFriends();
 }
-// Button rows that swipe sideways on phones (the game's top bar, the home page's button row) fade out at an edge
-// that has more buttons beyond it, so it's clear they can be swiped.
-const SWIPE_ROWS = '.topbar, .landing > .musicbtn';
-function swipeHint(el) {
-  el.classList.toggle('more-r', el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
-  el.classList.toggle('more-l', el.scrollLeft > 4);
+// Computers: the home page and the lobby never scroll. On a short window their panel is scaled down to fit
+// (down to 70%; below that it scrolls rather than become unreadable). Phones scroll these pages normally.
+function fitScreen() {
+  const L = $app.querySelector('.landing'); if (!L) return;
+  const box = L.querySelector('.landing-inner') || L.querySelector('.landing-card'); if (!box) return;
+  const was = box.style.zoom;
+  box.style.zoom = '';
+  if (isPhone()) return;
+  if (box.classList.contains('landing-card')) box.style.maxHeight = 'none';
+  const room = L.clientHeight - 32, need = box.offsetHeight;
+  const z = need > room ? Math.max(0.7, Math.floor(room / need * 1000) / 1000) : 1;
+  box.style.zoom = z < 1 ? String(z) : '';
+  if (box.classList.contains('landing-card')) box.style.maxHeight = z === 0.7 ? '' : 'none';
+  if (box.style.zoom !== was) L.scrollTop = 0;
 }
-function swipeHints() { for (const el of document.querySelectorAll(SWIPE_ROWS)) swipeHint(el); }
-document.addEventListener('scroll', e => { if (e.target.matches && e.target.matches(SWIPE_ROWS)) swipeHint(e.target); }, true);
-addEventListener('resize', swipeHints);
+addEventListener('resize', () => { if (!S || S.phase === 'lobby') fitScreen(); });
 function renderScreen() {
   // home page, loading screen and lobby sit on the animated backdrop (scenery.js)
   const scenic = !sess || !S || S.phase === 'lobby';
@@ -1670,7 +1735,7 @@ function renderLobby() {
   view.html = `
   <div class="landing">
     ${musicBtnHtml()}
-    <div class="paper spiral landing-card stack" style="width:min(620px,100%)">
+    <div class="paper spiral landing-card stack lobbycard" style="width:min(620px,100%)">
       <h1 class="logo" style="font-size:42px">EVERGLADES</h1>
       <div><div class="panel-title">Room code</div><span class="room-code">${S.room}</span></div>
       <div class="row"><input class="field" readonly value="${esc(link)}" style="flex:1;font-size:15px"><button id="copy" class="btn small">Copy link</button></div>
@@ -1907,7 +1972,7 @@ function trickDoneHtml() {
         ${(lt.dis || []).length ? `<span class="lastline" style="color:var(--blush)">Disruptions: ${lt.dis.map(d => `${esc(DISRUPTIONS[d.card].name)} (${esc(S.players[d.p].name)})`).join(', ')}</span>` : ''}
       </div>
     </div>
-    <div class="played" style="--n:${lt.plays.length}">${lt.plays.map(pl => pl.card === lt.card
+    <div class="played" style="--n:${lt.plays.length};--n2:${Math.ceil(lt.plays.length / 2)}">${lt.plays.map(pl => pl.card === lt.card
       ? captioned(cardEl(pl.card, `winner ${pl.p === S.you ? foil(pl.card) : ''}`, `data-played="${pl.card}"`, '', `<div class="winribbon">${lt.crisis ? 'CRISIS!' : 'WINNER'}</div>`), who(pl.p), 'win')
       : captioned(cardEl(pl.card, `loser ${pl.p === S.you ? foil(pl.card) : ''}`, `data-played="${pl.card}"`), who(pl.p), 'lose')).join('')}</div>
     <div class="holdbar"><span style="animation-duration:${ui.trickHold.ms}ms;animation-delay:-${elapsed}ms"></span></div>
@@ -2004,7 +2069,7 @@ function tableHtml() {
       </div>
       ${disPanelHtml()}
     </div>
-    <div class="played" style="--n:${slots}">${S.trick.plays.length
+    <div class="played" style="--n:${slots};--n2:${Math.ceil(slots / 2)}">${S.trick.plays.length
       ? S.trick.plays.map(pl => captioned(cardEl(pl.card, pl.p === S.you ? foil(pl.card) : '', `data-played="${pl.card}"`), seatName(pl.p) + (S.trick.shield && S.trick.shield.card === pl.card ? ' · stopped' : ''), S.trick.shield && S.trick.shield.card === pl.card ? 'stopped' : '')).join('')
       : `<span class="lastline" style="color:var(--blush)">${S.phase === 'disrupt' ? 'Cards are played once the Disruptions are resolved.' : 'No cards played yet.'}</span>`}</div>
     <div class="strip">
@@ -2035,30 +2100,46 @@ function renderGame() {
   // keep sideways scroll positions (hand, players strip) across re-renders
   const keepScroll = {};
   const tip = coachTip();
-  for (const sel of ['.hand', '.players-mini', '.topbar']) { const el = [...$app.querySelectorAll(sel)].find(e => e.offsetParent); if (el) keepScroll[sel] = el.scrollLeft; }
+  for (const sel of ['.hand', '.players-mini']) { const el = [...$app.querySelectorAll(sel)].find(e => e.offsetParent); if (el) keepScroll[sel] = el.scrollLeft; }
+  // phones show the play area or the map, one at a time (the Table / Map switch in the top bar); the game flips to
+  // the map by itself when you have to click it, and back afterwards (onUpdate sets ui.scrollTo)
+  if (ui.scrollTo) ui.stage = ui.scrollTo === 'board' ? 'map' : 'table';
+  if (isPhone() && tip && tip.focus === '.boardwrap') ui.stage = 'map';
+  if (isPhone() && tip && tip.focus === '.tablecol') ui.stage = 'table';
+  const stage = ui.stage === 'map' ? 'map' : 'table';
+  if (stage === 'map') ui.mapNew = false;
+  const mapTurn = isMine() && ((S.step && ['place', 'predate'].includes(S.step.type)) || (S.step && S.step.type === 'dis' && ['remove', 'dest', 'scatter'].includes(S.step.mode)) || ui.mode === 'landdev');
 
   view.html = `
   <div class="topbar">
     <span class="logo-sm">EVERGLADES</span>
-    <span class="chip">${S.tutorial ? 'Tutorial' : 'Room <span class="code">' + S.room + '</span>'}</span>
+    <span class="chip dk">${S.tutorial ? 'Tutorial' : 'Room <span class="code">' + S.room + '</span>'}</span>
     ${S.phase === 'draft' ? '<span class="chip">Role draft</span>' : S.phase !== 'ended' ? `<span class="chip">Round ${S.round}</span>` : ''}
-    ${S.partners ? '<span class="chip">Partners</span>' : ''}${S.coop ? '<span class="chip" style="background:#f2d7c9">Co-op vs The Anaconda</span>' : ''}
+    ${S.partners ? '<span class="chip dk">Partners</span>' : ''}${S.coop ? '<span class="chip dk" style="background:#f2d7c9">Co-op vs The Anaconda</span>' : ''}
     <span class="spacer"></span>
+    <div class="stageswitch" role="tablist" aria-label="Show">
+      <button class="${stage === 'table' ? 'on' : ''}" data-stage="table" role="tab" aria-selected="${stage === 'table'}">Table</button>
+      <button class="${stage === 'map' ? 'on' : ''} ${mapTurn && stage !== 'map' ? 'call' : ''}" data-stage="map" role="tab" aria-selected="${stage === 'map'}">Map${ui.mapNew && stage !== 'map' ? '<i class="newdot"></i>' : ''}</button>
+    </div>
     ${S.you >= 0 ? `<div class="chat-wrap">
-      <button class="btn small ${ui.showChat ? 'brass' : ''}" id="chatBtn" title="Send a chat line to the table">💬 Chat ▾</button>
+      <button class="btn small dk ${ui.showChat ? 'brass' : ''}" id="chatBtn" title="Send a chat line to the table">💬 Chat ▾</button>
       ${ui.showChat ? chatDropHtml() : ''}
     </div>` : ''}
     <div class="notes-wrap">
-      <button class="btn small ${ui.showLog ? 'brass' : ''}" id="notesBtn">Field notes ${ui.unread && !ui.showLog ? `<span class="badge">${ui.unread > 9 ? '9+' : ui.unread}</span>` : ''}▾</button>
+      <button class="btn small dk ${ui.showLog ? 'brass' : ''}" id="notesBtn">Field notes ${ui.unread && !ui.showLog ? `<span class="badge">${ui.unread > 9 ? '9+' : ui.unread}</span>` : ''}▾</button>
       ${ui.showLog ? `<div class="paper spiral notes-drop" id="log"><div class="panel-title">Field notes</div>${S.log.map(l => `<p class="${l.startsWith('INVASIVE') ? 'crisis' : ''}">${esc(l)}</p>`).join('')}</div>` : ''}
     </div>
+    <span class="dk dkrow">
     <button class="btn small" id="speed" ${S.isHost ? '' : 'disabled'} title="${S.isHost ? 'How fast the bots play. Click to change.' : 'Bot speed (the host can change it)'}">Speed: ${SPEED_LABEL[S.speed] || 'Normal'}</button>
     ${musicBtnHtml('')}
     <button class="btn small" id="mute" title="Sound effects on/off">${muted ? 'Sound: Off' : 'Sound: On'}</button>
     <button class="btn small" id="rules">Rules</button>
     <button class="btn small" id="quit">Leave</button>
+    </span>
+    ${menuHtml(true)}
   </div>
-  <div class="game">
+  <div class="game" data-stage="${stage}">
+    <div class="pstrip players-mini" style="--n:${S.players.length}">${playersHtml(true)}</div>
     <aside class="side">
       <div class="paper spiral players" style="--rows:${S.players.length}"><div class="panel-title" title="Hover a player to read their role card">Players <span class="hint">· hover to read roles</span></div>${playersHtml(false)}</div>
     </aside>
@@ -2066,7 +2147,7 @@ function renderGame() {
     <section class="tablecol">${tableHtml()}</section>
     <section class="handarea">
       ${promptHtml()}
-      <div class="hand-cap">${role ? `<span class="myrole" ${peekAttrs(S.role, tableSkin(S.role))}>You are the <b>${esc(role.name)}</b> <small>(tap to read)</small></span>` : ''}<span class="swipe">${hand.length} card${hand.length === 1 ? '' : 's'} · swipe ↔ · hold a card to read it</span></div>
+      <div class="hand-cap">${role ? `<span class="myrole" ${peekAttrs(S.role, tableSkin(S.role))}>You are the <b>${esc(role.name)}</b>  <small>ⓘ</small></span>` : ''}<span class="swipe">${hand.length} card${hand.length === 1 ? '' : 's'} · hold one to read it</span></div>
       <div class="handrow">
         <div class="hand ${ui.dealing ? 'dealing' : ''} ${Date.now() - (ui.handIntro || 0) < 1400 ? 'intro' : ''}">${handHtml}</div>
         ${S.disruptions && (S.dis || []).length ? `<div class="dishand"><div class="cap">Disruptions</div><div class="dishand-cards">${S.dis.map(id => {
@@ -2095,11 +2176,6 @@ function renderGame() {
     // the hand bar is pinned to the bottom of the screen: leave room for it under the page
     const ha = $app.querySelector('.handarea');
     if (ha) document.documentElement.style.setProperty('--handH', ha.offsetHeight + 'px');
-    // when it's your move, bring the part of the screen you need into view
-    if (ui.scrollTo) {
-      const el = $app.querySelector(ui.scrollTo === 'board' ? '.boardwrap' : '.tablecol');
-      if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: ui.scrollTo === 'board' ? 'center' : 'start' }), 80);
-    }
   }
   ui.scrollTo = null;
   placeBubbles();
@@ -2643,7 +2719,7 @@ function placeBubbles() {
     if (!rows.length) continue;
     const r = rows[0].getBoundingClientRect();
     const below = r.right + 260 > innerWidth;         // no room on the right: hang it underneath instead
-    const x = below ? Math.max(8, r.left) : r.right + 12;
+    const x = below ? Math.max(8, Math.min(r.left, innerWidth - Math.min(240, innerWidth * 0.7) - 8)) : r.right + 12;
     const y = below ? r.bottom + 8 : r.top + 4;
     html += `<div class="bubble ${below ? 'below' : ''}" data-id="${b.id}" style="left:${x}px;top:${y}px">${esc(b.text)}</div>`;
   }
@@ -2739,9 +2815,13 @@ function wire() {
   const q = (sel, fn) => $app.querySelectorAll(sel).forEach(el => on(el, sel, e => { e.stopPropagation(); fn(el, e); }));
   q('#speed', () => lobby('speed', { speed: SPEED_ORDER[(SPEED_ORDER.indexOf(S.speed) + 1) % SPEED_ORDER.length] }));
   q('#mute', () => { muted = !muted; try { localStorage.setItem('eg_mute', muted ? '1' : '0'); } catch {} render(); });
-  q('#rules', () => { ui.showRules = true; ui.showLog = false; render(); });
-  q('#notesBtn', () => { ui.showLog = !ui.showLog; ui.showChat = false; ui.unread = 0; render(); });
-  q('#chatBtn', () => { ui.showChat = !ui.showChat; ui.showLog = false; render(); });
+  q('#rules, [data-g="rules"]', () => { ui.showRules = true; ui.showLog = false; render(); });
+  q('#notesBtn, [data-g="notes"]', () => { ui.showLog = !ui.showLog; ui.showChat = false; ui.unread = 0; render(); });
+  q('#chatBtn, [data-g="chat"]', () => { ui.showChat = !ui.showChat; ui.showLog = false; render(); });
+  q('[data-g="speed"]', () => lobby('speed', { speed: SPEED_ORDER[(SPEED_ORDER.indexOf(S.speed) + 1) % SPEED_ORDER.length] }));
+  q('[data-g="mute"]', () => { muted = !muted; try { localStorage.setItem('eg_mute', muted ? '1' : '0'); } catch {} render(); });
+  q('[data-g="quit"]', () => { if (confirm('Leave this game?')) leave(); });
+  q('[data-stage]', el => { ui.stage = el.dataset.stage; hidePeek(); render(); });
   q('#closeRules', () => { ui.showRules = false; render(); });
   q('#quit', () => { if (confirm('Leave this game?')) leave(); });
   q('#quit2', () => leave());

@@ -204,14 +204,17 @@ The whole game fits on one screen with no page scrolling. From left to right: th
 
   In all there are 40 endings. They live in `endings.js`, which is plain text and easy to edit. Run `node test/endings.js` to see how often each one comes up.
 
-The layout is built for laptop and desktop screens (1024×768 and up), and it has its own **phone layout**:
-- **Scrolling page:** the screen scrolls up and down. A row of player portraits sits at the top, then the play area, then the map at full screen width.
-- **Your hand:** pinned to the bottom of the screen, with big cards you swipe sideways. "You are the …" above the cards opens your role card when you press and hold it.
-- **Reading cards:** press and hold any card or player for a second to read it.
-- **Your move:** when you need to click the map (spreading or hunting) or pick a biome or role, the page scrolls there for you.
+The layout is built for laptop and desktop screens (1024×768 and up). On a computer nothing scrolls: on a short window the home page is scaled down to fit, the lobby splits into two columns, and in a narrower game window the leaderboard, stats, friends, music, sound and speed buttons move into a **☰ Menu** button.
+
+Phones get their own **phone layout**, where the game is one screen that never scrolls:
+- **Top bar:** the round, a **Table / Map** switch, and a **☰ Menu** button that holds everything else (chat lines, field notes, rules, leaderboard, stats, friends, music, sound, bot speed, leave). The home page and lobby have the same Menu button.
+- **Table or map:** the middle of the screen shows the play area or the map, one at a time. When you need to click the map (spreading, hunting, a Disruption), it switches there by itself and back afterwards. The Map button blinks while the map needs you, and shows a red dot when the map changed while you were looking at the table.
+- **Players:** a row of portraits along the top. Tap one to read their role card.
+- **Your hand:** along the bottom, with every card on screen at once (they overlap like a fan when the hand is big). Tap a card to choose it, tap again to play. "You are the …" above the cards opens your role card.
+- **Reading cards:** press and hold any card for a second to read it.
 - **Speech bubbles:** only the newest one shows, so the screen stays clear.
 
-This works with the phone held upright or sideways.
+Held sideways, the play area or map sits on the left, with the players and your hand on the right.
 
 ## Rule decisions I made (please check these)
 

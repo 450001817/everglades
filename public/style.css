@@ -102,11 +102,10 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
 }
 .landing > * { position: relative; }
 .landing > .musicbtn { position: fixed; top: 12px; right: 12px; z-index: 5; display: flex; gap: 6px; }
-.lbl-s { display: none; } /* short button labels, used on phones (see the phone layout) */
-/* a swipeable button row fades out at an edge with more buttons beyond it (client.js swipeHints) */
-.more-r { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent); }
-.more-l { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 30px), transparent); }
-.more-l.more-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 30px, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(to right, transparent, #000 30px, #000 calc(100% - 30px), transparent); }
+.lbl-s { display: none; } /* (short label; unused since phones got the Menu button) */
+/* ---------- phone menu (client.js menuHtml): one button instead of the row of top buttons ---------- */
+.mmenu, .stageswitch { display: none; }
+.dkrow { display: contents; } /* desktop-only buttons in the game's top bar */
 /* ---------- title screen (client.js intro) ---------- */
 /* just the title on the backdrop, then the menu fades in once it has glided into place */
 .titlescreen { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
@@ -148,15 +147,51 @@ html.intro-hold .hero .logo, html.intro-hold .hero .tagline { visibility: hidden
 .friendspanel .fmsg { font-size: 15px; color: #2a7a3e; }
 .friendspanel .fmsg.error { color: var(--red); }
 @media (max-width: 700px) { .friendspanel { top: 52px; right: 8px; width: calc(100vw - 16px); padding-left: 24px; } }
-/* phones: the home / lobby button row starts after the eye button, stays on one line and swipes sideways when needed
-   (the first button's auto margin keeps the row right-aligned whenever it fits) */
+/* the Menu itself (shown on phones, and in the game's top bar on narrower computer screens) */
+.landing > .mmenu { position: fixed; top: 10px; right: 10px; z-index: 66; }
+.menubtn { font-size: 15px; padding: 4px 10px; }
+.menubtn .badge { margin: 0 0 0 5px; }
+.menusheet { display: none; position: fixed; top: 52px; right: 8px; z-index: 66; width: min(300px, calc(100vw - 16px)); max-height: calc(100dvh - 64px);
+  overflow-y: auto; padding: 8px; flex-direction: column; gap: 5px; box-shadow: 6px 6px 0 rgba(20, 12, 8, .55); animation: menuin .12s steps(3); }
+.mmenu.open .menusheet { display: flex; }
+@keyframes menuin { from { transform: translateY(-8px); opacity: 0; } }
+.mi { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 6px 10px; font: inherit; font-size: 18px; font-weight: 600; text-align: left;
+  color: var(--ink); background: var(--paper-2); border: 3px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); cursor: pointer; flex-shrink: 0; }
+.mi:active { background: var(--brass); transform: translate(2px, 2px); box-shadow: none; }
+.mi:disabled { opacity: .5; }
+.mi-ic { width: 24px; text-align: center; flex-shrink: 0; }
+.mi-l { flex: 1; min-width: 0; }
+.mi-v { font-family: var(--font-small); font-weight: 400; font-size: 16px; padding: 0 7px; border: 2px solid var(--ink); background: #fff; }
+.mi .badge { margin: 0; }
+.mi .fon { display: inline-block; min-width: 18px; padding: 0 3px; background: #2a9a4a; color: #fff; border: 2px solid var(--ink); font-size: 12px; line-height: 14px; text-align: center; }
+.mi.danger { color: var(--red); }
+.mi-sep { border-top: 2px dashed #cfc6a8; margin: 3px 0; }
+.mi-head { font-family: var(--font-small); font-size: 15px; color: var(--ink-soft); padding: 0 2px 2px; text-transform: uppercase; letter-spacing: .5px; }
+.mi-head .code { font-family: var(--font-code); font-size: 12px; color: var(--red); letter-spacing: 2px; }
+/* phones: the button rows give way to a single Menu button that opens a list */
 @media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) {
-  .landing > .musicbtn { left: 56px; right: 8px; top: 10px; gap: 5px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding: 0 0 4px; }
-  .landing > .musicbtn::-webkit-scrollbar { display: none; }
-  .landing > .musicbtn > :first-child { margin-left: auto; }
-  .landing > .musicbtn .btn.small { font-size: 13px; padding: 4px 7px; }
+  .dk, .landing > .topctl { display: none !important; }
+  .mmenu { display: block; position: relative; flex-shrink: 0; }
+  .landing > .mmenu { position: fixed; top: 10px; right: 10px; z-index: 66; }
+  /* the lobby's Start button stays in reach at the bottom of the card while you scroll the settings */
+  .lobbycard #start { position: sticky; bottom: 0; z-index: 2; box-shadow: 3px 3px 0 var(--ink), 0 -10px 0 var(--paper); }
+  /* the dropdown panels open as sheets under the Menu button */
+  .friendspanel { top: 52px; right: 8px; left: 8px; width: auto; max-height: calc(100dvh - 64px); }
+  .statspanel.wide { width: auto; }
 }
-/* ---------- stats dropdown (client.js renderStats) ---------- */
+/* computers: the game's top bar keeps one line. Narrower windows drop the small logo, then move the account and
+   sound buttons into the Menu (Chat, Field notes, Rules and Leave stay out) */
+@media (max-width: 1500px) { .topbar .logo-sm { display: none; } }
+@media (max-width: 1300px) {
+  .topbar .mmenu { display: block; position: relative; flex-shrink: 0; }
+  .topbar .dkrow > :not(#rules):not(#quit) { display: none; }
+}
+/* the lobby on a computer: two columns (table settings, then the buy-in and who's at the table) so it fits the screen */
+@media (min-width: 1000px) and (min-height: 521px) {
+  .landing-card.lobbycard { display: block; width: min(1140px, 100%) !important; column-count: 2; column-gap: 34px; column-rule: 2px dashed #d8d1b8; }
+  .lobbycard > * { break-inside: avoid; margin-bottom: 12px; }
+  .lobbycard > .logo { margin-bottom: 6px; }
+}/* ---------- stats dropdown (client.js renderStats) ---------- */
 .statspanel.wide { width: min(900px, calc(100vw - 24px)); }
 .statspanel .stabs { gap: 6px; }
 .statspanel .sbig { display: flex; align-items: center; gap: 12px; padding: 6px 8px; background: var(--paper-2); border: 2px solid var(--ink); }
@@ -781,129 +816,160 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 /* hand caption: only shown on phones */
 .hand-cap { display: none; }
 
+.game > .pstrip { display: none !important; } /* the phone layout's row of players */
+
 /* ================= PHONE LAYOUT =================
-   Phones (portrait, or landscape with a short screen) get a scrolling page instead of one fixed screen:
-   top bar -> players strip + play area -> full-width map, with the hand pinned to the bottom of the screen.
-   The hand scrolls sideways so cards can be big enough to read. Keep the query in sync with phoneMQ in client.js. */
+   Phones (portrait, or landscape with a short screen) get one screen that never scrolls:
+     top bar (round, Table / Map switch, Menu) -> the players in a row -> the play area OR the map -> your hand.
+   The game flips to the map by itself when you have to click it (client.js renderGame, ui.stage).
+   Landscape: the play area / map on the left, the players and your hand on the right.
+   The whole hand fits across the screen (cards overlap like a fan), so nothing needs swiping.
+   Keep the query in sync with phoneMQ in client.js. */
 @media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) {
   :root {
-  /* Fonts (all pixel-style, from Google Fonts): small text uses Tiny5, which stays crisp and readable at small sizes;
-     room codes use Press Start 2P, whose thick letters can't be mixed up. */
-  --font-small: 'Tiny5', 'Pixelify Sans', monospace;
-  --font-code: 'Press Start 2P', 'Pixelify Sans', monospace;
-    --cw: min(28vw, 21dvh, 150px);               /* width of a card in your hand */
-    --board: calc(100vw - 20px);                  /* the map fills the screen width */
+    --top: 46px;
+    --cw: min(22vw, 14dvh, 112px);               /* width of a card in your hand */
   }
-  @media (orientation: landscape) { :root {
-  /* Fonts (all pixel-style, from Google Fonts): small text uses Tiny5, which stays crisp and readable at small sizes;
-     room codes use Press Start 2P, whose thick letters can't be mixed up. */
-  --font-small: 'Tiny5', 'Pixelify Sans', monospace;
-  --font-code: 'Press Start 2P', 'Pixelify Sans', monospace; --board: min(calc(100vw - 20px), 92dvh); } }
-  html, body { height: auto; overflow: auto; }
-  #app { height: auto; min-height: 100dvh; }
+  @media (orientation: landscape) { :root { --cw: min(10vw, 24dvh, 112px); } }
   body { -webkit-text-size-adjust: 100%; }
-  .card, .portrait, .hand { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+  .card, .portrait, .hand, .stageswitch { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 
-  /* top bar wraps instead of overflowing */
-  .topbar { height: auto; flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+  /* top bar: round, the Table / Map switch, the Menu */
+  .topbar { gap: 8px; padding: 0 8px; }
   .topbar .logo-sm { display: none; }
-  .topbar .chip { font-size: 16px; padding: 0 6px; }
-  .topbar .spacer { display: none; }
-  .topbar .btn.small { font-size: 13px; padding: 4px 7px; }
-  /* the top buttons stay on one line: shorter labels, and the row swipes sideways if it still doesn't fit */
-  .lbl-l, .topctl .caret, .topbar .caret { display: none; }
-  .lbl-s { display: inline; }
-  .topbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
-  .topbar::-webkit-scrollbar { display: none; }
-  .topbar > * { flex-shrink: 0; }
-  .topbar .btn, .topctl .btn { white-space: nowrap; flex-shrink: 0; }
-  .notes-drop, .chat-drop { position: fixed; left: 8px; right: 8px; top: auto; width: auto; max-height: 60dvh; }
+  .topbar .chip { font-size: 16px; padding: 0 6px; white-space: nowrap; }
+  .topbar .chat-wrap, .topbar .notes-wrap { display: contents; }
+  .notes-drop, .chat-drop { position: fixed; left: 8px; right: 8px; top: calc(var(--top) + 6px); width: auto; z-index: 50;
+    max-height: calc(100dvh - var(--top) - var(--handH, 0px) - 20px); }
+  .stageswitch { display: flex; flex-shrink: 0; border: 3px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); }
+  .stageswitch button { position: relative; font: inherit; font-size: 15px; font-weight: 700; padding: 3px 12px; background: var(--paper-2); color: var(--ink); border: 0; cursor: pointer; }
+  .stageswitch button + button { border-left: 3px solid var(--ink); }
+  .stageswitch button.on { background: var(--brass); }
+  .stageswitch button.call { animation: stagecall .8s steps(2) infinite; } /* you need to click the map */
+  @keyframes stagecall { 50% { background: #fff3c4; color: var(--red); } }
+  .stageswitch .newdot { position: absolute; top: 1px; right: 1px; width: 8px; height: 8px; background: var(--red); border: 2px solid var(--ink); }
 
-  /* page flow */
+  /* one screen: players, then the play area or the map, then the hand */
   .game {
-    display: flex; flex-direction: column; height: auto; padding: 8px 10px; gap: 10px;
-    padding-bottom: calc(var(--handH, 280px) + 14px);
+    display: grid; height: calc(100dvh - var(--top)); padding: 6px 8px 0; gap: 6px;
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; grid-template-areas: "players" "stage" "hand";
   }
   .side { display: none; }
-  .tablecol { order: 1; container-type: inline-size; }
-  .boardwrap { order: 2; align-items: center; }
-  .board { width: var(--board); height: var(--board); }
-  .tok { font-size: clamp(13px, calc(var(--board) * .034), 18px); min-width: calc(var(--board) * .07); }
+  .tablecol, .boardwrap { grid-area: stage; min-height: 0; min-width: 0; }
+  .game[data-stage="map"] .tablecol, .game[data-stage="table"] .boardwrap { display: none; }
+  .boardwrap { container-type: size; align-items: center; justify-content: center; }
+  .board { width: min(100cqw, 100cqh); height: min(100cqw, 100cqh); border-width: 3px; box-shadow: 3px 3px 0 var(--ink); }
+  .tok { font-size: clamp(11px, 3.4cqmin, 18px); min-width: 6.5cqmin; }
 
-  /* players strip: every character visible, swipe sideways if the table is big */
-  .players-mini { display: flex !important; flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding: 10px 2px 4px; margin: -4px -2px 0; scrollbar-width: none; }
+  /* players: every character in one row, each tile sharing the width */
+  .game > .pstrip { grid-area: players; display: flex !important; flex-wrap: nowrap; justify-content: center; gap: 4px; padding: 6px 0 0; overflow-x: auto; scrollbar-width: none; }
+  .tabletop > .players-mini { display: none !important; }
   .players-mini::-webkit-scrollbar { display: none; }
-  .players-mini .pl { flex: 0 0 auto; flex-direction: column; align-items: center; gap: 2px; width: 78px; padding: 3px 3px 4px; --ph: 56px; }
-  .players-mini .pl .info { align-items: center; width: 100%; }
-  .players-mini .pl .nm { font-size: 12px; justify-content: center; max-width: 100%; }
-  .players-mini .pl .nm .you, .players-mini .tag.bosstag { display: none; }
+  .players-mini .pl { flex: 1 1 0; min-width: 52px; max-width: 96px; flex-direction: column; align-items: center; gap: 1px; padding: 2px 2px 3px; --ph: 38px; }
+  .players-mini .pl .info { align-items: center; width: 100%; gap: 0; }
+  .players-mini .pl .nm { font-size: 12px; justify-content: center; max-width: 100%; gap: 3px; }
+  .players-mini .pl .nm .you, .players-mini .tag.bosstag, .players-mini .pl .turnclock { display: none; }
   .players-mini .pl .arrow { font-size: 10px; }
-  .mini-meta { font-family: var(--font-small); font-size: 13px; line-height: 1; color: var(--blush); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .pstrip .pl { color: var(--paper); background: rgba(0, 0, 0, .25); }
+  .pstrip .pl.turn { color: var(--ink); background: #fff3c4; outline: 2px solid var(--brass); }
+  .mini-meta { font-family: var(--font-small); font-size: 12px; line-height: 1; color: var(--blush); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .players-mini .pl.turn .mini-meta { color: var(--ink-soft); }
   .players-mini .portrait .emote { font-size: 12px; line-height: 14px; min-width: 17px; }
+  .players-mini .idletag { display: none; }
 
-  /* play area grows to fit its content */
-  .tabletop { height: auto; overflow: visible; padding: 8px 8px 12px; gap: 10px; }
-  .tabletop h3 { white-space: normal; font-size: 14px; }
-  .travel { gap: 18px 10px; }
-  .tabletop.choose .travel .card.bio { width: calc(50% - 6px); }
-  .cur-row { gap: 10px; }
-  .cur-row .card.bio { width: 54%; }
-  .tt-info .place { font-size: 19px; }
-  .played { flex: none; container-type: normal; flex-wrap: wrap; gap: 12px 8px; }
-  .pcard { width: calc((100% - 16px) / 3); }
-  .cur-row { flex-wrap: wrap; }
-  .tabletop.with-dis .cur-row .card.bio { width: 54%; }
-  .dispanel { flex-basis: 100%; }
-  .dispanel .pcard { width: calc((100% - 40px) / 6); min-width: 58px; }
-  .card .who { font-size: 15px; bottom: -19px; }
-  .strip .card.bio { width: 30%; }
-  .strip .card.eco { width: 15%; }
-  .strip-cards { flex-wrap: wrap; }
-  .trickdone .winline { font-size: 18px; }
-  .winribbon { font-size: 13px; }
-  .holdbar { margin-top: 6px; }
-  .rolegrid { gap: 12px; }
-  .rolepick { width: 100%; }
-  @media (orientation: landscape) { .rolepick { width: calc(50% - 8px); } }
+  /* the play area: the same layout as on a computer, sized to the space left (container units) */
+  .tablecol { container-type: size; }
+  .tabletop { height: 100%; padding: 6px 8px 8px; gap: 6px; overflow-x: hidden; overflow-y: auto; border-width: 3px; box-shadow: 3px 3px 0 var(--ink); }
+  .tabletop h3 { font-size: 13px; white-space: normal; }
+  .tabletop.play > h3 { display: none; } /* (the round is in the top bar) */
+  .tt-info { gap: 4px 6px; flex-direction: row; flex-wrap: wrap; align-content: flex-start; align-items: center; }
+  .tt-info .place { font-size: 16px; flex-basis: 100%; }
+  .tt-info .winline, .tt-info .lastline, .tt-info .keynote, .tt-info .crisisline { flex-basis: 100%; }
+  /* played cards: one row, or two rows when that makes them bigger (--n2 = half the seats, rounded up) */
+  .played { flex-wrap: wrap; align-content: flex-start; row-gap: 6px; }
+  .pcard { width: max(min(calc((100cqw - (var(--n) - 1) * 6px) / var(--n)), calc((100cqh - 22px) * .714)),
+    min(calc((100cqw - (var(--n2, 1) - 1) * 6px) / var(--n2, 1) - .5px), calc(((100cqh - 6px) / 2 - 22px) * .714))); }
+  .tabletop.with-dis .tt-info { flex: 0 1 36%; }
+  .tabletop.with-dis .tt-info .place { font-size: 14px; }
+  .tabletop.with-dis .dispanel { flex: 1 1 0; }
+  .risk { font-size: 14px; } .risk b { font-size: 20px; }
+  .cur-row { gap: 8px; flex-wrap: nowrap; }
+  .cur-row .card.bio { width: min(32cqw, 34cqh); }
+  .tabletop.with-dis .cur-row .card.bio { width: min(21cqw, 30cqh); }
+  .dispanel { padding: 4px 5px; gap: 3px; }
+  .dis-title { font-size: 11px; }
+  .dis-cards { gap: 4px; }
+  .dispanel .pcard { width: min(10cqw, 13cqh); gap: 2px; }
+  .dispanel .pname { font-size: 11px; }
+  .dis-empty { font-size: 14px; }
+  .disfx span { font-size: 12px; padding: 0 4px; }
+  .played { gap: 6px; padding-top: 2px; }
+  .pname { font-size: 13px; }
+  .tabletop.play:not(.trickdone) .strip { display: none; } /* the travel row: the map is a tap away, and the room goes to the played cards */
+  /* biome cards are landscape: two to a row when there's room, one row of three under a "last trick" strip */
+  .tabletop.choose .travel .card.bio { width: min(calc(50cqw - 22px), calc((100cqh - 74px) / 1.5)); }
+  .tabletop.choose:has(.strip) .travel .card.bio { width: min(calc(33.3cqw - 20px), calc((100cqh - 170px) / .75)); }
+  .travel { gap: 12px 8px; padding-bottom: 12px; }
+  .strip h3 { font-size: 12px; }
+  .strip .card.bio, .strip .card.eco { width: min(12cqw, 16cqh); }
+  .strip-cards { gap: 4px; flex-wrap: nowrap; }
+  .strip-cards.guide .card.bio { width: min(15cqw, 18cqh); }
+  .deckpile { font-size: 14px; } .deckpile img { width: 22px; }
+  .card .who { font-size: 13px; bottom: -16px; }
+  .trickdone .winline { font-size: 16px; }
+  .trickdone .played { padding-top: 12px; }
+  .card.winner { transform: translateY(-8px) scale(1.04); }
+  .winribbon { font-size: 11px; }
+  .holdbar { margin-top: 4px; flex-shrink: 0; }
+  .card.choosable::after, .rolepick.choosable::after, .card.botpick::after { font-size: 11px; bottom: -12px; padding: 0 4px; }
+  .rolegrid { gap: 14px 8px; padding: 4px 2px 10px; }
+  .rolepick { width: min(calc(33.3cqw - 20px), calc((100cqh - 70px) / 2 * 1.4)); } /* role cards are landscape: 3 across, 2 rows */
+  .rolepick .takenby { font-size: 14px; }
+  .tabletop.draft .rolegrid .card.dis { width: min(30cqw, 34cqh); }
 
-  /* the hand: pinned to the bottom of the screen, big cards that scroll sideways */
+  /* the hand: at the bottom, every card on screen at once (overlapping when the hand is big) */
   .handarea {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; height: auto; gap: 4px; container-type: normal;
-    background: var(--leather-dark); border-top: var(--px) solid var(--ink); box-shadow: 0 -4px 0 rgba(0,0,0,.25);
-    padding: 6px 8px calc(4px + env(safe-area-inset-bottom));
+    grid-area: hand; height: auto; gap: 4px; container-type: normal; margin: 0 -8px; min-width: 0;
+    background: var(--leather-dark); border-top: var(--px) solid var(--ink);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   }
-  .prompt { height: auto; min-height: 44px; flex-wrap: wrap; padding: 4px 8px 4px 28px; gap: 6px; }
-  .prompt .msg { font-size: 15px; flex-basis: 100%; }
-  .prompt .msg small { white-space: normal; font-size: 15px; line-height: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .prompt .btn { padding: 4px 9px; font-size: 14px; }
-  .prompt .card.bio { width: 64px; }
-  .hand-cap { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: var(--paper); font-family: var(--font-small); font-size: 15px; line-height: 1; padding: 0 2px; }
-  .hand-cap .myrole { color: var(--brass); cursor: help; white-space: nowrap; }
+  .prompt { height: auto; min-height: 0; flex-wrap: wrap; padding: 4px 6px 5px 26px; gap: 4px 6px; }
+  .prompt .msg { font-size: 15px; flex: 1 1 100%; }
+  .prompt .msg small { white-space: normal; font-size: 14px; line-height: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .prompt .btn { padding: 3px 9px; font-size: 14px; border-width: 3px; box-shadow: 2px 2px 0 var(--ink); }
+  .prompt .card.bio { width: 44px; }
+  .turnclock.big { position: absolute; top: 4px; right: 6px; margin: 0; font-size: 14px; padding: 0 6px; }
+  .prompt:has(.turnclock.big) .msg { padding-right: 62px; }
+  .hand-cap { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: var(--paper); font-family: var(--font-small); font-size: 14px; line-height: 1; padding: 0 2px; }
+  .hand-cap .myrole { color: var(--brass); cursor: pointer; white-space: nowrap; text-decoration: underline dotted; }
   .hand-cap .myrole small { color: var(--blush); font-size: 13px; }
   .hand-cap .swipe { color: var(--blush); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .handrow { display: flex; gap: 6px; align-items: flex-end; }
-  .handrow .hand { flex: 1 1 auto; min-width: 0; }
   .rolebox { display: none; }
-  /* Disruption cards sit beside the hand, sized off the hand cards (not the screen height) so the pinned hand stays small */
-  .dishand { padding-bottom: 4px; }
-  .dishand .cap { font-size: 13px; }
-  .dishand-cards { gap: 4px; }
-  .dishand .card.dis { width: calc(var(--cw) * .5); }
-  .hand {
-    display: flex; align-items: flex-end; gap: 8px; overflow-x: auto; overflow-y: hidden; padding: 18px 4px 4px;
-    scroll-snap-type: x proximity; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: thin;
-  }
-  .hand .slot { flex: 0 0 var(--cw); width: var(--cw); min-width: 0; height: calc(var(--cw) * 1.4); scroll-snap-align: start; }
-  .hand .card.eco { width: 100%; }
+  .hand { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-end; justify-content: center; overflow: visible; padding: 12px 0 2px; }
+  .hand .slot { flex: 0 1 calc(var(--cw) + 5px); min-width: 0; height: calc(var(--cw) * 1.4); }
+  .hand .slot:last-child { flex: 0 0 var(--cw); }
+  .hand .card.eco { width: var(--cw); }
   .hand .card.legal:hover { transform: none; }
-  .hand .card.sel { transform: translateY(-12px); }
+  .hand .card.sel { transform: translateY(-10px); }
   .overrisk span { font-size: calc(var(--cw) * .32); }
+  .dishand { padding-bottom: 2px; gap: 2px; }
+  .dishand .cap { font-size: 12px; }
+  .dishand-cards { gap: 3px; }
+  .dishand .card.dis { width: calc(var(--cw) * .55); }
 
-  /* pop-ups sit above the pinned hand */
-  .toast { bottom: calc(var(--handH, 280px) + 12px); font-size: 17px; }
+  /* landscape: play area / map on the left; players and hand on the right */
+  @media (orientation: landscape) {
+    .game { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "stage players" "stage hand"; padding-bottom: 6px; }
+    .handarea { margin: 0; border: 3px solid var(--ink); align-self: end; padding-bottom: 6px; }
+    .game > .pstrip { padding-top: 0; }
+  }
+
+  /* pop-ups */
+  .toast { bottom: calc(var(--handH, 220px) + 12px); left: 12px; right: 12px; transform: none; max-width: none; margin: 0 auto; width: fit-content; font-size: 17px; padding: 8px 14px; }
+  .toast small { font-size: 16px; }
   .peek { top: 8px; bottom: auto; }
-  .peek img { max-width: 94vw; max-height: calc(100dvh - var(--handH, 280px) - 24px); }
+  .peek img { max-width: 94vw; max-height: calc(100dvh - var(--handH, 220px) - 24px); }
   .modal { padding: 8px; }
   .modal .paper { padding: 12px 10px 12px 30px; max-height: calc(100dvh - 16px); }
   .modal .logo { font-size: 30px !important; }
@@ -932,7 +998,7 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .coach-focus { outline: 4px dashed var(--brass) !important; outline-offset: 4px; animation: coachpulse 1s steps(2) infinite; }
 @keyframes coachpulse { 50% { outline-color: transparent; } }
 @media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) {
-  .coach, .coach.right { left: 8px; right: 8px; top: 52px; width: auto; max-height: 46vh; padding: 10px 12px; }
+  .coach, .coach.right { left: 8px; right: 8px; top: calc(var(--top) + 6px); width: auto; max-height: 46vh; padding: 10px 12px; }
   .coach .coach-body { font-size: 16px; }
 }
 
