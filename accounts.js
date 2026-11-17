@@ -509,11 +509,51 @@ function settle(gameId, ranked, opts = {}) {
     if (!a || !e.accounts.includes(a.id)) continue; // bots: the house
     a.balance += o.payout;
     a.stats.games++; if (o.place === 1) a.stats.firsts++;
-    if (o.net > 0) a.stats.ebWon += o.net; else a.stats.ebLost -= o.net;
+    if (o.net > 0) { a.stats.ebWon += o.net; addEarned(a, o.net); } else a.stats.ebLost -= o.net;
     o.balance = a.balance;
   }
   delete db.escrows[gameId]; saveNow();
   return { bet, pot: bet * n, results: out };
+}
+
+// ---------- leaderboards: Eco-bucks earned from games, all time / this month / today (UTC) ----------
+// "Earned" is what a player wins from games beyond their buy-in (a game they come out ahead in). Daily bonuses,
+// gifts and purchases don't count. All time is a.stats.ebWon (kept since accounts began); the month and the day are
+// a.earned = { month: 'YYYY-MM', monthEB, day: 'YYYY-MM-DD', dayEB }, which start again at 0 when the period changes.
+const thisMonth = () => today().slice(0, 7);
+function addEarned(a, eb) {
+  const e = a.earned = a.earned || {};
+  if (e.month !== thisMonth()) { e.month = thisMonth(); e.monthEB = 0; }
+  if (e.day !== today()) { e.day = today(); e.dayEB = 0; }
+  e.monthEB += eb; e.dayEB += eb;
+  lbCache.clear();
+}
+const PERIODS = ['day', 'month', 'all'];
+function earnedIn(a, period) {
+  if (period === 'all') return (a.stats && a.stats.ebWon) || 0;
+  const e = a.earned || {};
+  if (period === 'month') return e.month === thisMonth() ? e.monthEB || 0 : 0;
+  return e.day === today() ? e.dayEB || 0 : 0;
+}
+const LB_TOP = 50, lbCache = new Map(); // period -> { at, key, ranked }, rebuilt at most every 30 seconds
+function ranked(period) {
+  const key = period === 'all' ? 'all' : period === 'month' ? thisMonth() : today();
+  const c = lbCache.get(period);
+  if (c && c.key === key && Date.now() - c.at < 30e3) return c.ranked;
+  const list = Object.values(db.accounts).map(a => ({ a, eb: earnedIn(a, period) })).filter(x => x.eb > 0)
+    .sort((x, y) => y.eb - x.eb || x.a.gamertag.localeCompare(y.a.gamertag));
+  let rank = 0; list.forEach((x, i) => { if (!i || x.eb !== list[i - 1].eb) rank = i + 1; x.rank = rank; }); // ties share a rank
+  lbCache.set(period, { at: Date.now(), key, ranked: list });
+  return list;
+}
+const lbRow = x => ({ rank: x.rank, eb: x.eb, id: x.a.id, username: x.a.gamertag, avatarSrc: avatarSrc(x.a.avatar), titleName: titleName(x.a.title), titleStyle: titleStyle(x.a.title) });
+// The top 50 for a period, plus where `me` stands (null if they haven't earned anything in it yet).
+function leaderboard(period, me) {
+  if (!PERIODS.includes(period)) throw userErr('Unknown leaderboard.');
+  const list = ranked(period), mine = me ? list.find(x => x.a.id === me.id) : null;
+  const d = new Date(), next = period === 'day' ? Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1)
+    : period === 'month' ? Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) : null;
+  return { period, top: list.slice(0, LB_TOP).map(lbRow), players: list.length, me: mine ? lbRow(mine) : null, resetsAt: next };
 }
 
 // Tricks won with an animal card count toward unlocking that animal's profile picture.
@@ -610,6 +650,6 @@ function adjustPurchase(paymentIntent, change) {
 module.exports = {
   ECON, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
-  publicProfile, privateProfile, config, recordGame, playerStats, serverStats, canSeeServerStats, avatarSrc, titleName, skinFor, splashFor, ownsChat, chatFor, chatAllowed, treatmentFor, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
+  publicProfile, privateProfile, config, recordGame, playerStats, serverStats, canSeeServerStats, leaderboard, avatarSrc, titleName, skinFor, splashFor, ownsChat, chatFor, chatAllowed, treatmentFor, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
   friendRequest, friendRespond, friendRemove, friendsOf, isFriend,
 };

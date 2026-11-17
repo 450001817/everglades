@@ -517,6 +517,8 @@ const server = http.createServer(async (req, res) => {
         for (const room of rooms.values()) if (room.members.some(m => m.accountId === r.accountId)) broadcast(room); // their envelope shows up straight away
         return send(res, 200, { to: r.to, amount: r.amount });
       }
+      // ---------- leaderboards: Eco-bucks earned from games, by period ----------
+      if (op === 'leaderboard') { const a = A.requireAccount(body.session); return send(res, 200, A.leaderboard(String(body.period || 'day'), a)); }
       // ---------- stats: your own record; admins also get the server-wide summary ----------
       if (op === 'stats') {
         const a = A.requireAccount(body.session);

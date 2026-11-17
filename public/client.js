@@ -142,7 +142,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') setSceneOnly
 // The music toggle, with the friends dropdown button beside it (top right of the home page and lobby; in the game's top bar)
 const musicBtnHtml = (cls = 'musicbtn') => {
   const music = `<button class="btn small" id="musicBtn" title="Music on/off">${musicOn ? '♪ Music: On' : '♪ Music: Off'}</button>`;
-  return cls ? `<div class="topctl ${cls}">${statsBtnHtml()}${friendsBtnHtml()}${music}</div>` : statsBtnHtml() + friendsBtnHtml() + music;
+  return cls ? `<div class="topctl ${cls}">${lbBtnHtml()}${statsBtnHtml()}${friendsBtnHtml()}${music}</div>` : lbBtnHtml() + statsBtnHtml() + friendsBtnHtml() + music;
 };
 document.addEventListener('click', e => {
   if (!e.target.closest('#musicBtn')) return;
@@ -441,7 +441,7 @@ function splashStoreHtml(me, C) {
       ? `<button class="btn ${using ? '' : 'brass'}" data-splashwear="${using ? '' : it.splash}">${using ? 'Turn off' : 'Use this effect'}</button>`
       : `<button class="btn primary" data-buy="${it.id}" ${me.balance < it.price ? 'disabled' : ''}>Buy · ${Number(it.price).toLocaleString()} EB</button>`;
     return `<div class="storeitem">
-      <div class="storeprev splashprev"><button class="splashdemo" data-splashpreview="${it.splash}" title="Preview">${cardEl({ splash: 'Manatee', stink: 'BurmesePython' }[it.splash] || 'Flamingo', '', 'data-splashcard="' + it.splash + '"')}<span>▶ Preview</span></button></div>
+      <div class="storeprev splashprev"><button class="splashdemo" data-splashpreview="${it.splash}" title="Preview">${cardEl({ splash: 'Manatee', stink: 'BurmesePython', leaves: 'EvergladesCypress' }[it.splash] || 'Flamingo', '', 'data-splashcard="' + it.splash + '"')}<span>▶ Preview</span></button></div>
       <div class="storeinfo"><b>${esc(it.name)}</b><span class="hint">${esc(it.blurb)}</span>
         <span>${it.exclusive ? '<span class="staffex">Goblin Ink staff exclusive</span>' : fmtEB(it.price)}${owned ? ` · <span style="color:var(--native)">${using ? 'In use' : 'Owned'}</span>` : me.balance < it.price ? ` · <span class="hint">you need ${(it.price - me.balance).toLocaleString()} more</span>` : ''}</span></div>
       <div>${action}</div></div>`;
@@ -460,6 +460,8 @@ document.addEventListener('click', async e => {
 // A canvas laid over the card (and a margin around it) for about a second. Drawn at 1/3 resolution and scaled up
 // without smoothing, so the particles are chunky pixels like the rest of the game.
 const SPLASH_PX = 3;
+// Fall leaves: a 3x4 sheet of 9x9 pixel leaves (made by tools/make_leaf_sprites.js), loaded once up front
+const LEAF_SHEET = new Image(); LEAF_SHEET.src = 'assets/splash/leaves.png?v=1';
 function playSplash(type, el, preview = false) {
   if (!el || !SPLASHES.some(s => s.id === type)) return;
   if (matchMedia('(prefers-reduced-motion: reduce)').matches && !preview) return;
@@ -482,6 +484,13 @@ function playSplash(type, el, preview = false) {
       const a = rnd(0, Math.PI * 2), sp = rnd(10, 34);
       const ex = cx + Math.cos(a) * cw * 0.45, ey = cy + Math.sin(a) * ch * 0.45;
       parts.push({ x: ex, y: ey, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 6, big: Math.random() < 0.35, ph: rnd(0, 6), c: ['#fff6b0', '#ffd84a', '#ffffff', '#ffe98a'][i % 4], life: rnd(0.65, 1) });
+    }
+  } else if (type === 'leaves') { // fall leaves: a gust throws them up from the card, then they tumble and sway down
+    dur = 1800;
+    for (let i = 0; i < 26; i++) {
+      const side = i % 2 ? -1 : 1, edge = rnd(0, 0.5);
+      parts.push({ x: cx + side * cw * edge, y: cy - ch * rnd(0.1, 0.45), vx: side * rnd(6, 30) * (0.5 + edge), vy: -rnd(35, 75),
+        shape: i % 3, col: Math.floor(rnd(0, 4)), spin: rnd(5, 11), ph: rnd(0, 6), sway: rnd(2, 5), delay: rnd(0, 0.18), life: rnd(0.8, 1) });
     }
   } else if (type === 'stink') { // stink cloud: green puffs billow out and drift up, wavy stink lines rise, a fly buzzes
     dur = 1500;
@@ -518,6 +527,23 @@ function playSplash(type, el, preview = false) {
         if (!tw) { dot(x, y, p.c); continue; }
         dot(x, y, p.c); dot(x - 1, y, p.c); dot(x + 1, y, p.c); dot(x, y - 1, p.c); dot(x, y + 1, p.c); // a little plus-shaped star
         if (p.big && t < 0.6) { dot(x - 2, y, '#ffffff'); dot(x + 2, y, '#ffffff'); dot(x, y - 2, '#ffffff'); dot(x, y + 2, '#ffffff'); }
+      }
+    } else if (type === 'leaves') {
+      g.imageSmoothingEnabled = false;
+      for (const p of parts) {
+        const q = (t - p.delay) / (p.life - p.delay); if (q <= 0 || q >= 1) continue;
+        const tt = dt - p.delay * dur / 1000;
+        const fall = Math.min(tt, 0.55), drift = Math.max(0, tt - 0.55); // the gust, then a gentle fall at a steady speed
+        const x = p.x + p.vx * fall * (1 - fall * 0.6) + p.vx * 0.25 * drift + Math.sin(tt * 4 + p.ph) * p.sway;
+        const y = p.y + p.vy * fall + 70 * fall * fall + 22 * drift;
+        const flip = Math.cos(tt * p.spin + p.ph); // tumbling: the leaf turns edge-on and over
+        const w = Math.max(1, Math.round(9 * Math.abs(flip)));
+        g.globalAlpha = Math.min(1, (1 - q) * 3);
+        if (LEAF_SHEET.complete && LEAF_SHEET.naturalWidth) {
+          g.save(); g.translate(Math.round(x), Math.round(y)); if (flip < 0) g.scale(-1, 1);
+          g.drawImage(LEAF_SHEET, p.shape * 9, p.col * 9, 9, 9, -Math.floor(w / 2), -4, w, 9);
+          g.restore();
+        } else dot(x, y, ['#c8371f', '#e2731c', '#e0ae22', '#8a5a2b'][p.col], 3); // (sheet not loaded yet)
       }
     } else if (type === 'stink') {
       for (const p of parts) {
@@ -753,7 +779,7 @@ function charSplashHtml(role, L) {
   const ownedFx = SPLASHES.filter(s => me.owned.includes('splash:' + s.id));
   const globalFx = SPLASHES.find(s => s.id === me.splash && me.owned.includes('splash:' + s.id));
   const pick = L.splashCustom ? (L.splash || 'none') : 'default';
-  const demoCard = id => ({ splash: 'Manatee', stink: 'BurmesePython' }[id] || 'Flamingo');
+  const demoCard = id => ({ splash: 'Manatee', stink: 'BurmesePython', leaves: 'EvergladesCypress' }[id] || 'Flamingo');
   const opt = (val, title, blurb, fx) => `<div class="storeitem ${pick === val ? 'picked' : ''}">
       <div class="storeprev splashprev">${fx ? `<button class="splashdemo" data-splashpreview="${fx}" title="Preview">${cardEl(demoCard(fx))}<span>▶ Preview</span></button>` : `<div class="splashdemo">${cardEl('Flamingo')}<span>No effect</span></div>`}</div>
       <div class="storeinfo"><b>${esc(title)}</b><span class="hint">${esc(blurb)}</span></div>
@@ -1148,6 +1174,57 @@ document.addEventListener('click', e => {
   if (t.matches('[data-stats]')) { st.open = !st.open; st.msg = ''; refreshStatsBtns(); renderStats(); if (st.open) loadStats(); }
   else if (t.matches('[data-stats-close]')) { st.open = false; renderStats(); refreshStatsBtns(); }
   else if (t.matches('[data-stats-tab]')) { st.tab = t.dataset.statsTab; renderStats(); }
+});
+
+// ---------- leaderboards: who earned the most Eco-bucks from games today, this month and of all time ----------
+// Another dropdown beside Stats (outside #app, fetched each time it opens or switches tab).
+const lb = { open: false, period: 'day', data: {}, msg: '' };
+const $lb = document.createElement('div'); $lb.id = 'lbPanel'; $lb.className = 'paper spiral friendspanel statspanel lbpanel hidden';
+document.body.appendChild($lb);
+function lbBtnHtml() {
+  if (!acct.me) return '';
+  return `<button class="btn small ${lb.open ? 'brass' : ''}" data-lb title="Who earned the most Eco-bucks">🏆 Leaders ▾</button>`;
+}
+const refreshLbBtns = () => { for (const b of document.querySelectorAll('[data-lb]')) b.outerHTML = lbBtnHtml(); };
+const LB_TABS = [['day', 'Today'], ['month', 'This month'], ['all', 'All time']];
+function lbUntil(ts) { // "resets in 5 h 12 min" / "in 3 days"
+  const m = Math.max(1, Math.round((ts - Date.now()) / 60000));
+  return m < 60 ? `${m} min` : m < 48 * 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.round(m / 1440)} days`;
+}
+function renderLb() {
+  if (!lb.open || !acct.me) { $lb.classList.add('hidden'); return; }
+  const d = lb.data[lb.period];
+  const medal = r => r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : '#' + r;
+  const row = (x, cls = '') => `<div class="lbrow ${cls} ${x.id === acct.me.id ? 'me' : ''}"><b class="lbrank">${medal(x.rank)}</b>
+    <img class="pavatar tiny" src="${esc(x.avatarSrc)}" alt=""><div class="fname"><b>${esc(x.username)}${x.id === acct.me.id ? ' <span class="hint">(you)</span>' : ''}</b>${x.titleName ? `<span class="hint">${esc(x.titleName)}</span>` : ''}</div>${fmtEB(x.eb)}</div>`;
+  let body;
+  if (!d) body = '<p class="hint">Loading…</p>';
+  else {
+    body = d.top.length ? d.top.map(x => row(x)).join('') : `<p class="hint">Nobody has earned Eco-bucks ${lb.period === 'day' ? 'today' : lb.period === 'month' ? 'this month' : 'yet'}. Win a game with a buy-in to get on the board!</p>`;
+    if (d.me && !d.top.some(x => x.id === d.me.id)) body += `<div class="fsec">You</div>` + row(d.me);
+    else if (!d.me) body += `<p class="hint lbnote">You're not on this board yet. Come out ahead in a game with a buy-in to join it.</p>`;
+  }
+  $lb.innerHTML = `<div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Leaderboard</div><button class="btn small" data-lb-close>Close</button></div>
+    <div class="row stabs">${LB_TABS.map(([k, n]) => `<button class="btn small ${lb.period === k ? 'brass' : ''}" data-lb-tab="${k}">${n}</button>`).join('')}</div>
+    <p class="hint lbnote">Eco-bucks won from games, beyond the buy-in.${d && d.resetsAt ? ` Starts again in ${lbUntil(d.resetsAt)} (midnight UTC${lb.period === 'month' ? ' on the 1st' : ''}).` : ''}${d && d.players > d.top.length ? ` Top ${d.top.length} of ${d.players}.` : ''}</p>
+    ${lb.msg ? `<div class="fmsg error">${esc(lb.msg)}</div>` : ''}
+    <div class="flist">${body}</div>`;
+  $lb.classList.remove('hidden');
+}
+async function loadLb() {
+  const period = lb.period;
+  try { lb.data[period] = await acctApi('leaderboard', { period }); lb.msg = ''; } catch (e) { lb.msg = e.message; }
+  if (lb.period === period) renderLb();
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-lb],[data-lb-close],[data-lb-tab]');
+  if (!t) { // a click anywhere else closes the dropdown
+    if (lb.open && !e.target.closest('#lbPanel')) { lb.open = false; renderLb(); refreshLbBtns(); }
+    return;
+  }
+  if (t.matches('[data-lb]')) { lb.open = !lb.open; lb.msg = ''; lb.data = {}; refreshLbBtns(); renderLb(); if (lb.open) loadLb(); }
+  else if (t.matches('[data-lb-close]')) { lb.open = false; renderLb(); refreshLbBtns(); }
+  else if (t.matches('[data-lb-tab]')) { lb.period = t.dataset.lbTab; renderLb(); loadLb(); }
 });
 
 // clicks inside the profile / store / account panel

@@ -316,6 +316,7 @@
   const SPLASHES = [
     { id: 'sparkle', name: 'Sparkle', price: SPLASH_PRICE, blurb: 'Golden stars burst from your card and twinkle away.' },
     { id: 'splash', name: 'Water splash', price: SPLASH_PRICE, blurb: 'Your card lands with a splash of swamp water and a ripple.' },
+    { id: 'leaves', name: 'Fall leaves', price: SPLASH_PRICE, blurb: 'A gust of red, orange and gold leaves swirls up from your card and tumbles down.' },
     { id: 'stink', name: 'Stink cloud', price: 0, exclusive: true, blurb: 'Goblin Ink staff exclusive: your card lands in a reeking green cloud.' },
   ];
 
