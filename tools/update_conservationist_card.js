@@ -1,9 +1,11 @@
 // Updates the Conservationist role card for the new rules (Nov 2026):
-//  * right page: "20pts" -> "12pts" per map objective, rebuilt from the card's own digit glyphs ("1" from "15pts",
-//    "2" from "20pts") so it matches the original lettering exactly; the rest of the line slides left to close the gap.
+//  * right page: "20pts" (each map objective) and "25pts" (never trigger a crisis) both become "15pts", copied from the
+//    card's own "15pts:" label (the majority objective) so they match the original lettering exactly; the rest of
+//    each line slides left to close the gap.
 //  * left page: the old ability ("START OF TURN: You may choose not to populate...") is replaced with the new one,
 //    drawn in the hand-made pixel font from pixelfont.py (the same lettering as the Anaconda boss card).
-// Works on the card as it was before this change, so it can't be run twice on its own output.
+// Works on the original card (before Nov 2026; in git: git show 4c5c765:public/assets/cards/roles/Conservationist.png),
+// so it can't be run twice on its own output.
 // Usage: node tools/update_conservationist_card.js <original Conservationist.png> <out.png>
 // After replacing a role card, bump CARD_V in public/data.js so browsers fetch the new image.
 'use strict';
@@ -57,18 +59,17 @@ const isRed = (x, y) => { const i = at(x, y); return D[i] > 200 && D[i + 1] < 90
 const redIn = (x0, x1) => { for (let y = 71; y <= 105; y++) for (let x = x0; x <= x1; x++) if (isRed(x, y)) return true; return false; };
 if (!redIn(545, 561) || redIn(562, 565)) throw new Error('this does not look like the original Conservationist card (already updated?)');
 
-// ---------- right page: 20pts -> 12pts ----------
-// Glyph boxes measured on the original: line 1 ("20pts: For each map") is rows 66-106, cap rows 71-105;
-// "2" spans x 545-561 and "pts: ..." starts at x 588. In line 2 ("15pts"), "1" spans x 545-550 at rows 146-180
-// and the next digit starts 14px later (x 559), with 6px before "pts".
-const L1 = [66, 106], DY = 146 - 71;
-const two = grab(545, L1[0], 561, L1[1]);
-const rest = grab(586, L1[0], 890, L1[1]);
-const one = grab(545, L1[0] + DY, 552, L1[1] + DY);
-fill(545, L1[0], 890, L1[1], PAPER);
-paste(one, 545, L1[0]);
-paste(two, 559, L1[0]);
-paste(rest, 586 - 7, L1[0]); // "pts" now starts at x 581, 6px after the "2" (as in "15pts")
+// ---------- right page: 20pts and 25pts -> 15pts ----------
+// Measured on the original: the red labels sit on cap rows 71-105 ("20pts:"), 146-180 ("15pts:") and 258-292
+// ("25pts:"). "20pts:" and "25pts:" end at x 644 with their text starting at x 645; "15pts:" ends at x 637 with its
+// text at x 638, so swapping in the "15pts:" label moves the rest of the line 7px left.
+const label15 = grab(545, 146, 637, 180);
+for (const [cap, band] of [[71, [66, 106]], [258, [250, 293]]]) { // [label cap row, the line's clear band]
+  const rest = grab(645, band[0], 890, band[1]);
+  fill(545, band[0], 890, band[1], PAPER);
+  paste(label15, 545, cap);
+  paste(rest, 638, band[0]);
+}
 
 // ---------- left page: the new ability ----------
 fill(40, 442, 494, 606, PAPER);

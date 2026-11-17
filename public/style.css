@@ -102,6 +102,25 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
 }
 .landing > * { position: relative; }
 .landing > .musicbtn { position: fixed; top: 12px; right: 12px; z-index: 5; display: flex; gap: 6px; }
+/* ---------- title screen (client.js intro) ---------- */
+/* just the title on the backdrop, then the menu fades in once it has glided into place */
+.titlescreen { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+  padding: 16px; cursor: pointer; outline: none; text-align: center;
+  background: radial-gradient(ellipse 60% 45% at 50% 50%, rgba(25, 12, 30, .45), rgba(25, 12, 30, 0) 100%); }
+.intro-title { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.titlescreen .logo, .titlescreen .tagline { width: max-content; max-width: calc(100vw - 32px); will-change: transform; }
+.intro-begin { margin: 0; font-family: var(--font-small); font-size: clamp(18px, 2.2vw, 26px); letter-spacing: 2px; text-transform: uppercase;
+  color: #fff3c4; text-shadow: 2px 2px 0 var(--ink), -2px 0 0 var(--ink), 0 -2px 0 var(--ink), 2px 0 0 var(--ink), 0 2px 0 var(--ink);
+  animation: introPulse 2.6s ease-in-out infinite; }
+@keyframes introPulse { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+.titlescreen.going { background: none; transition: background .8s; }
+.titlescreen.going .intro-begin { animation: none; opacity: 0; transition: opacity .35s; }
+.titlescreen.fadeout { opacity: 0; transition: opacity .6s; }
+html.intro-on #app { opacity: 0; pointer-events: none; }
+html.intro-on #sceneEye { display: none; }
+html.intro-reveal #app { transition: opacity 1.2s ease; }
+html.intro-hold .hero .logo, html.intro-hold .hero .tagline { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) { .intro-begin { animation: none; } }
 /* ---------- friends dropdown (client.js renderFriends) ---------- */
 .friendsbtn .fon { display: inline-block; min-width: 16px; padding: 0 3px; background: #2a9a4a; color: #fff; border: 2px solid var(--ink); font-size: 12px; line-height: 14px; text-align: center; }
 .friendsbtn .fbadge .badge { margin: 0 0 0 3px; }
@@ -171,8 +190,8 @@ html.scene-only:not(.scenery-live) body { background: #2a1830 url('assets/landin
   .landing-inner .landing-card { margin-top: calc(clamp(52px, 8.5vw, 104px) * .9 + 28px); }
 }
 .hero { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.hero .logo { font-size: clamp(52px, 8.5vw, 104px); color: #4fc46e; text-shadow: 5px 5px 0 var(--ink), 0 0 24px rgba(0, 0, 0, .45); }
-.hero .tagline { margin: -4px 0 0; color: #fff3c4; font-size: clamp(20px, 2.4vw, 28px); text-shadow: 2px 2px 0 var(--ink); }
+.hero .logo, .titlescreen .logo { font-size: clamp(52px, 8.5vw, 104px); color: #4fc46e; text-shadow: 5px 5px 0 var(--ink), 0 0 24px rgba(0, 0, 0, .45); }
+.hero .tagline, .titlescreen .tagline { margin: -4px 0 0; color: #fff3c4; font-size: clamp(20px, 2.4vw, 28px); text-shadow: 2px 2px 0 var(--ink); }
 .blurb { padding: 12px 16px 12px 36px; }
 .blurb p { margin: 0 0 8px; font-size: 17px; line-height: 1.35; }
 .blurb .crisisword { color: var(--red); }

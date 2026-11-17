@@ -133,9 +133,9 @@
   const ROLES = {
     Conservationist: {
       name: 'Conservationist', img: 'assets/cards/roles/Conservationist.png', ending: 'assets/cards/roles/ConservationistEND.png',
-      map: { FSP: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 12, majorityPts: 15, noCrisisPts: 25,
+      map: { FSP: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 15, majorityPts: 15, noCrisisPts: 15,
       ability: 'Once each round, you may stop any 1 Invasive card (yours or anyone else’s) from populating.',
-      goals: ['12 pts for each map objective met', '15 pts if the total population majority is Native', '25 pts if you never trigger an Invasive Crisis'],
+      goals: ['15 pts for each map objective met', '15 pts if the total population majority is Native', '15 pts if you never trigger an Invasive Crisis'],
     },
     Fisherman: {
       name: 'Fisherman', img: 'assets/cards/roles/Fisherman.png', ending: 'assets/cards/roles/FishermanENDING.png',
@@ -171,7 +171,7 @@
 
   // Role card art changes now and then (new objective numbers): bump CARD_V whenever a role card image is replaced,
   // so every browser fetches the new card at once instead of showing one it saved earlier.
-  const CARD_V = '20261117';
+  const CARD_V = '20261118';
   for (const r of Object.values(ROLES)) r.img += '?v=' + CARD_V;
 
   // Balance experiments only (test runs): EG_ROLE_TUNE='{"Tourist":{"allMetPts":20}}' overrides role numbers.

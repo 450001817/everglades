@@ -125,6 +125,48 @@ function updateMusic() {
     else if (k !== want && tr.playing) tr.stop();
   }
 }
+// ---------- the title screen ----------
+// Every visit that starts on the home page opens on just the title over the animated backdrop, with a slowly
+// pulsing "Click to begin". A click (or key) glides the title to where it sits on the home page, then the menu
+// fades in around it. The home page is already rendered underneath (hidden), so the title lands exactly on it.
+(function intro() {
+  if (sess) return; // rejoining a table: straight back in
+  const root = document.documentElement;
+  root.classList.add('intro-on', 'intro-hold');
+  const el = document.createElement('div');
+  el.id = 'titlescreen'; el.className = 'titlescreen'; el.setAttribute('role', 'button'); el.tabIndex = 0;
+  el.setAttribute('aria-label', 'Everglades: click to begin');
+  el.innerHTML = `<div class="intro-title"><h1 class="logo">EVERGLADES</h1><p class="tagline">A trick-taking card game for the River of Grass</p></div>
+    <p class="intro-begin">${matchMedia('(hover: none)').matches ? 'Tap' : 'Click'} to begin</p>`;
+  document.body.appendChild(el);
+  el.focus({ preventScroll: true });
+  let started = false;
+  const textBox = node => { const r = document.createRange(); r.selectNodeContents(node); return r.getBoundingClientRect(); };
+  function begin(e) {
+    if (started) return; started = true;
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    el.classList.add('going');
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const MOVE = still ? 0 : 1500;
+    // where the home page's own title and tagline are
+    const pairs = [['.logo', '.hero .logo'], ['.tagline', '.hero .tagline']].map(([a, b]) => [el.querySelector(a), $app.querySelector(b)]);
+    for (const [from, to] of pairs) {
+      if (!from || !to || still) continue;
+      const f = textBox(from), t = textBox(to);
+      from.animate([{ transform: 'translate(0, 0)' }, { transform: `translate(${t.left - f.left}px, ${t.top - f.top}px)` }],
+        { duration: MOVE, easing: 'cubic-bezier(.5, 0, .25, 1)', fill: 'forwards' });
+    }
+    setTimeout(() => { root.classList.add('intro-reveal'); root.classList.remove('intro-on'); }, still ? 0 : MOVE * 0.55); // the menu fades in
+    setTimeout(() => { // the title has landed: hand over to the real one
+      root.classList.remove('intro-hold');
+      if (still) { el.classList.add('fadeout'); setTimeout(() => el.remove(), 600); } else el.remove();
+    }, MOVE);
+    setTimeout(() => root.classList.remove('intro-reveal'), MOVE + 1400);
+  }
+  el.addEventListener('click', begin);
+  el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') begin(e); });
+})();
+
 // The eye button: hide everything so the animated backdrop can be watched on its own (Escape or the eye brings it back).
 function setSceneOnly(on) {
   const root = document.documentElement, eye = document.getElementById('sceneEye');
