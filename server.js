@@ -31,6 +31,7 @@ const os = require('os');
 const G = require('./game.js');
 const A = require('./accounts.js'); // player accounts, Eco-bucks, profile pictures, store
 const P = require('./payments.js'); // buying Eco-bucks with Stripe Checkout
+const ST = require('./stats.js'); // game records and balance metrics
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, 'public');
@@ -202,6 +203,7 @@ function drainEvents(room) {
   if (!evs.length) return;
   room.evSeen = evs[evs.length - 1].id;
   for (const ev of evs) {
+    ST.tallyEvent(room.tally, s, ev); // game records (cards played, Disruptions, the role draft)
     // a trick won with an animal card counts toward unlocking that animal's profile picture
     if (ev.type === 'trick' && s.players[ev.p] && !s.players[ev.p].bot && !room.tutorial) {
       const m = room.members.find(x => x.pid === s.players[ev.p].id);
@@ -229,6 +231,12 @@ function settleRoom(room) {
     return { seat, accountId: m ? m.accountId : null, score: R.teams ? teamTotal(p.team) : sc.total };
   });
   room.settlement = A.settle(room.gameId, ranked, { coop: !!R.coop, playersWin: !!R.playersWin });
+  // game records: each player's win/loss per character, and the server-wide balance stats
+  try {
+    const seatAccount = seat => { const m = room.members.find(x => x.pid === s.players[seat].id); return m && !m.bot ? m.accountId : null; };
+    A.recordGame(ST.summarize(s, room.tally, seatAccount, { buyIn: room.buyIn }));
+  } catch (e) { console.error('Could not record game stats:', e.message); }
+  room.tally = null;
   room.gameId = null;
 }
 
@@ -509,6 +517,11 @@ const server = http.createServer(async (req, res) => {
         for (const room of rooms.values()) if (room.members.some(m => m.accountId === r.accountId)) broadcast(room); // their envelope shows up straight away
         return send(res, 200, { to: r.to, amount: r.amount });
       }
+      // ---------- stats: your own record; admins also get the server-wide summary ----------
+      if (op === 'stats') {
+        const a = A.requireAccount(body.session);
+        return send(res, 200, { me: A.playerStats(a), server: a.admin ? A.serverStats(a) : null });
+      }
       // ---------- friends (requests by username, who's online, table invites) ----------
       if (op === 'friends') { const a = A.requireAccount(body.session); seen(a); return send(res, 200, friendsView(a)); }
       if (op === 'friends/request') {
@@ -707,6 +720,7 @@ const server = http.createServer(async (req, res) => {
             room.game = G.newGame();
             for (const x of room.members) G.addPlayer(room.game, { id: x.pid, name: x.name, bot: x.bot, team: room.mode === 'partners' ? x.team : null });
             G.startGame(room.game, { partners: room.mode === 'partners', coop: room.mode === 'coop', disruptions: !!room.disruptions });
+            room.tally = ST.newTally();
             room.chatter = []; room.tricksSeen = 0; resetReactions(room); room.strikes = {}; clearDeadline(room);
             room.pauseUntil = Date.now() + DEAL_PAUSE_MS; // let the shuffle-and-deal animation play first
           } else if (body.cmd === 'botify') {

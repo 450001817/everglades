@@ -64,7 +64,8 @@ const avatarSrc = id => {
 };
 
 // ---------- storage (see storage.js: Upstash Redis when configured, otherwise a local file) ----------
-const TABLES = ['accounts', 'sessions', 'google', 'guests', 'tags', 'escrows', 'payments', 'gifts'];
+const TABLES = ['accounts', 'sessions', 'google', 'guests', 'tags', 'escrows', 'payments', 'gifts', 'stats'];
+const STATS = require('./stats.js');
 const store = require('./storage.js').pickStore();
 let db = Object.fromEntries(TABLES.map(t => [t, {}]));
 // Load everything before the server lets anyone in (server.js waits for `ready`).
@@ -166,6 +167,9 @@ async function verifyGoogle(credential) {
 // Goblin Ink staff: Google accounts whose email is listed in the STAFF_EMAILS setting (comma-separated, set on the
 // host, never in the code). Checked at every Google sign-in; the email itself is never saved.
 const staffEmails = () => String(process.env.STAFF_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+// Admins: Google accounts whose email is listed in ADMIN_EMAILS (comma-separated, set on the host). They can see the
+// server-wide stats. Checked (granted or taken away) at every Google sign-in; the email itself is never saved.
+const adminEmails = () => String(process.env.ADMIN_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 function grantStaff(a) {
   const first = !a.staff;
   a.staff = true;
@@ -198,6 +202,8 @@ async function googleLogin(credential) {
   if (!a) { a = newAccount({ google: true }); db.google[claims.sub] = a.id; }
   const email = String(claims.email || '').toLowerCase();
   if (email && claims.email_verified !== false && staffEmails().includes(email)) { grantStaff(a); save(); }
+  const admin = !!email && claims.email_verified !== false && adminEmails().includes(email);
+  if (!!a.admin !== admin) { a.admin = admin; save(); if (admin) console.log(`Admin access for ${a.gamertag}`); }
   let gift = 0; // an old-style email gift still waiting: it becomes a letter
   const g = email && claims.email_verified !== false && db.gifts[giftKey(email)];
   if (g) { gift = g.amount; sendMail(a, 'gift', gift, 'A gift from Goblin Ink'); delete db.gifts[giftKey(email)]; saveNow(); }
@@ -544,7 +550,7 @@ function publicProfile(a) { // shown to everyone (lobby banner)
 function privateProfile(a) { // shown to the account owner
   return Object.assign(publicProfile(a), {
     balance: a.balance, owned: a.owned, cardWins: a.cardWins, stats: a.stats, guest: !!a.guest,
-    staff: !!a.staff, exclusiveStore: EXCLUSIVE.filter(i => a.owned.includes(i.id) || (a.staff && !i.promo)), // exclusives show only in their owners' stores
+    staff: !!a.staff, admin: !!a.admin, exclusiveStore: EXCLUSIVE.filter(i => a.owned.includes(i.id) || (a.staff && !i.promo)), // exclusives show only in their owners' stores
     inbox: (a.inbox || []).map(m => ({ id: m.id, kind: m.kind, amount: m.amount, note: m.note, at: m.at, item: m.item || null, itemName: m.item ? titleName(m.item) : null })), // unopened letters
     unlocked: unlockedAvatars(a),
     chars: charProfiles(a), // per-character chat lines, splash effect and card treatments
@@ -557,6 +563,14 @@ function config() {
       animals: ANIMAL_AVATARS.map(id => ({ id: 'animal:' + id, card: id, name: CARDS[id].name, src: avatarSrc('animal:' + id) })) } };
 }
 const get = id => db.accounts[id] || null;
+
+// ---------- game records (see stats.js) ----------
+function recordGame(summary) { STATS.record(db, summary); save(); }
+const playerStats = a => STATS.playerView(a);
+function serverStats(a) {
+  if (!a || !a.admin) throw userErr('Only admins can see the server stats.');
+  return STATS.serverView(db);
+}
 
 // ---------- Eco-bucks bought with real money (see payments.js) ----------
 // Adds a paid Stripe Checkout session's Eco-bucks once. db.payments keeps a record of every credited session
@@ -593,6 +607,6 @@ function adjustPurchase(paymentIntent, change) {
 module.exports = {
   ECON, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
-  publicProfile, privateProfile, config, avatarSrc, titleName, skinFor, splashFor, ownsChat, chatFor, chatAllowed, treatmentFor, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
+  publicProfile, privateProfile, config, recordGame, playerStats, serverStats, avatarSrc, titleName, skinFor, splashFor, ownsChat, chatFor, chatAllowed, treatmentFor, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
   friendRequest, friendRespond, friendRemove, friendsOf, isFriend,
 };

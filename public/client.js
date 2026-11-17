@@ -142,7 +142,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') setSceneOnly
 // The music toggle, with the friends dropdown button beside it (top right of the home page and lobby; in the game's top bar)
 const musicBtnHtml = (cls = 'musicbtn') => {
   const music = `<button class="btn small" id="musicBtn" title="Music on/off">${musicOn ? '♪ Music: On' : '♪ Music: Off'}</button>`;
-  return cls ? `<div class="topctl ${cls}">${friendsBtnHtml()}${music}</div>` : friendsBtnHtml() + music;
+  return cls ? `<div class="topctl ${cls}">${statsBtnHtml()}${friendsBtnHtml()}${music}</div>` : statsBtnHtml() + friendsBtnHtml() + music;
 };
 document.addEventListener('click', e => {
   if (!e.target.closest('#musicBtn')) return;
@@ -1022,6 +1022,132 @@ document.addEventListener('click', async e => {
     frCall('friends/invite', { id: t.dataset.invite, room: S.room }, r => `Invite sent to ${r.to}.`);
   } else if (t.matches('[data-dismiss]')) frCall('friends/dismiss', { id: t.dataset.dismiss }, () => 'Invite declined.');
   else if (t.matches('[data-joinroom]')) joinTable(t.dataset.joinroom);
+});
+
+// ---------- stats: your win rate (overall and per character); admins also see the whole server ----------
+// Like the friends dropdown, it lives outside #app so game re-renders leave it alone. Fetched each time it opens.
+const st = { open: false, tab: 'me', data: null, msg: '' };
+const $stats = document.createElement('div'); $stats.id = 'statsPanel'; $stats.className = 'paper spiral friendspanel statspanel hidden';
+document.body.appendChild($stats);
+function statsBtnHtml() {
+  if (!acct.me) return '';
+  return `<button class="btn small ${st.open ? 'brass' : ''}" data-stats title="Your win rate and record">📊 Stats ▾</button>`;
+}
+const refreshStatsBtns = () => { for (const b of document.querySelectorAll('[data-stats]')) b.outerHTML = statsBtnHtml(); };
+const pctOf = (w, g) => g ? Math.round(100 * w / g) : 0;
+const pctTxt = (w, g) => g ? pctOf(w, g) + '%' : '—';
+const avg = (sum, n, d = 1) => n ? (sum / n).toFixed(d) : '—';
+const roleName = r => (ROLES[r] && ROLES[r].name) || r;
+const roleIcon = r => `<img class="pavatar tiny" src="assets/avatars/char_${esc(r)}.png" alt="">`;
+const MODE_NAMES = { classic: 'Classic', partners: 'Partners', coop: 'Co-op' };
+// a win-rate bar; the tick marks the fair share (0..1) when there is one
+const statBar = (w, g, fair) => `<span class="sbar"><span style="width:${pctOf(w, g)}%"></span>${fair ? `<i style="left:${Math.round(100 * fair)}%" title="Fair share: ${Math.round(100 * fair)}%"></i>` : ''}</span>`;
+const fmtDur = ms => { const m = Math.round(ms / 60000); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min'; };
+
+function myStatsHtml(r) {
+  if (!r || !r.games) return '<p class="hint">No games on record yet. Finish a game (not the tutorial) and your results show up here.</p>';
+  const roles = Object.keys(ROLES).map(id => [id, r.roles[id] || { games: 0, wins: 0 }])
+    .sort((a, b) => b[1].games - a[1].games || roleName(a[0]).localeCompare(roleName(b[0])));
+  const modes = Object.entries(r.modes || {}).filter(([, m]) => m.games);
+  return `<div class="sbig"><b>${pctTxt(r.wins, r.games)}</b><span>win rate<br>${r.wins} won · ${r.games - r.wins} lost · ${r.games} game${r.games === 1 ? '' : 's'}</span></div>
+    ${modes.length > 1 ? `<div class="schips">${modes.map(([k, m]) => `<span>${MODE_NAMES[k] || k}: <b>${pctTxt(m.wins, m.games)}</b> (${m.games})</span>`).join('')}</div>` : ''}
+    <div class="fsec">By character</div>
+    <div class="slist">${roles.map(([id, x]) => `<div class="srow ${x.games ? '' : 'off'}">${roleIcon(id)}<div class="fname"><b>${esc(roleName(id))}</b>
+      <span class="hint">${x.games ? `${x.wins} of ${x.games} won${x.scored ? ` · avg ${avg(x.score, x.scored)} pts` : ''}` : 'Not played yet'}</span></div>
+      ${statBar(x.wins, x.games)}<b class="spct">${pctTxt(x.wins, x.games)}</b></div>`).join('')}</div>
+    ${r.since ? `<p class="hint" style="margin:2px 0 0;font-size:13px">Recorded since ${new Date(r.since).toLocaleDateString()}.</p>` : ''}`;
+}
+
+function serverStatsHtml(S) {
+  if (!S) return '';
+  const competitive = Object.entries(S.modes).filter(([k]) => k !== 'coop').reduce((a, [, m]) => a + m.games, 0);
+  const tbl = (head, rows) => `<div class="stable"><table><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('') || `<tr><td colspan="${head.length}" class="hint">No data yet.</td></tr>`}</tbody></table></div>`;
+  const tip = t => `<p class="hint stip">${t}</p>`;
+  const seatsTxt = x => `${esc(roleName(x.role))}${x.bot ? ' (bot)' : ''} ${x.score}`;
+  // characters (classic and partners: the modes where players compete)
+  const roleRows = Object.entries(S.roles).sort((a, b) => pctOf(b[1].wins, b[1].seats) - pctOf(a[1].wins, a[1].seats)).map(([id, x]) => {
+    const d = x.seats ? Math.round(100 * (x.wins - x.fair) / x.seats) : 0;
+    return `<tr><td class="sname">${roleIcon(id)}${esc(roleName(id))}</td><td>${x.seats}</td>
+      <td>${statBar(x.wins, x.seats, x.seats ? x.fair / x.seats : 0)} <b>${pctTxt(x.wins, x.seats)}</b></td><td class="${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${d > 0 ? '+' : ''}${d}</td>
+      <td>${pctTxt(x.hWins, x.hSeats)} <span class="hint">(${x.hSeats})</span></td><td>${avg(x.score, x.seats)}</td><td>${avg(x.tricks, x.seats)}</td>
+      <td>${pctTxt(x.good, x.seats)}</td><td>${avg(x.crises, x.seats, 2)}</td><td>${avg(x.pickSum, x.picks)}</td><td>${pctTxt(x.first, x.picks)}</td></tr>`;
+  });
+  const coopRoles = Object.entries(S.coopRoles).sort((a, b) => b[1].seats - a[1].seats).map(([id, x]) =>
+    `<tr><td class="sname">${roleIcon(id)}${esc(roleName(id))}</td><td>${x.seats}</td><td>${statBar(x.wins, x.seats)} <b>${pctTxt(x.wins, x.seats)}</b></td><td>${avg(x.score, x.seats)}</td><td>${pctTxt(x.good, x.seats)}</td></tr>`);
+  const seatRows = Object.entries(S.seatOrder).sort((a, b) => +a[0] - +b[0]).map(([k, x]) =>
+    `<tr><td>${+k + 1}${['st', 'nd', 'rd'][k] || 'th'}</td><td>${x.seats}</td><td>${statBar(x.wins, x.seats, x.seats ? x.fair / x.seats : 0)} <b>${pctTxt(x.wins, x.seats)}</b></td><td>${pctTxt(x.fair, x.seats)}</td></tr>`);
+  const countRows = Object.entries(S.counts).sort((a, b) => +a[0] - +b[0]).map(([k, x]) => {
+    const comp = x.games - (x.coop || 0);
+    return `<tr><td>${k}</td><td>${x.games}</td><td>${avg(x.topScore, comp)}</td><td>${avg(x.margin, x.margins)}</td><td>${x.coop ? `${pctTxt(x.coopWins, x.coop)} <span class="hint">(${x.coop})</span>` : '—'}</td></tr>`;
+  });
+  const cards = Object.entries(S.cards).filter(([id]) => CARDS[id]).map(([id, c]) => ({ id, c, r: c.played ? c.won / c.played : 0 }))
+    .sort((a, b) => b.r - a.r || b.c.played - a.c.played);
+  const cardRows = cards.map(({ id, c }) => `<tr><td class="sname">${esc(CARDS[id].name)}</td><td><span class="ckind ${CARDS[id].kind === 'Invasive' ? 'inv' : ''}">${CARDS[id].kind}</span></td>
+    <td>${CARDS[id].impact ?? ''}</td><td>${c.played}</td><td>${c.won}</td><td>${statBar(c.won, c.played)} <b>${pctTxt(c.won, c.played)}</b></td></tr>`);
+  const disRows = Object.entries(S.dis).filter(([id]) => DISRUPTIONS[id]).sort((a, b) => b[1].played - a[1].played).map(([id, x]) => {
+    const comp = x.played - (x.coop || 0);
+    return `<tr><td class="sname">${esc(DISRUPTIONS[id].name)}</td><td>${x.played}</td><td>${statBar(x.wins, x.played, comp ? x.fair / comp : 0)} <b>${pctTxt(x.wins, x.played)}</b></td><td>${pctTxt(x.fair, comp)}</td></tr>`;
+  });
+  const recent = S.recent.map(g => `<tr><td>${new Date(g.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td>
+    <td>${MODE_NAMES[g.mode] || g.mode}${g.dis ? ' + Dis.' : ''}</td><td>${g.n}</td><td>${g.rounds}</td><td>${fmtDur(g.ms)}</td>
+    <td>${g.mode === 'coop' ? `${g.playersWin ? 'Players' : 'Anaconda'} (${g.seats.reduce((a, x) => a + x.score, 0)}–${g.anaconda ?? '?'})` : g.seats.filter(x => x.win).map(seatsTxt).join(', ')}</td>
+    <td class="hint">${g.mode === 'coop' ? g.seats.map(seatsTxt).join(', ') : g.seats.filter(x => !x.win).map(seatsTxt).join(', ')}</td></tr>`);
+  const A = S.accounts || {};
+  const modes = Object.entries(S.modes).map(([k, m]) => `<span>${MODE_NAMES[k] || k}: <b>${m.games}</b>${k === 'coop' ? ` · players win ${pctTxt(m.wins, m.games)}` : ''}</span>`).join('');
+  return `<div class="stiles">
+      <div><b>${S.games}</b><span>games</span></div>
+      <div><b>${S.games ? fmtDur(S.ms / S.games) : '—'}</b><span>avg length</span></div>
+      <div><b>${avg(S.rounds, S.games)}</b><span>avg rounds</span></div>
+      <div><b>${pctTxt(S.humanSeats, S.humanSeats + S.botSeats)}</b><span>seats played by people</span></div>
+      <div><b>${pctTxt(S.disruptionGames, S.games)}</b><span>with Disruptions</span></div>
+      <div><b>${avg(S.crises, S.games, 2)}</b><span>Invasive Crises / game</span></div>
+      <div><b>${pctTxt(S.ties, S.modes.classic ? S.modes.classic.games : 0)}</b><span>classic games tied</span></div>
+      <div><b>${A.played ?? '—'}</b><span>players with a game · ${A.activeWeek ?? 0} this week</span></div>
+    </div>
+    <div class="schips">${modes}<span>Accounts: <b>${A.total ?? '—'}</b> (${A.google ?? 0} Google, ${A.guests ?? 0} guest)</span></div>
+    <div class="fsec">Characters — classic &amp; partners (${competitive} games)</div>
+    ${tip('Win % counts every seat, bots included; the tick on each bar is the fair share for the table sizes played, and ±fair is how many points above or below it. People = win % of the seats played by people. Pick = average place in the role draft (1 = first).')}
+    ${tbl(['Character', 'Seats', 'Win %', '±fair', 'People', 'Avg pts', 'Tricks', 'Good end', 'Crises', 'Pick', '1st pick'], roleRows)}
+    <div class="fsec">Characters — co-op</div>
+    ${tbl(['Character', 'Seats', 'Players won', 'Avg pts', 'Good end'], coopRoles)}
+    <div class="fsec">Turn order — classic</div>
+    ${tip('Does going first (or last) help? Seat 1 leads the first round.')}
+    ${tbl(['Seat', 'Games', 'Win %', 'Fair'], seatRows)}
+    <div class="fsec">Table size</div>
+    ${tbl(['Players', 'Games', 'Avg top score', 'Avg winning margin', 'Co-op won'], countRows)}
+    <div class="fsec">Disruptions</div>
+    ${tip("Win % of the player who played it (in co-op: whether the players' team won).")}
+    ${tbl(['Disruption', 'Played', 'Owner won', 'Fair'], disRows)}
+    <details class="sdetails"><summary>Ecology cards: how often each wins the trick it's played in (${cards.length})</summary>
+      ${tbl(['Card', 'Kind', 'Impact', 'Played', 'Won', 'Win %'], cardRows)}</details>
+    <details class="sdetails" open><summary>Recent games (${S.recent.length})</summary>
+      ${tbl(['When', 'Mode', 'Players', 'Rounds', 'Length', 'Won', 'Others'], recent)}</details>
+    <p class="hint stip">Recorded since ${new Date(S.since).toLocaleDateString()}. Tutorials are not counted.</p>`;
+}
+function renderStats() {
+  if (!st.open || !acct.me) { $stats.classList.add('hidden'); return; }
+  const d = st.data, admin = !!(d && d.server);
+  const tab = admin ? st.tab : 'me';
+  $stats.classList.toggle('wide', tab === 'server');
+  $stats.innerHTML = `<div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Stats</div><button class="btn small" data-stats-close>Close</button></div>
+    ${admin ? `<div class="row stabs"><button class="btn small ${tab === 'me' ? 'brass' : ''}" data-stats-tab="me">My record</button><button class="btn small ${tab === 'server' ? 'brass' : ''}" data-stats-tab="server">Server summary</button></div>` : ''}
+    ${st.msg ? `<div class="fmsg error">${esc(st.msg)}</div>` : ''}
+    <div class="flist">${!d ? '<p class="hint">Loading…</p>' : tab === 'server' ? serverStatsHtml(d.server) : myStatsHtml(d.me)}</div>`;
+  $stats.classList.remove('hidden');
+}
+async function loadStats() {
+  try { st.data = await acctApi('stats', {}); st.msg = ''; } catch (e) { st.msg = e.message; }
+  renderStats();
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-stats],[data-stats-close],[data-stats-tab]');
+  if (!t) { // a click anywhere else closes the dropdown
+    if (st.open && !e.target.closest('#statsPanel')) { st.open = false; renderStats(); refreshStatsBtns(); }
+    return;
+  }
+  if (t.matches('[data-stats]')) { st.open = !st.open; st.msg = ''; refreshStatsBtns(); renderStats(); if (st.open) loadStats(); }
+  else if (t.matches('[data-stats-close]')) { st.open = false; renderStats(); refreshStatsBtns(); }
+  else if (t.matches('[data-stats-tab]')) { st.tab = t.dataset.statsTab; renderStats(); }
 });
 
 // clicks inside the profile / store / account panel
