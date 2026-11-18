@@ -1458,7 +1458,7 @@ function onUpdate(prev) {
   if (S && S.myAccount) acct.me = Object.assign(acct.me || {}, S.myAccount); // keep the wallet current
   if (prev && S && S.phase === 'ended' && prev.phase !== 'ended') setTimeout(() => refreshMe(), 500);
   if (!S || S.phase === 'lobby') { ui.lastRound = null; ui.stage = 'table'; ui.mapNew = false; return; }
-  if (!prev || prev.phase === 'lobby') { ui.stage = 'table'; ui.mapNew = false; } // a game starts (or you rejoin one) on the table
+  if (!prev || prev.phase === 'lobby') { ui.stage = 'table'; ui.mapNew = false; ui.lastSuit = null; if (window.EG_TERRAIN) EG_TERRAIN.reset(); } // a game starts (or you rejoin one) on the table
   if (S.waiting !== S.you || (S.step && ui.mode)) ui.mode = null;
   // phones: scroll to the map when you must click it, or to the play area when you must pick a biome or role
   if (prev && S.waiting === S.you && S.phase !== 'ended') {
@@ -1563,7 +1563,11 @@ function patchNode(o, n) {
   // a card), and every render wires its own handlers again straight after patching
   for (const h of ON_PROPS) if (o[h]) o[h] = null;
   o.__on = null;
-  for (const { name } of [...o.attributes]) if (!n.hasAttribute(name) && !RUNTIME_ATTRS.has(name)) o.removeAttribute(name);
+  for (const { name } of [...o.attributes]) {
+    if (n.hasAttribute(name) || RUNTIME_ATTRS.has(name)) continue;
+    if (o.tagName === 'CANVAS' && (name === 'width' || name === 'height')) continue; // a canvas sized by its drawing code (terrain.js)
+    o.removeAttribute(name);
+  }
   for (const { name, value } of n.attributes) {
     if (o.getAttribute(name) === value) continue;
     o.setAttribute(name, value);
@@ -1965,7 +1969,7 @@ function draftHtml() {
       ${free ? '' : `<div class="takenby">${esc(owner[r])}</div>`}
     </div>`;
   }).join('');
-  return `<div class="tabletop draft"><div class="players-mini">${playersHtml(true)}</div>
+  return `<div class="tabletop draft">${terrainHtml(null)}<div class="players-mini">${playersHtml(true)}</div>
     <h3>${myTurn ? '▶ Choose your role' : `${esc(S.players[S.waiting].name)} is choosing a role…`} <span style="color:var(--blush)">(picking in turn order)</span></h3>
     <div class="rolegrid ${myTurn ? 'choosing' : ''}">${cards}</div>
   </div>`;
@@ -1976,7 +1980,7 @@ function trickDoneHtml() {
   const lt = S.lastTrick, b = BIOMES[lt.biome], w = S.players[lt.winner];
   const elapsed = Date.now() - ui.trickHold.start;
   const who = p => S.players[p].boss ? 'Anaconda' : S.players[p].name;
-  return `<div class="tabletop play trickdone ${lt.crisis ? 'crisis' : ''}"><div class="players-mini">${playersHtml(true)}</div>
+  return `<div class="tabletop play trickdone ${lt.crisis ? 'crisis' : ''}">${terrainHtml(lt.suit || b.suit)}<div class="players-mini">${playersHtml(true)}</div>
     <h3>Round ${lt.round} — trick complete</h3>
     <div class="cur-row">
       ${biomeEl(lt.biome)}
@@ -2000,12 +2004,21 @@ function ddraftHtml() {
   const D = S.ddraft;
   const waitingNames = D.waiting.map(p => S.players[p].name);
   const canPick = S.you >= 0 && !D.picked && D.pack.length;
-  return `<div class="tabletop draft"><div class="players-mini">${playersHtml(true)}</div>
+  return `<div class="tabletop draft">${terrainHtml(null)}<div class="players-mini">${playersHtml(true)}</div>
     <h3>${canPick ? `▶ Disruption draft — pick ${D.round === 0 ? 'your first' : 'your second'} card` : `Waiting for ${esc(waitingNames.join(', ') || '…')}…`}
       <span style="color:var(--blush)">(the rest pass clockwise)</span></h3>
     <div class="rolegrid ${canPick ? 'choosing' : ''}">${D.pack.map(id => disEl(id, `${canPick ? 'choosable' : ''} ${D.picked === id ? 'sel' : ''} ${foil(id)}`, canPick ? `data-ddraft="${id}"` : '')).join('')}</div>
     ${S.dis.length ? `<div class="strip"><h3>Your Disruptions</h3><div class="strip-cards">${S.dis.map(id => disEl(id, foil(id))).join('')}</div></div>` : ''}
   </div>`;
+}
+// The play area's ground shows the round's suit: dry earth (Land), pools and mud (Wetland) or open sea (Water), all
+// one terrain under a rising and falling water level (terrain.js draws it; renderGame hands it the suit). The canvas
+// stays put across renders (it is always the board's first child), so the animation carries on between them.
+// Between rounds (choosing the next biome) the last suit stays down; before the first (role draft) the ground is dry.
+function terrainHtml(suit) {
+  if (suit) ui.lastSuit = suit;
+  ui.terrainSuit = suit || null;
+  return `<div class="terrain" data-suit="${suit || ''}" aria-hidden="true"><canvas></canvas></div>`;
 }
 // A card with its owner's name as a caption underneath (never drawn over the card).
 const captioned = (cardHtml, name, cls = '') => `<div class="pcard ${cls}">${cardHtml}<div class="pname">${esc(name)}</div></div>`;
@@ -2053,7 +2066,7 @@ function tableHtml() {
     // Picking the next biome: the travel row is the star.
     const lt = S.lastTrick;
     const guide = pickNow && S.guide && S.guide.p === S.you && S.guide.options.length ? S.guide.options : null; // Traveler's Guidebook
-    return `<div class="tabletop choose"><div class="players-mini">${playersHtml(true)}</div>
+    return `<div class="tabletop choose">${terrainHtml(ui.lastSuit)}<div class="players-mini">${playersHtml(true)}</div>
       <div class="row" style="justify-content:space-between;flex-wrap:nowrap">
         <h3>${pickNow ? '▶ Choose where to travel' : botPick ? `${esc(S.players[S.leader].name)} travels to ${esc(BIOMES[botPick].name)}…` : `${esc(S.players[S.leader].name)} is choosing where to travel…`}</h3>${deck}
       </div>
@@ -2072,7 +2085,7 @@ function tableHtml() {
   const suit = S.trick.suit || b.suit, suitChanged = suit !== b.suit;
   const myRisk = S.myRisk !== null && S.myRisk !== undefined && S.myRisk !== S.trick.risk ? S.myRisk : null;
   const slots = S.trick.seq ? S.trick.seq.length : n;
-  return `<div class="tabletop play ${S.disruptions ? 'with-dis' : ''}"><div class="players-mini">${playersHtml(true)}</div>
+  return `<div class="tabletop play ${S.disruptions ? 'with-dis' : ''}">${terrainHtml(suit)}<div class="players-mini">${playersHtml(true)}</div>
     <h3>Round ${S.round} — ${S.phase === 'disrupt' ? 'Disruption phase' : 'exploring'}</h3>
     <div class="cur-row">
       ${biomeEl(S.trick.biome)}
@@ -2085,9 +2098,11 @@ function tableHtml() {
       </div>
       ${disPanelHtml()}
     </div>
-    <div class="played" style="--n:${slots};--n2:${Math.ceil(slots / 2)}">${S.trick.plays.length
-      ? S.trick.plays.map(pl => captioned(cardEl(pl.card, pl.p === S.you ? foil(pl.card) : '', `data-played="${pl.card}"`), seatName(pl.p) + (S.trick.shield && S.trick.shield.card === pl.card ? ' · stopped' : ''), S.trick.shield && S.trick.shield.card === pl.card ? 'stopped' : '')).join('')
-      : `<span class="lastline" style="color:var(--blush)">${S.phase === 'disrupt' ? 'Cards are played once the Disruptions are resolved.' : 'No cards played yet.'}</span>`}</div>
+    <div class="played" style="--n:${slots};--n2:${Math.ceil(slots / 2)}">${S.trick.plays.map(pl => captioned(cardEl(pl.card, pl.p === S.you ? foil(pl.card) : '', `data-played="${pl.card}"`), seatName(pl.p) + (S.trick.shield && S.trick.shield.card === pl.card ? ' · stopped' : ''), S.trick.shield && S.trick.shield.card === pl.card ? 'stopped' : '')).join('')}${
+      // an empty slot for each card still to come, labelled with who plays it (the next one is marked)
+      (S.trick.seq || S.players.map((_, k) => (S.leader + k) % n)).slice(S.trick.plays.length, slots).map((p, k) =>
+        `<div class="pcard slot ${k === 0 && S.phase === 'play' ? 'next' : ''}"><div class="cardslot"></div><div class="pname">${k === 0 && S.phase === 'play' ? '▶ ' : ''}${esc(seatName(p))}</div></div>`).join('')}</div>
+    ${S.phase === 'disrupt' ? '<span class="lastline dishint">Cards are played once the Disruptions are resolved.</span>' : ''}
     <div class="strip">
       <h3>Travel row</h3>
       <div class="strip-cards">${travelCards('')}${deck}</div>
@@ -2189,6 +2204,7 @@ function renderGame() {
   if (peekSrc && !document.querySelector(`[data-peek="${CSS.escape(peekSrc)}"]`)) hidePeek();
   const logEl = document.getElementById('log'); if (logEl) logEl.scrollTop = logEl.scrollHeight;
   wire();
+  if (window.EG_TERRAIN) EG_TERRAIN.sync($app.querySelector('.tabletop > .terrain > canvas'), ui.terrainSuit);
   drawPortraits(true); drawArtboxes(); // new canvases get their picture before the page is shown, never a blank frame
   for (const [sel, x] of Object.entries(keepScroll)) { const el = [...$app.querySelectorAll(sel)].find(e => e.offsetParent); if (el) el.scrollLeft = x; }
   if (isPhone()) {

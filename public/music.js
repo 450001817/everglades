@@ -64,7 +64,7 @@
   // B: the hunt tightens — repeated notes climbing over Bb-C-Dm-A7, sixteenth hats · A': the motif returns and
   // hangs on A7, so the loop pulls straight back into the opening.
   const MATCH = {
-    name: 'Tracking the River of Grass', bpm: 100, swing: 0.56, vol: 0.55,
+    name: 'Tracking the River of Grass', bpm: 100, swing: 0.56, vol: 0.68,
     bars: [
       // A
       ['Dm', 'D5:1 r:1 A4:1 D5:1 E5:1 F5:2 E5:1'], ['Dm', 'D5:2 A4:2 F5:2 E5:2'], ['Bb', 'D5:1 r:1 Bb4:1 D5:1 F5:1 G5:2 F5:1'], ['C', 'E5:2 C5:2 G5:3 r:1'],
@@ -80,10 +80,11 @@
       const build = i >= 8 && i < 16;
       const { chordAt } = v.bar(this.bars[i]);
       v.lead(this.bars[i][1], t, { vol: 0.034 });
-      // driving bass: eighth notes on the root, jumping an octave on the offbeats
+      // driving bass: eighth notes on the root, jumping an octave on the offbeats. Kept a little soft, with gentle
+      // attacks and no overlap between notes: hard-attacked loud bass eighths crackled on phone speakers.
       for (let e = 0; e < 8; e++) {
-        const ch = chordAt(e), n = (e === 6 && ch[2]) ? ch[2] : ch[0];
-        v.tone('triangle', freq(n, e % 2 ? 3 : 2), t + v.at(e), v.BEAT * 0.42, 0.12, { attack: 0.004, release: 0.04 });
+        const ch = chordAt(e), n = (e === 6 && ch[2]) ? ch[2] : ch[0], len = (e % 2 ? 1 - this.swing : this.swing) * v.BEAT;
+        v.tone('triangle', freq(n, e % 2 ? 3 : 2), t + v.at(e), len * 0.7, e % 2 ? 0.07 : 0.095, { attack: 0.012, release: 0.05 });
       }
       v.arp(chordAt, t, 4, build ? 0.013 : 0.01);
       // drums: kick on 1, 3 and the "and" of 4; snare on 2 and 4; straight-ish hats (sixteenths while building)
@@ -153,7 +154,8 @@
         }
         g.gain.setValueAtTime(0.0001, t);
         g.gain.linearRampToValueAtTime(vol, t + attack);
-        g.gain.setValueAtTime(vol * 0.8, t + Math.max(attack, dur - release));
+        // (a ramp, not a jump: an instant gain step clicks, which small phone speakers turn into a crackle)
+        g.gain.linearRampToValueAtTime(vol * 0.8, t + Math.max(attack + 0.005, dur - release));
         g.gain.exponentialRampToValueAtTime(0.0001, t + dur + release);
         o.connect(g).connect(bus); o.start(t); o.stop(t + dur + release + 0.02);
       },
@@ -192,6 +194,13 @@
       },
     };
 
+    // Every song plays through a high-pass that removes rumble below ~40 Hz: phone speakers can't play it, but still
+    // have to push it. (No compressor: the browser's adds its own make-up gain, which only makes things louder.)
+    function output(ctx, dest) {
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 40; hp.Q.value = 0.7;
+      hp.connect(dest || ctx.destination);
+      return hp;
+    }
     function pump() {
       ac = getAC(); if (!ac || !playing) return;
       while (nextAt < ac.currentTime + 1.2) { song.scheduleBar(v, bar, nextAt); nextAt += BAR; bar = (bar + 1) % song.bars.length; }
@@ -201,7 +210,7 @@
       song: song.name,
       // Render the whole song once into any audio context (e.g. an OfflineAudioContext, to test or export it).
       renderTo(ctx, dest) {
-        ac = ctx; bus = ac.createGain(); bus.gain.value = song.vol; bus.connect(dest || ac.destination);
+        ac = ctx; bus = ac.createGain(); bus.gain.value = song.vol; bus.connect(output(ac, dest));
         let t = 0.05; for (let i = 0; i < song.bars.length; i++) { song.scheduleBar(v, i, t); t += BAR; }
         return t;
       },
@@ -210,7 +219,7 @@
         playing = true;
         bus = ac.createGain(); bus.gain.setValueAtTime(0.0001, ac.currentTime);
         bus.gain.exponentialRampToValueAtTime(song.vol, ac.currentTime + 1.5); // fade in
-        bus.connect(ac.destination);
+        bus.connect(output(ac));
         bar = 0; nextAt = ac.currentTime + 0.15;
         pump(); timer = setInterval(pump, 250);
       },

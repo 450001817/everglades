@@ -222,9 +222,12 @@ function pickRole(s, p, role) {
   s.draftTurn += 1;
   if (s.draftTurn >= s.np) {
     s.leader = 0; s.turn = 0;
+    // Co-op: the Anaconda always picks the first biome; the first player in seat order still plays first
+    // (when the Anaconda leads, play starts with the seat after s.coopStart; see chooseBiome)
+    if (s.coop) { s.leader = s.bossIdx; s.turn = s.bossIdx; s.coopStart = s.np - 1; }
     if (s.disruptions) return startDisDraft(s);
     s.phase = 'choose';
-    log(s, `All roles chosen. ${pname(s, 0)} leads the first round.`);
+    log(s, `All roles chosen. ${pname(s, s.leader)} ${s.coop ? 'chooses where the first round goes' : 'leads the first round'}.`);
   }
 }
 
