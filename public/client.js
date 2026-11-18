@@ -212,6 +212,8 @@ function menuHtml(game = false) {
   let main = '', more = '';
   if (game) {
     if (S.you >= 0) main += item('data-g="chat"', '💬', 'Chat lines');
+    if (S.role) main += item('data-g="myrole"', '🃏', 'My role card', `<span class="mi-v">${esc(roleInfo(S.role).name)}</span>`);
+    main += item('data-g="players"', '📋', 'Players &amp; tricks won');
     main += item('data-g="notes"', '📜', 'Field notes', badge(ui.unread || 0));
     main += item('data-g="rules"', '📖', 'Rules');
   }
@@ -1392,6 +1394,9 @@ function pinPeek(el) {
   hidePeek();
   peekSrc = el.dataset.peek; peekKey = peekKeyOf(el); peekPinned = true;
   showPeek(el.dataset.peek, el.dataset.peekrole, el.dataset.peekskin || null);
+  // a player's tile (or your own "You are the ..."): what they've done so far, above the card
+  const seat = el.dataset.seat !== undefined ? +el.dataset.seat : el.classList.contains('myrole') && S ? S.you : -1;
+  if (seat >= 0) $peek.insertAdjacentHTML('afterbegin', seatInfoHtml(seat));
   $peek.insertAdjacentHTML('beforeend', '<div class="peekclose">Tap to close</div>');
   $peek.classList.add('pinned');
 }
@@ -1421,7 +1426,7 @@ document.addEventListener('click', e => {
   if (ui.showLog && S && !e.target.closest('.notes-wrap')) { ui.showLog = false; render(); }
   if (ui.showChat && S && !e.target.closest('.chat-wrap')) { ui.showChat = false; render(); }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { hidePeek(); if (ui.confirm) { ui.confirm = null; render(); } if (ui.showLog) { ui.showLog = false; render(); } if (ui.showChat) { ui.showChat = false; render(); } if (ui.showRules) { ui.showRules = false; render(); } } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { hidePeek(); if (ui.confirm) { ui.confirm = null; render(); } if (ui.showLog) { ui.showLog = false; render(); } if (ui.showChat) { ui.showChat = false; render(); } if (ui.showRules) { ui.showRules = false; render(); } if (ui.showPlayers) { ui.showPlayers = false; render(); } } });
 
 // ---------- connection ----------
 function connect() {
@@ -1920,19 +1925,29 @@ function playersHtml(mini) {
   return S.players.map((p, i) => {
     const role = roleInfo(p.role);
     const arrow = S.waiting === i ? '<span class="arrow">▶</span>' : '';
-    if (p.boss) return `<div class="pl boss ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" data-peek="${BOSS.img}">${portraitHtml(i, p)}
+    if (p.boss) return `<div class="pl boss ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" data-peek="${BOSS.img}" data-peekrole="Anaconda">${portraitHtml(i, p)}
       <div class="info">
         <div class="nm">${arrow}<span class="name">${esc(p.name)}</span><span class="tag bosstag">BOSS</span></div>
-        ${mini ? `<div class="mini-meta">Deck ${p.handCount} · ${p.tricks} won</div>` : `<div class="meta"><span>Invasive deck ${p.handCount}</span></div><div class="meta"><span>Tricks ${p.tricks}</span></div>`}
-      </div></div>`;
+        ${mini ? `<div class="mini-meta">Deck ${p.handCount}</div>` : `<div class="meta"><span>Invasive deck ${p.handCount}</span></div><div class="meta"><span>Tricks ${p.tricks}</span></div>`}
+      </div>${mini ? trickBadge(p) : ''}</div>`;
     return `<div class="pl ${S.waiting === i ? 'turn' : ''}" data-seat="${i}" ${role ? peekAttrs(p.role, p.skin) : ''}>${portraitHtml(i, p)}
       <div class="info">
         <div class="nm">${arrow}<span class="name">${esc(p.name)}</span>${i === S.you ? '<span class="you">(you)</span>' : ''}${p.online ? '' : '<span class="dot off" title="offline"></span>'}${mini ? clockFor(i) : ''}${p.strikes ? `<span class="idletag" title="Ran out of time ${p.strikes} of ${S.maxStrikes} times">idle ${p.strikes}/${S.maxStrikes}</span>` : ''}</div>
-        ${mini ? `<div class="mini-meta">${role ? esc(role.name) : 'choosing…'} · ${p.tricks} won</div>` : `<div class="meta">${role ? `<span class="rolename">${esc(role.name)}</span>` : '<span>choosing role…</span>'}${teamTag(p.team)}</div>
+        ${mini ? `<div class="mini-meta">${role ? esc(role.name) : 'choosing…'}</div>` : `<div class="meta">${role ? `<span class="rolename">${esc(role.name)}</span>` : '<span>choosing role…</span>'}${teamTag(p.team)}</div>
         <div class="meta"><span>Hand ${p.handCount}</span><span>Tricks ${p.tricks}</span>${clockFor(i)}</div>`}
         ${!mini && S.isHost && !p.online && !p.bot && S.phase !== 'ended' ? `<button class="btn small" data-botify="${S.lobby.find(m => m.name === p.name)?.pid || ''}">Give seat to a bot</button>` : ''}
-      </div></div>`;
+      </div>${mini ? trickBadge(p) : ''}</div>`;
   }).join('');
+}
+// the compact player tiles (phones, narrow windows): tricks won as a badge on the portrait's corner
+const trickBadge = p => `<span class="tkbadge ${p.tricks ? '' : 'zero'}" title="Tricks won: ${p.tricks}">★${p.tricks}</span>`;
+// one line about a player, shown above their role card when you tap them (phones)
+function seatInfoHtml(i) {
+  const p = S && S.players && S.players[i]; if (!p) return '';
+  const role = roleInfo(p.role);
+  const bits = [`★ ${p.tricks} trick${p.tricks === 1 ? '' : 's'} won`, p.boss ? `${p.handCount} in its deck` : `${p.handCount} card${p.handCount === 1 ? '' : 's'} in hand`];
+  if (p.team !== null && p.team !== undefined && TEAMS[p.team]) bits.push(`Team ${TEAMS[p.team].name}`);
+  return `<div class="peekinfo"><b>${esc(p.name)}${i === S.you ? ' (you)' : ''}</b>${role ? ` · the ${esc(role.name)}` : ''}<span>${bits.join(' · ')}</span></div>`;
 }
 
 function draftHtml() {
@@ -2138,7 +2153,7 @@ function renderGame() {
     </span>
     ${menuHtml(true)}
   </div>
-  <div class="game" data-stage="${stage}">
+  <div class="game" data-view="${stage}">
     <div class="pstrip players-mini" style="--n:${S.players.length}">${playersHtml(true)}</div>
     <aside class="side">
       <div class="paper spiral players" style="--rows:${S.players.length}"><div class="panel-title" title="Hover a player to read their role card">Players <span class="hint">· hover to read roles</span></div>${playersHtml(false)}</div>
@@ -2147,7 +2162,7 @@ function renderGame() {
     <section class="tablecol">${tableHtml()}</section>
     <section class="handarea">
       ${promptHtml()}
-      <div class="hand-cap">${role ? `<span class="myrole" ${peekAttrs(S.role, tableSkin(S.role))}>You are the <b>${esc(role.name)}</b>  <small>ⓘ</small></span>` : ''}<span class="swipe">${hand.length} card${hand.length === 1 ? '' : 's'} · hold one to read it</span></div>
+      <div class="hand-cap">${role ? `<span class="myrole" ${peekAttrs(S.role, tableSkin(S.role))}>You are the <b>${esc(role.name)}</b> <small>▸</small></span>` : ''}<span class="swipe">${hand.length} card${hand.length === 1 ? '' : 's'} · hold to read</span></div>
       <div class="handrow">
         <div class="hand ${ui.dealing ? 'dealing' : ''} ${Date.now() - (ui.handIntro || 0) < 1400 ? 'intro' : ''}">${handHtml}</div>
         ${S.disruptions && (S.dis || []).length ? `<div class="dishand"><div class="cap">Disruptions</div><div class="dishand-cards">${S.dis.map(id => {
@@ -2162,6 +2177,7 @@ function renderGame() {
   ${ui.mode === 'swap' ? swapModal() : ''}
   ${ui.stealFrom !== null && ui.stealFrom !== undefined && S.stealPiles ? stealModal() : ''}
   ${ui.showRules ? rulesModal() : ''}
+  ${ui.showPlayers ? playersModal() : ''}
   ${S.phase === 'ended' && !holding() ? endModal() : ''}
   ${coachHtml(tip)}`;
 
@@ -2292,6 +2308,23 @@ function promptHtml() {
   return box(`Your turn — pick a card to play.<small>${follow}${S.abilityUsed ? ' Ability used.' : ''}${S.role === 'Conservationist' && shieldUsed ? " You've already stopped an Invasive card this round." : ''}</small>`, buttons);
 }
 
+// Everyone at the table at a glance (Menu > Players & tricks won): role, tricks won, cards left, team
+function playersModal() {
+  const rows = S.players.map((p, i) => {
+    const role = roleInfo(p.role);
+    const thumb = p.boss ? `<div class="pthumb boss" style="background-image:url('${BOSS.portrait}')"></div>`
+      : p.role ? `<div class="pthumb" style="background-image:url('${CHAR_ANIM.src(p.role, 'idle', p.skin)}')"></div>` : '<div class="pthumb"></div>';
+    return `<tr class="${S.waiting === i ? 'winner' : ''}"><td>${thumb}</td>
+      <td class="pmname"><b>${esc(p.name)}</b>${i === S.you ? ' <span style="color:var(--red)">(you)</span>' : ''}<div class="lines">${role ? 'the ' + esc(role.name) : 'choosing a role…'} ${teamTag(p.team)}<br>${p.handCount} card${p.handCount === 1 ? '' : 's'} ${p.boss ? 'in its deck' : 'in hand'}</div></td>
+      <td class="total">★${p.tricks}</td>
+      <td>${role ? `<button class="btn small" data-pinseat="${i}">Role</button>` : ''}</td></tr>`;
+  }).join('');
+  return `<div class="modal"><div class="paper spiral playersmodal">
+    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Players · round ${S.round || 1}</div><button class="btn small" id="closePlayers">Close</button></div>
+    <table class="scores"><tr><th></th><th>Player</th><th title="Tricks won">Tricks</th><th></th></tr>${rows}</table>
+    <p class="hint" style="margin:0">Each trick won is worth 5 points. You can also tap a player at the top of the screen to read their role card.</p>
+  </div></div>`;
+}
 // Liberation: pick a card from the chosen player's scoring pile.
 function stealModal() {
   const from = ui.stealFrom, pile = S.stealPiles[from] || [];
@@ -2820,6 +2853,10 @@ function wire() {
   q('#chatBtn, [data-g="chat"]', () => { ui.showChat = !ui.showChat; ui.showLog = false; render(); });
   q('[data-g="speed"]', () => lobby('speed', { speed: SPEED_ORDER[(SPEED_ORDER.indexOf(S.speed) + 1) % SPEED_ORDER.length] }));
   q('[data-g="mute"]', () => { muted = !muted; try { localStorage.setItem('eg_mute', muted ? '1' : '0'); } catch {} render(); });
+  q('[data-g="myrole"]', () => { const el = $app.querySelector('.hand-cap .myrole'); if (el) pinPeek(el); });
+  q('[data-g="players"]', () => { ui.showPlayers = true; render(); });
+  q('#closePlayers', () => { ui.showPlayers = false; render(); });
+  q('[data-pinseat]', el => { const t = [...$app.querySelectorAll(`.pl[data-seat="${el.dataset.pinseat}"]`)].find(x => x.dataset.peekrole); ui.showPlayers = false; render(); if (t) pinPeek(t); });
   q('[data-g="quit"]', () => { if (confirm('Leave this game?')) leave(); });
   q('[data-stage]', el => { ui.stage = el.dataset.stage; hidePeek(); render(); });
   q('#closeRules', () => { ui.showRules = false; render(); });

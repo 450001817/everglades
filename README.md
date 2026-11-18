@@ -209,8 +209,8 @@ The layout is built for laptop and desktop screens (1024×768 and up). On a comp
 Phones get their own **phone layout**, where the game is one screen that never scrolls:
 - **Top bar:** the round, a **Table / Map** switch, and a **☰ Menu** button that holds everything else (chat lines, field notes, rules, leaderboard, stats, friends, music, sound, bot speed, leave). The home page and lobby have the same Menu button.
 - **Table or map:** the middle of the screen shows the play area or the map, one at a time. When you need to click the map (spreading, hunting, a Disruption), it switches there by itself and back afterwards. The Map button blinks while the map needs you, and shows a red dot when the map changed while you were looking at the table.
-- **Players:** a row of portraits along the top. Tap one to read their role card.
-- **Your hand:** along the bottom, with every card on screen at once (they overlap like a fan when the hand is big). Tap a card to choose it, tap again to play. "You are the …" above the cards opens your role card.
+- **Players:** a row of portraits along the top, each with a ★ badge for the tricks they've won. Tap one to read their role card, with their tricks won, cards in hand and team above it. **Menu → Players & tricks won** lists everyone at once.
+- **Your hand:** along the bottom, with every card on screen at once (they overlap like a fan when the hand is big). Tap a card to choose it, tap again to play. The "You are the …" button above the cards (or **Menu → My role card**) opens your role card.
 - **Reading cards:** press and hold any card for a second to read it.
 - **Speech bubbles:** only the newest one shows, so the screen stays clear.
 
