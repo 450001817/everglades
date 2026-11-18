@@ -1980,7 +1980,7 @@ function trickDoneHtml() {
   const lt = S.lastTrick, b = BIOMES[lt.biome], w = S.players[lt.winner];
   const elapsed = Date.now() - ui.trickHold.start;
   const who = p => S.players[p].boss ? 'Anaconda' : S.players[p].name;
-  return `<div class="tabletop play trickdone ${lt.crisis ? 'crisis' : ''}">${terrainHtml(lt.suit || b.suit)}<div class="players-mini">${playersHtml(true)}</div>
+  return `<div class="tabletop play trickdone ${lt.crisis ? 'crisis' : ''}">${terrainHtml(lt.suit || b.suit, lt.biome)}<div class="players-mini">${playersHtml(true)}</div>
     <h3>Round ${lt.round} — trick complete</h3>
     <div class="cur-row">
       ${biomeEl(lt.biome)}
@@ -2015,9 +2015,14 @@ function ddraftHtml() {
 // one terrain under a rising and falling water level (terrain.js draws it; renderGame hands it the suit). The canvas
 // stays put across renders (it is always the board's first child), so the animation carries on between them.
 // Between rounds (choosing the next biome) the last suit stays down; before the first (role draft) the ground is dry.
-function terrainHtml(suit) {
+// The suit is the round's own (S.trick.suit), so a Flood or Drought that changes it moves the water too.
+// In the open-ocean regions the sea's ripples carry sea foam; inland (Lake Okeechobee, flooded land) they don't.
+const MARINE = new Set(['NG', 'SG', 'KW', 'FK', 'KL']);
+function terrainHtml(suit, biome) {
   if (suit) ui.lastSuit = suit;
+  if (suit && biome) ui.lastMarine = MARINE.has(BIOMES[biome].region); // (between rounds: keeps the last round's)
   ui.terrainSuit = suit || null;
+  ui.terrainMarine = suit ? ui.lastMarine : false;
   return `<div class="terrain" data-suit="${suit || ''}" aria-hidden="true"><canvas></canvas></div>`;
 }
 // A card with its owner's name as a caption underneath (never drawn over the card).
@@ -2085,7 +2090,7 @@ function tableHtml() {
   const suit = S.trick.suit || b.suit, suitChanged = suit !== b.suit;
   const myRisk = S.myRisk !== null && S.myRisk !== undefined && S.myRisk !== S.trick.risk ? S.myRisk : null;
   const slots = S.trick.seq ? S.trick.seq.length : n;
-  return `<div class="tabletop play ${S.disruptions ? 'with-dis' : ''}">${terrainHtml(suit)}<div class="players-mini">${playersHtml(true)}</div>
+  return `<div class="tabletop play ${S.disruptions ? 'with-dis' : ''}">${terrainHtml(suit, S.trick.biome)}<div class="players-mini">${playersHtml(true)}</div>
     <h3>Round ${S.round} — ${S.phase === 'disrupt' ? 'Disruption phase' : 'exploring'}</h3>
     <div class="cur-row">
       ${biomeEl(S.trick.biome)}
@@ -2204,7 +2209,7 @@ function renderGame() {
   if (peekSrc && !document.querySelector(`[data-peek="${CSS.escape(peekSrc)}"]`)) hidePeek();
   const logEl = document.getElementById('log'); if (logEl) logEl.scrollTop = logEl.scrollHeight;
   wire();
-  if (window.EG_TERRAIN) EG_TERRAIN.sync($app.querySelector('.tabletop > .terrain > canvas'), ui.terrainSuit);
+  if (window.EG_TERRAIN) EG_TERRAIN.sync($app.querySelector('.tabletop > .terrain > canvas'), ui.terrainSuit, ui.terrainMarine);
   drawPortraits(true); drawArtboxes(); // new canvases get their picture before the page is shown, never a blank frame
   for (const [sel, x] of Object.entries(keepScroll)) { const el = [...$app.querySelectorAll(sel)].find(e => e.offsetParent); if (el) el.scrollLeft = x; }
   if (isPhone()) {

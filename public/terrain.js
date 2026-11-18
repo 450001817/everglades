@@ -4,8 +4,11 @@
 // top-left (a lit rim on each step's upper edge, a shadowed face on its lower one), so the land reads as having
 // height even from straight above. A single water level runs over it, and the round's suit is just a level:
 //   Land     the water is below everything: dry, cracked earth
-//   Wetland  the water fills the low ground: shallow murky pools, a band of mud and reeds around them
-//   Water    the water covers everything: open sea, lighter over the high ground, foam drifting on top
+//   Wetland  the water fills the low ground: shallow murky pools with small ripples spreading on them, a band of
+//            mud and reeds around them
+//   Water    the water covers everything: one clear tropical turquoise with the sandbars a soft shape beneath,
+//            and organically shaped ripples spreading outward around each sandbar; out in the open ocean (the Gulf and
+//            the Keys) the ripples carry sea foam, inland (Lake Okeechobee, flooded land) they stay clear
 // Changing suit moves the level, so the board never cuts from one picture to another: water rises terrace by
 // terrace, or drains away and leaves dark wet ground that dries out over a few seconds.
 // The colours come from the card frames (Water #42b7c0, Wetland #989d51, Land #895941), kept dark so cards and text
@@ -18,6 +21,12 @@
   const MUD = 0.1;                                       // how far above the waterline the ground is muddy
   const DRY_RATE = 0.3;                                  // how fast wet ground dries once the water has gone (height/s; ~4 s from sea to dry land)
   const STEPS = 6;                                       // terraces
+  const SEA_LEVEL = 0.95;                                // above this the board is open sea
+  // ripples around the sandbars (Water): they start at this depth (just off the bar), are this far apart in depth,
+  // and have faded out by the outer depth
+  const RIP_IN = 0.16, RIP_GAP = 0.055, RIP_OUT = 0.42;
+  const RIPPLE_LIFE = 2.4;                               // seconds a marsh ripple takes to spread and fade
+  const RIPPLE_EVERY = 0.55;                             // a new one about this often (seconds)
 
   const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
   // shades run dark -> light; index 2 is the plain ground, lower = shadowed, higher = lit
@@ -27,7 +36,14 @@
   const REED = ['#4f5326', '#6c7136', '#8a8f47'].map(hex);                                   // Wetland, darkened
   const SEA = ['#2c7f87', '#20656f', '#18525d', '#11404b', '#0c323c'].map(hex);               // from Water #42b7c0; shore -> deep
   const MURK = hex('#34421f');                                                              // pools in the marsh are greener
-  const FOAM = hex('#a8dedb'), FOAM2 = hex('#4f9fa4'), SPARK = hex('#d9f3ee');
+  const FOAM = hex('#a8dedb'), FOAM2 = hex('#4f9fa4');
+  // the tropical sea (Water #42b7c0, darkened): five close turquoise tones, shallow (over a sandbar) -> deep
+  const TROPIC = ['#2f8c90', '#287f86', '#22737c', '#1d6873', '#195e6a'].map(hex);
+  const GLINT = hex('#5fb8b6'), GLINT2 = hex('#8fd2cc');                                    // light on the ripples
+  const SEAFOAM = hex('#dcf3ec'), SEAFOAM2 = hex('#9fd8cf');                                // ocean spume and its wash
+  const BAR = hex('#49a7a3');                                                            // sand under the shallowest water
+  const TROUGH = hex('#123f4a');                                                         // ...and shade in its troughs
+  const RIPPLE = hex('#7a9468');                                                          // a ring spreading on a marsh pool
   const CRACK = hex('#1d120c');
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v + 0.5) / 16);
 
@@ -81,38 +97,76 @@
       for (const [sx, sy] of seeds) { const d = (sx - x) ** 2 + (sy - y) ** 2; if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d; }
       if (Math.sqrt(d2) - Math.sqrt(d1) < 0.8 && r() > 0.3) crack[i] = 1;
     }
-    // reeds (little tufts on the muddy banks), and per-pixel timing for sparkles and foam
+    // reeds (little tufts on the muddy banks)
     // (foam: noise stretched sideways, so a narrow band of it draws long wavy streaks like wind-blown spume)
-    const reed = new Uint8Array(n), phase = new Float32Array(n), foamN = valueNoise(w, h, 14, r, 4);
-    for (let i = 0; i < n; i++) { phase[i] = r(); if (r() < 0.035) reed[i] = 1 + (r() * 3 | 0); }
-    return { w, h, H, shade, cliff, crack, reed, phase, foamN };
+    const reed = new Uint8Array(n), foamN = valueNoise(w, h, 14, r, 4);
+    for (let i = 0; i < n; i++) if (r() < 0.035) reed[i] = 1 + (r() * 3 | 0);
+    return { w, h, H, shade, cliff, crack, reed, foamN };
   }
 
   // ---------- drawing ----------
   const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
   function paint(st, t) {
-    const G = st.ground, { w, h, H, shade, cliff, crack, reed, phase, foamN } = G, data = st.img.data;
+    const G = st.ground, { w, h, H, shade, cliff, crack, reed, foamN } = G, data = st.img.data;
     const L = st.level, wet = st.wet, still = st.still;
     // how marshy the high ground is: 0 at the Land level (dry, cracked), 1 at the Wetland level and above (damp, grassy)
     const moist = Math.max(0, Math.min(1, (L - LEVEL.Land) / (LEVEL.Wetland - LEVEL.Land)));
     const ground = EARTH.map((c, k) => mix(c, GRASS[k], moist * 0.8));
     const murk = Math.max(0, Math.min(1, (1 - L) / 0.6)) * 0.7;           // marsh pools are greener and murkier than the sea
-    const sea = SEA.map(c => mix(c, MURK, murk));
+    // tropical sea (Water only): as the water rises past the marsh it turns one clear turquoise, depth only nudging the
+    // shade, so what's beneath (the sandbars) shows as soft lighter shapes under the surface. At the Wetland level
+    // seaMix is 0 and the marsh looks exactly as before.
+    const seaMix = Math.max(0, Math.min(1, (L - 0.75) / 0.3));
+    const water = SEA.map((c, k) => mix(mix(c, MURK, murk), TROPIC[k], seaMix));
+    const depthScale = 0.5 + seaMix * 0.55;
     const shore = [mix(FOAM, REED[2], murk * 1.2), mix(FOAM2, REED[1], murk * 1.2)]; // sea foam, or a muddy scum in the marsh
-    const fx = still ? 0 : Math.floor(t * 1.2), fy = still ? 0 : Math.floor(t * 0.5); // foam drift (whole pixels)
+    const sea = L > SEA_LEVEL; // open sea (the Water suit, or rising into it)
+    // marsh ripples: little rings spreading from a few points on the pools, each fading as it grows
+    const rings = [];
+    if (!sea && L > 0.05 && !still) for (const rp of st.ripples) {
+      const age = t - rp.at; if (age < 0 || age > RIPPLE_LIFE) continue;
+      rings.push({ x: rp.x, y: rp.y, r: 0.8 + age * 4.2, fade: age / RIPPLE_LIFE });
+    }
+    const tt = still ? 0 : t;
+    const foam = st.foam * seaMix;                                        // sea foam (open-ocean regions only)
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x, hh = H[i], d = L - hh, bay = BAYER[(y & 3) * 4 + (x & 3)];
       let c;
       if (d >= 0) {
         // water: deeper is darker (dithered between bands); the terrace faces still show faintly underneath
-        const depth = Math.min(1, d / 0.5) * 4 + bay * 0.8 - 0.4;
-        c = sea[Math.max(0, Math.min(4, Math.round(depth) + (cliff[i] && d < 0.35 ? 1 : 0)))];
-        if (d < 0.02 + 0.01 * Math.sin(t * 2 + phase[i] * 6.28)) c = d < 0.011 ? shore[0] : shore[1];  // lapping shoreline
-        else if (L > 0.95) { // open sea: long foam streaks drifting with the swell
-          const f = foamN[((y + fy) % h) * w + ((x + fx) % w)];
-          if (f > 0.765 && f < 0.782) c = FOAM2; else if (f >= 0.782 && f < 0.788) c = FOAM;
+        const depth = Math.min(1, d / depthScale) * 4 + bay * 0.8 - 0.4;
+        c = water[Math.max(0, Math.min(4, Math.round(depth) + (cliff[i] && d < 0.35 && seaMix < 0.5 ? 1 : 0)))];
+        if (seaMix > 0) {
+          // ripples around the sandbars: rings that follow the bar's own outline (they are drawn along lines of equal
+          // depth, so they take its organic shape), travel outward from it and fade as they reach deeper water.
+          // The noise bends them a little more so no two look alike; open water stays still and clear.
+          // In the open-ocean regions the ripples also carry sea foam: lacy spume riding the crests nearest the bar, a
+          // dithered wash trailing each one, and a broken fringe along the bar's edge. The lace comes from the noise
+          // field and creeps slowly, so it reads as foam being carried, never as flicker.
+          const lace = foam > 0 ? ((foamN[i] * 31 + tt * 0.05) % 1) : 1;
+          if (d <= RIP_IN) {
+            c = mix(c, BAR, (1 - d / RIP_IN) * 0.45 * seaMix * (bay < 0.85 ? 1 : 0.5)); // the bar: a soft lighter shape
+            if (d > RIP_IN - 0.035 && lace < 0.55 * foam) c = mix(c, SEAFOAM2, 0.8);
+          } else if (d < RIP_OUT) {
+            const p = (d - RIP_IN) / RIP_GAP + foamN[i] * 0.35 - tt * 0.3, f = p - Math.floor(p);
+            const fade = (d - RIP_IN) / (RIP_OUT - RIP_IN);                 // 0 at the bar, 1 out in deep water
+            const spume = foam * Math.max(0, 1 - fade * 1.6);               // foam thins out away from the bar
+            // solid near the bar, breaking up (dithered) only as it fades into deep water
+            if (f < 0.2 && bay > (fade - 0.35) * 1.5) {
+              c = mix(c, fade < 0.3 && f < 0.1 ? GLINT2 : GLINT, (0.7 - fade * 0.45) * seaMix);
+              if (lace < 0.5 * spume) c = f < 0.12 ? SEAFOAM : mix(c, SEAFOAM2, 0.85);
+            } else if (f < 0.34 && spume > 0 && lace < spume * (0.34 - f) * 3) c = mix(c, SEAFOAM2, 0.6); // the wash behind (lacy, not a grid)
+            else if (f > 0.8 && f < 0.9 && bay > fade) c = mix(c, TROUGH, 0.25 * seaMix); // shade on its outer side
+          }
+        } else if (d < 0.02 + 0.01 * Math.sin(t * 1.6 + foamN[i] * 14)) c = d < 0.011 ? shore[0] : shore[1]; // lapping shoreline (smooth along the bank, not pixel by pixel)
+        else if (rings.length && d > 0.02) {
+          for (const g of rings) {
+            const dist = Math.hypot(x - g.x, (y - g.y) * 1.25);           // (a touch flattened: seen at a slight angle)
+            // the leading ring, and a fainter one following it in; both thin out (dithered) as they fade
+            const lead = Math.abs(dist - g.r) < 0.62, trail = g.r > 3.5 && Math.abs(dist - (g.r - 2.6)) < 0.5;
+            if ((lead && bay > g.fade * 0.85) || (trail && bay > 0.35 + g.fade * 0.65)) { c = mix(c, RIPPLE, lead ? 0.85 - g.fade * 0.35 : 0.5); break; }
+          }
         }
-        if (!still && d > 0.04 && phase[i] < 0.05 && ((phase[i] * 20 + t * 0.12) % 1) < 0.02) c = SPARK; // a few glints
       } else {
         const up = -d, k = shade[i];
         if (hh < wet || (L > 0 && up < MUD)) {
@@ -132,7 +186,7 @@
 
   // ---------- one board at a time ----------
   const reduce = () => !!(root.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const st = { cv: null, ctx: null, ground: null, img: null, level: NONE, wet: NONE, tween: null, suit: undefined, raf: 0, last: 0, painted: 0, ro: null };
+  const st = { cv: null, ctx: null, ground: null, img: null, level: NONE, wet: NONE, tween: null, suit: undefined, raf: 0, last: 0, painted: 0, ro: null, ripples: [], rippleAt: 0, foam: 0, foamTo: 0 };
   const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
   function fit() {
@@ -157,20 +211,32 @@
       st.level = st.tween.from + (st.tween.to - st.tween.from) * ease(k);
       if (k >= 1) st.tween = null; else moving = true;
     }
+    // sea foam fades in or out (about 1.5 s) when the round moves between the open ocean and inland water
+    if (st.foam !== st.foamTo) { const step = dt / 1.5; st.foam = st.foam < st.foamTo ? Math.min(st.foamTo, st.foam + step) : Math.max(st.foamTo, st.foam - step); moving = true; }
     const wetBefore = st.wet;
     st.wet = Math.max(st.level, st.wet - DRY_RATE * dt);
     const drying = st.wet > st.level + 1e-4;
     st.still = reduce();
     // frame rate: smooth while the water moves, gentle while the sea or the marsh shimmers, nothing on dry land
-    const fps = moving ? 30 : drying ? 12 : st.still ? 0 : st.level > 0.95 ? 10 : st.level > 0 ? 6 : 0;
+    const fps = moving ? 30 : drying ? 12 : st.still ? 0 : st.level > 0.05 ? 12 : 0;
+    // marsh: now and then a ripple starts somewhere on a pool (a fish rising, a drop falling)
+    if (!st.still && st.level > 0.05 && st.level <= SEA_LEVEL && t - (st.rippleAt || 0) > RIPPLE_EVERY * (0.6 + Math.random() * 0.8)) {
+      const G = st.ground;
+      for (let k = 0; k < 24; k++) {
+        const x = Math.floor(Math.random() * G.w), y = Math.floor(Math.random() * G.h);
+        if (st.level - G.H[y * G.w + x] > 0.07) { st.ripples.push({ x, y, at: t }); st.rippleAt = t; break; }
+      }
+      st.ripples = st.ripples.filter(rp => t - rp.at < RIPPLE_LIFE).slice(-6);
+    }
     if (!st.painted || moving || drying || wetBefore !== st.wet || (fps && now - st.painted >= 1000 / fps)) { paint(st, t); st.painted = now; }
     st.last = t;
     if (moving || drying || fps) st.raf = requestAnimationFrame(frame);
   }
   function kick() { if (!st.raf) st.raf = requestAnimationFrame(frame); }
 
-  // Called after every render with the board's canvas and the suit to show (or null).
-  function sync(cv, suit) {
+  // Called after every render with the board's canvas, the suit to show (or null), and whether the biome is out in
+  // the open ocean (its ripples then carry sea foam).
+  function sync(cv, suit, marine = false) {
     if (!cv) return;
     if (cv !== st.cv) {
       st.cv = cv; st.ground = null; st.painted = 0;
@@ -186,10 +252,12 @@
       }
       st.suit = suit; st.painted = 0;
     }
+    st.foamTo = marine ? 1 : 0;
+    if (st.suit === undefined || reduce() || !st.last) st.foam = st.foamTo;
     kick();
   }
   // a new game starts dry
-  function reset() { st.suit = undefined; st.level = st.wet = NONE; st.tween = null; }
+  function reset() { st.suit = undefined; st.level = st.wet = NONE; st.tween = null; st.foam = st.foamTo = 0; st.last = 0; }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && st.cv) { st.last = 0; kick(); } });
   // milliseconds to draw one frame at the current size (for checking performance from the console)
   function bench(frames = 20) {
