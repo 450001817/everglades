@@ -47,6 +47,13 @@ A website version of your Everglades trick-taking game. It uses your own card an
 
 **Speed:** the host picks how fast the bots play: **Slow**, **Normal** or **Fast**. Pick it in the lobby, or click the **Speed** button in the game's top bar at any time; other players see the setting. Bots wait about 5 seconds before each move on Slow, 3 on Normal and 1.5 on Fast. To rescale all three, set `BOT_DELAY_MS` near the top of `server.js` (3200 is Normal; a bigger number is slower).
 
+**Bot difficulty (new players):** bots normally play with the logic engine in `ai.js` (the standard). A new player's first games are played, behind the scenes, against **easy bots** (`easyBot` in `game.js`). Nothing on screen says so.
+- **Who is new:** the first **3** games, or the first **5** if they've lost 2 or more of them (a loss is anything but 1st place; in co-op, the Anaconda winning). It is counted from the account's settled games, free tables included, not the tutorial (`isNewPlayer` and `NEWBIE` in `accounts.js`).
+- **Which tables:** any table with a new player and a buy-in of **50 EB or less** gets easy bots, so experienced players at those tables play them too. Higher-stakes tables always get the standard bots.
+- **Which bots:** in solo every bot is easy. In Partners, only the bots on other teams: a new player's partner stays standard. In Co-op the bot teammates stay standard and only the Anaconda eases off (it travels to a random biome instead of always the most dangerous one).
+- **How they play:** friendly and loose. They play for their own map objectives rather than against anyone. They never try to win a trick just to beat somebody, and avoid winning with an Invasive card (a Crisis hurts everyone). They hunt and spread only where their own objectives are, and as the Conservationist only stop Invasive cards landing in their own protected regions. They seldom use abilities and only in ways that help themselves. They play only Disruptions that help themselves or remove Invasives: never Liberation, Wild Fire, Red Tide, Land Development, Flood, Drought, Runaway Pets or Fertilizer Leaching. Every choice has a good share of chance in it (`EASY` in `game.js`).
+- **How much easier:** in 4-player test games, a weak player (the quick bot policy) wins about 40% against easy bots versus about 20% against standard ones, and a decent player (the standard engine) about 70% versus 25%. Run `node test/easybots.js [games]` to re-check. Easy-bot games count toward everyone's own record, but are left out of the server's character, seat, card and Disruption balance tables (the admin Stats show their count and how often the people at those tables won).
+
 **End of each trick:** the game pauses on the finished trick. The winning card is raised, outlined in gold and stamped WINNER (red for an Invasive Crisis), and the other cards are dimmed. A bar counts down to the next round. The pause lasts about 7 seconds on Slow, 5 on Normal and 3 on Fast. Bots wait for it too, and after the last trick the final scores appear when it ends.
 
 **Character reactions:** every player, human or bot, shows their role's animated portrait in the Players panel, and the portraits react to what happens in the game. Each of the 6 characters has 6 short pixel animations, made with PixelLab from the role-card portraits:
@@ -263,6 +270,8 @@ Every rule is in **game.js**, and all card stats are in **public/data.js**. Both
 | `tools/make_digits_font.py` | Rebuilds that font if you ever want to tweak a digit's pixels (needs Python + fontTools) |
 | `tools/make_refcard.py` | Rewrites the Keystone line on the reference card using letters cut from the card itself |
 | `test/coopsim.js` | Simulates co-op games at 1–6 players and prints win rates and score breakdowns |
+| `test/coopstart.js` | Checks that in co-op the Anaconda chooses the first biome and the first player still plays first |
+| `test/easybots.js` | Checks who counts as a new player, which bots go easy in each mode, that easy bots always play legally, and how much easier they are to beat |
 | `tools/make_boss_card.py`, `tools/pixelfont.py` | Rebuild the Anaconda boss card (pixel lettering drawn in code) |
 | `test/disruptions.js` | Plays 600 bot games with Disruptions on (solo, partners, co-op), checks every card gets played, and tests Keystone and each Disruption's effect |
 | `public/assets/cards/disruption/` | The 18 Disruption cards and their face-down back. The art is also saved in `GeneratedArt/DisruptionDeck/art` |

@@ -42,7 +42,7 @@ function summarize(s, tally, seatAccount, extra = {}) {
   const totals = seats.map(x => x.score).sort((a, b) => b - a);
   return {
     at: Date.now(), ms: Date.now() - t.start, mode, n: seats.length, rounds: s.round || 0,
-    disruptions: !!s.disruptions, buyIn: extra.buyIn || 0,
+    disruptions: !!s.disruptions, buyIn: extra.buyIn || 0, easy: !!s.easyBots,
     playersWin: mode === 'coop' ? !!R.playersWin : undefined, anaconda: mode === 'coop' && R.anaconda ? R.anaconda.total : undefined,
     margin: mode === 'classic' && totals.length > 1 ? totals[0] - totals[1] : undefined,
     seats, cards: t.cards, dis: t.dis.map(d => ({ card: d.card, win: R.winners.includes(d.p) })),
@@ -69,10 +69,16 @@ function record(db, g) {
     coop: g.mode === 'coop' ? 1 : 0, coopWins: g.mode === 'coop' && g.playersWin ? 1 : 0 });
   // a fair share of wins: 1 in n for classic, 1 team in n/2 for partners
   const fair = g.mode === 'partners' ? 2 / g.n : 1 / g.n;
+  // games with easy bots (a new player's table) stay out of the balance tables below, which assume standard bots;
+  // they get their own count, and how often the people at those tables won
+  if (g.easy) {
+    S.easyGames = (S.easyGames || 0) + 1;
+    for (const x of g.seats) if (!x.bot) { S.easySeats = (S.easySeats || 0) + 1; if (x.win) S.easyWins = (S.easyWins || 0) + 1; }
+  }
   for (const x of g.seats) {
     if (x.bot) S.botSeats++; else S.humanSeats++;
     S.crises += x.crises;
-    if (!x.role) continue;
+    if (!x.role || g.easy) continue;
     if (competitive) {
       bump(S.roles, x.role, { seats: 1, wins: x.win ? 1 : 0, fair, hSeats: x.bot ? 0 : 1, hWins: !x.bot && x.win ? 1 : 0,
         score: x.score, good: x.good ? 1 : 0, tricks: x.tricks, crises: x.crises,
@@ -80,9 +86,9 @@ function record(db, g) {
       if (g.mode === 'classic') bump(S.seatOrder, String(x.seat), { seats: 1, wins: x.win ? 1 : 0, fair });
     } else bump(S.coopRoles, x.role, { seats: 1, wins: x.win ? 1 : 0, good: x.good ? 1 : 0, score: x.score });
   }
-  for (const [id, c] of Object.entries(g.cards || {})) bump(S.cards, id, { played: c.played, won: c.won });
-  for (const d of g.dis || []) bump(S.dis, d.card, { played: 1, wins: d.win ? 1 : 0, fair: g.mode === 'coop' ? 0 : fair, coop: g.mode === 'coop' ? 1 : 0 });
-  S.recent.unshift({ at: g.at, ms: g.ms, mode: g.mode, n: g.n, rounds: g.rounds, dis: g.disruptions, buyIn: g.buyIn, playersWin: g.playersWin, anaconda: g.anaconda,
+  if (!g.easy) for (const [id, c] of Object.entries(g.cards || {})) bump(S.cards, id, { played: c.played, won: c.won });
+  if (!g.easy) for (const d of g.dis || []) bump(S.dis, d.card, { played: 1, wins: d.win ? 1 : 0, fair: g.mode === 'coop' ? 0 : fair, coop: g.mode === 'coop' ? 1 : 0 });
+  S.recent.unshift({ at: g.at, ms: g.ms, mode: g.mode, n: g.n, rounds: g.rounds, dis: g.disruptions, buyIn: g.buyIn, easy: g.easy || undefined, playersWin: g.playersWin, anaconda: g.anaconda,
     seats: g.seats.map(x => ({ role: x.role, bot: x.bot, score: x.score, win: x.win })) });
   S.recent.length = Math.min(S.recent.length, RECENT_MAX);
 

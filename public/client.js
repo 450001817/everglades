@@ -1228,7 +1228,9 @@ function serverStatsHtml(S) {
       <div><b>${avg(S.crises, S.games, 2)}</b><span>Invasive Crises / game</span></div>
       <div><b>${pctTxt(S.ties, S.modes.classic ? S.modes.classic.games : 0)}</b><span>classic games tied</span></div>
       <div><b>${A.played ?? '—'}</b><span>players with a game · ${A.activeWeek ?? 0} this week</span></div>
+      <div><b>${S.easyGames || 0}</b><span>games with easy bots (new players) · people won ${pctTxt(S.easyWins || 0, S.easySeats || 0)}</span></div>
     </div>
+    ${S.easyGames ? '<p class="hint stip">Games with easy bots are left out of the character, seat, card and Disruption tables below.</p>' : ''}
     <div class="schips">${modes}<span>Accounts: <b>${A.total ?? '—'}</b> (${A.google ?? 0} Google, ${A.guests ?? 0} guest)</span></div>
     <div class="fsec">Characters — classic &amp; partners (${competitive} games)</div>
     ${tip('Win % counts every seat, bots included; the tick on each bar is the fair share for the table sizes played, and ±fair is how many points above or below it. People = win % of the seats played by people. Pick = average place in the role draft (1 = first).')}

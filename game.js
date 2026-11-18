@@ -51,7 +51,7 @@ function newStats() {
 function addPlayer(s, info) {
   if (s.phase !== 'lobby') err('The game has already started.');
   if (s.players.length >= MAX_PLAYERS) err('The table is full (6 players max).');
-  s.players.push({ id: info.id, name: info.name, bot: !!info.bot, simple: !!info.simple, team: info.team ?? null, role: null, hand: [], pile: [], biomesWon: [], triggeredCrisis: false, stats: newStats() });
+  s.players.push({ id: info.id, name: info.name, bot: !!info.bot, simple: !!info.simple, easy: !!info.easy, team: info.team ?? null, role: null, hand: [], pile: [], biomesWon: [], triggeredCrisis: false, stats: newStats() });
 }
 
 // Partner mode: teams of 2 score together. Seats alternate teams (A B A B, or A B C A B C),
@@ -805,7 +805,7 @@ function autoBots(s) {
     for (let p = 0; p < s.np; p++) if (s.players[p].bot && s.dcommit.picks[p] === undefined) {
       let pick;
       if (smart(s, p)) try { pick = AI.commit(s, p); } catch (e) { console.error('bot commit error', e); }
-      s.dcommit.picks[p] = pick === undefined ? simpleCommit(s, p) : pick; any = true;
+      s.dcommit.picks[p] = pick === undefined ? (s.players[p].easy ? easyCommit(s, p) : simpleCommit(s, p)) : pick; any = true;
     }
     if (any) maybeReveal(s);
   }
@@ -1024,8 +1024,9 @@ function pendingSimultaneous(s) {
 // ---------- bots ----------
 // Bots play with the logic engine in ai.js. The quick policy below (simpleBot) is what the engine assumes
 // everyone does while it looks ahead, and the fallback if the engine ever fails.
-const smart = (s, p) => !s.sim && !s.players[p].simple && !s.players[p].boss;
+const smart = (s, p) => !s.sim && !s.players[p].simple && !s.players[p].boss && !s.players[p].easy;
 function botAction(s, p) {
+  if (s.players[p].easy) return easyBot(s, p);
   if (smart(s, p)) {
     try { const a = AI.decide(s, p); if (a) return a; } catch (e) { console.error('bot engine error', e); }
   }
@@ -1089,6 +1090,89 @@ function simpleBot(s, p) {
   else card = legal.slice().sort(byImpact)[0];
   const populate = pl.role === 'Conservationist' && CARDS[card].kind === 'Invasive' && canProtect(s) ? false : undefined;
   return { type: 'play', card, populate };
+}
+
+// ---------- easy bots (new players) ----------
+// A gentle, friendly opponent for a new player's first games (server.js decides who gets one: see easyTable).
+// It minds its own business: it plays for its own map objectives rather than against anyone, never tries to win a
+// trick just to beat somebody (and avoids winning with an Invasive card, which sets off a Crisis for everyone),
+// hunts and spreads only where its own objectives are, lets other people's Invasive cards through unless they land
+// in a region it is protecting, and plays only Disruptions that help itself (never stealing a scoring card or
+// wiping out a region). It thinks loosely, too: a fair share of random choice in every pick.
+// The Anaconda, when easy, travels to a random biome instead of always the most dangerous one.
+const EASY = { slack: 3, ability: 0.15, commit: 0.2 }; // slack: how much chance goes into each choice
+// Disruptions an easy bot will play: ones that help it, or only remove Invasive tokens
+const FRIENDLY_DIS = new Set(['NatureDocumentary', 'TakeBribes', 'ChangingSeasons', 'TravelersGuidebook', 'EcologicalProtest', 'BountyHunting', 'HuntingSeason', 'CatchAndRelease']);
+// Which bots go easy at a table with these new players (player ids). Bots on a new player's side stay standard:
+// in solo every bot is easy; in partners the bots on the other teams; in co-op only the Anaconda.
+function easyBotsFor(s, newIds) {
+  s.easyBots = false;
+  if (!newIds || !newIds.length) return false;
+  const newTeams = new Set(s.players.filter(p => newIds.includes(p.id)).map(p => p.team));
+  for (const p of s.players) {
+    if (p.boss) p.easy = true;
+    else if (!p.bot || s.coop) continue;
+    else if (s.partners && newTeams.has(p.team)) continue;
+    else p.easy = true;
+  }
+  s.easyBots = true;
+  return true;
+}
+function easyBot(s, p, rnd = Math.random) {
+  const pl = s.players[p];
+  const pick = arr => arr[Math.floor(rnd() * arr.length)];
+  const best = (arr, score) => arr.reduce((b, x) => { const v = score(x) + rnd() * EASY.slack; return v > b.v ? { x, v } : b; }, { x: arr[0], v: -1e9 }).x;
+  if (s.phase === 'choose' && pl.boss) return { type: 'chooseBiome', biome: pick(s.travel) };
+  if (pl.boss) return simpleBot(s, p);
+  if (s.phase === 'draft') return simpleBot(s, p);
+  const role = ROLES[pl.role] || { map: {} };
+  const mine = r => !!role.map[r];                                         // one of its own objective regions
+  const want = r => role.map[r] === 'I' ? 'i' : 'n';                       // what it wants to grow there
+  if (s.phase === 'choose') { // somewhere it cares about, roughly
+    const opts = s.guide && s.guide.p === p ? [...s.travel, ...s.guide.options] : s.travel;
+    return { type: 'chooseBiome', biome: best(opts, id => mine(BIOMES[id].region) ? 1.5 : 0) };
+  }
+  if (s.tourPeek) return { type: 'tourDecide', bottom: !mine(BIOMES[s.tourPeek].region) };
+  // the Conservationist's block: only for its own protected regions, and not always
+  if (s.step && s.step.type === 'protect') { const r = trickRegion(s); return { type: 'protect', block: mine(r) && want(r) === 'n' && rnd() < 0.6 }; }
+  if (s.step && s.step.type === 'place') { // spread toward its own objectives
+    return { type: 'place', region: best(placeTargets(s), r => mine(r) ? (want(r) === s.step.kind ? 2 : -2) : 0) };
+  }
+  if (s.step && s.step.type === 'predate') { // hunt only what works against its own objectives
+    for (const r of s.step.regions) if (mine(r)) { const bad = want(r) === 'n' ? 'i' : 'n'; if (s.board[r][bad] > 0) return { type: 'predate', region: r, kind: bad }; }
+    return { type: 'predateDone' };
+  }
+  if (s.step && s.step.type === 'dis') {
+    if (s.step.mode === 'steal' && !s.step.must) return { type: 'dDone' };
+    return simpleBot(s, p);                                                  // (its own Disruption: the quick policy)
+  }
+  if (s.phase === 'play' && !s.step) {
+    if (!s.abilityUsed && rnd() < EASY.ability) {
+      // abilities that only help itself (the Land Developer only clears tokens off its own objective regions)
+      let a = pl.role === 'LandDeveloper' ? null : botAbility(s, p, role, want);
+      if (pl.role === 'LandDeveloper') for (const r of Object.keys(role.map)) { const bad = want(r) === 'n' ? 'i' : 'n'; if (s.board[r][bad] > 0) { a = { type: 'ability', region: r, kind: bad }; break; } }
+      if (a) return a;
+    }
+    // a card for its own map: what its tokens do to this region, if it's one of its own; no trying to win
+    const r = trickRegion(s), legal = legalCards(s, p);
+    const winsNow = c => { s.trick.plays.push({ p, card: c }); const w = trickWinner(s).idx === s.trick.plays.length - 1; s.trick.plays.pop(); return w; };
+    const card = best(legal, c => {
+      const C = CARDS[c], k = C.kind === 'Invasive' ? 'i' : 'n';
+      let v = mine(r) ? (want(r) === k ? 1 : -1) * Math.min(3, C.pop || 1) * 0.5 : 0;
+      if (C.kind === 'Invasive' && winsNow(c)) v -= 2;                     // an Invasive win sets off a Crisis
+      return v - C.impact * 0.05;                                            // (keeps its strong cards a little longer)
+    });
+    return { type: 'play', card, populate: pl.role === 'Conservationist' && CARDS[card].kind === 'Invasive' && canProtect(s) ? false : undefined };
+  }
+  return simpleBot(s, p);
+}
+// Committing a Disruption (easy bots): now and then, and only a friendly one that would do something now
+function easyCommit(s, p) {
+  const pl = s.players[p], cur = trickRegion(s);
+  const ok = (pl.dis || []).filter(id => FRIENDLY_DIS.has(id) && (id !== 'BountyHunting' || s.board[cur].i > 0));
+  if (!ok.length) return null;
+  const chance = pl.hand.length <= ok.length + 1 ? 0.5 : EASY.commit;
+  return Math.random() < chance ? ok[Math.floor(Math.random() * ok.length)] : null;
 }
 
 // Is this player's partner currently winning the trick?
@@ -1388,7 +1472,7 @@ const AI = require('./ai.js')({ applyAction, waitingOn, legalCards, placeTargets
 module.exports = {
   anacondaResults, COOP,
   botSay, reactionsFor, reactionLine,
-  newGame, addPlayer, startGame, availableRoles, partnerSeating, applyAction, legalCards, placeTargets, waitingOn, botAction,
+  newGame, addPlayer, startGame, availableRoles, partnerSeating, applyAction, legalCards, placeTargets, waitingOn, botAction, easyBot, easyBotsFor,
   computeResults, trickWinner, cardMatches, MIN_PLAYERS, MAX_PLAYERS,
   autoBots, pendingSimultaneous, leadSuit, riskFor, impactOf,
 };

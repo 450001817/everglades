@@ -119,6 +119,20 @@ function addMember(room, name, bot = false, account = null) {
   return m;
 }
 const memberAccount = m => (m && m.accountId ? A.get(m.accountId) : null);
+
+// New players' tables (accounts.js isNewPlayer): when a new player sits at a table with a buy-in of at most
+// A.NEWBIE.maxBuyIn, the bots go easy on everyone there (game.js easyBot). Nobody is told; it just plays gentler.
+// Bots on a new player's side stay standard (a weak partner or co-op teammate would make the game harder):
+//   solo      every bot is easy
+//   partners  the bots on the other teams are easy; a new player's partner isn't
+//   co-op     the teammates stay standard; the Anaconda eases off (travels anywhere, not always to the worst biome)
+// Returns whether the table got easy bots (also kept on the game as s.easyBots, for the stats).
+function easyTable(room) {
+  room.game.easyBots = false;
+  if (room.tutorial || room.buyIn > A.NEWBIE.maxBuyIn) return false;
+  const newbies = room.members.filter(x => !x.bot && A.isNewPlayer(memberAccount(x))).map(x => x.pid);
+  return G.easyBotsFor(room.game, newbies);
+}
 function cleanName(n) { return String(n || '').replace(/[^\p{L}\p{N} '._-]/gu, '').trim().slice(0, 16) || 'Ranger'; }
 function seatOf(room, pid) { return room.game.players.findIndex(p => p.id === pid); }
 
@@ -722,6 +736,7 @@ const server = http.createServer(async (req, res) => {
             room.game = G.newGame();
             for (const x of room.members) G.addPlayer(room.game, { id: x.pid, name: x.name, bot: x.bot, team: room.mode === 'partners' ? x.team : null });
             G.startGame(room.game, { partners: room.mode === 'partners', coop: room.mode === 'coop', disruptions: !!room.disruptions });
+            easyTable(room);
             room.tally = ST.newTally();
             room.chatter = []; room.tricksSeen = 0; resetReactions(room); room.strikes = {}; clearDeadline(room);
             room.pauseUntil = Date.now() + DEAL_PAUSE_MS; // let the shuffle-and-deal animation play first

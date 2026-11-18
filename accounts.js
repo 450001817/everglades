@@ -17,6 +17,17 @@ const ECON = {
   unlockWins: 5,               // tricks won with an animal card to unlock its profile picture
 };
 
+// ---------- new players: easy bots (server.js easyTable, game.js easyBot) ----------
+// A new player's first games are played against gentler bots, behind the scenes. "New" is the first 3 games, or the
+// first 5 if they've lost 2 or more of those (a loss: anything but 1st place; in co-op, the Anaconda winning).
+// Any table with a new player and a buy-in of at most maxBuyIn gets the easy bots, whoever else is sitting there.
+const NEWBIE = { games: 3, extendedGames: 5, extendLosses: 2, maxBuyIn: 50 };
+function isNewPlayer(a) {
+  if (!a || !a.stats) return false;
+  const games = a.stats.games || 0, losses = games - (a.stats.firsts || 0);
+  return games < NEWBIE.games || (games < NEWBIE.extendedGames && losses >= NEWBIE.extendLosses);
+}
+
 // ---------- the store (add items here) ----------
 // type 'title': shown under the player's name in their banner.
 // type 'skin': an alternate look for one character (defined in SKINS in public/data.js, bought from that
@@ -648,7 +659,7 @@ function adjustPurchase(paymentIntent, change) {
 }
 
 module.exports = {
-  ECON, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
+  ECON, NEWBIE, isNewPlayer, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
   publicProfile, privateProfile, config, recordGame, playerStats, serverStats, canSeeServerStats, leaderboard, avatarSrc, titleName, skinFor, splashFor, ownsChat, chatFor, chatAllowed, treatmentFor, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
   friendRequest, friendRespond, friendRemove, friendsOf, isFriend,
