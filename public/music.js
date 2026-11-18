@@ -87,19 +87,15 @@
         v.tone('triangle', freq(n, e % 2 ? 3 : 2), t + v.at(e), len * 0.7, e % 2 ? 0.07 : 0.095, { attack: 0.012, release: 0.05 });
       }
       v.arp(chordAt, t, 4, build ? 0.013 : 0.01);
-      // drums: kick on 1 and 3 (and a pickup on the "and" of 4 every other bar); a soft brushed snare only on beat 4
-      // (2 and 4 while building), a little two-note fill closing each 4-bar phrase; offbeat hats (sixteenths while
-      // building). The snare used to crack on 2 and 4 of every bar, which got wearing over a whole game.
-      const phraseEnd = i % 4 === 3;
+      // drums: kick on 1 and 3 (and a pickup on the "and" of 4 every other bar) and offbeat hats (sixteenths while
+      // building). No snare: its backbeat got wearing over a whole game.
       for (let b = 0; b < 4; b++) {
         const tb = t + b * v.BEAT;
         if (b % 2 === 0) v.kick(tb, 0.15);
-        if (b === 3 || (build && b === 1)) v.hit(tb, { vol: 0.022, dur: 0.08, hp: 2800 });
         v.hit(tb + v.BEAT * this.swing, { vol: 0.013, dur: 0.03 });
         if (build) { v.hit(tb + v.BEAT * 0.25, { vol: 0.008, dur: 0.02 }); v.hit(tb + v.BEAT * 0.78, { vol: 0.008, dur: 0.02 }); }
       }
-      if (i % 2 === 1 && !phraseEnd) v.kick(t + 3 * v.BEAT + v.BEAT * this.swing, 0.08);
-      if (phraseEnd) { v.hit(t + 3.5 * v.BEAT, { vol: 0.016, dur: 0.05, hp: 3200 }); v.hit(t + 3.75 * v.BEAT, { vol: 0.02, dur: 0.06, hp: 3000 }); }
+      if (i % 2 === 1) v.kick(t + 3 * v.BEAT + v.BEAT * this.swing, 0.08);
     },
   };
 
