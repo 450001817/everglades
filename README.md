@@ -204,13 +204,13 @@ The whole game fits on one screen with no page scrolling. From left to right: th
 
   In all there are 40 endings. They live in `endings.js`, which is plain text and easy to edit. Run `node test/endings.js` to see how often each one comes up.
 
-The layout is built for laptop and desktop screens (1024×768 and up). On a computer nothing scrolls: on a short window the home page is scaled down to fit, the lobby splits into two columns, and in a narrower game window the leaderboard, stats, friends, music, sound and speed buttons move into a **☰ Menu** button.
+The layout is built for laptop and desktop screens (1024×768 and up). On a computer nothing scrolls: on a short window the home page is scaled down to fit, the lobby splits into two columns, and in a narrower game window the leaderboard, stats, friends, music, sound and speed buttons move into a **☰ Menu** button. The **Scoring pile** button in the game's top bar shows every card you've won in tricks.
 
 Phones get their own **phone layout**, where the game is one screen that never scrolls:
 - **Top bar:** the round, a **Table / Map** switch, and a **☰ Menu** button that holds everything else (chat lines, field notes, rules, leaderboard, stats, friends, music, sound, bot speed, leave). The home page and lobby have the same Menu button.
-- **Table or map:** the middle of the screen shows the play area or the map, one at a time. When you need to click the map (spreading, hunting, a Disruption), it switches there by itself and back afterwards. The Map button blinks while the map needs you, and shows a red dot when the map changed while you were looking at the table.
+- **Table or map:** the middle of the screen shows the play area or the map, one at a time. Flick sideways on it to switch (left for the map, right for the table), or use the buttons. It's a quick flick, not a drag: the screen never follows your finger, and the top bar and hand never move. When you need to click the map (spreading, hunting, a Disruption), it switches there by itself and back afterwards. The Map button blinks while the map needs you, and shows a red dot when the map changed while you were looking at the table.
 - **Players:** a row of portraits along the top, each with a ★ badge for the tricks they've won. Tap one to read their role card, with their tricks won, cards in hand and team above it. **Menu → Players & tricks won** lists everyone at once.
-- **Your hand:** along the bottom, with every card on screen at once (they overlap like a fan when the hand is big). Tap a card to choose it, tap again to play. The "You are the …" button above the cards (or **Menu → My role card**) opens your role card.
+- **Your hand:** along the bottom, with every card on screen at once (they overlap like a fan when the hand is big). Tap a card to choose it, tap again to play. The "You are the …" button above the cards (or **Menu → My role card**) opens your role card, and **Scoring pile** beside it shows every card you've won.
 - **Reading cards:** press and hold any card for a second to read it.
 - **Speech bubbles:** only the newest one shows, so the screen stays clear.
 

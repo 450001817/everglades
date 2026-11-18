@@ -181,8 +181,8 @@ html.intro-hold .hero .logo, html.intro-hold .hero .tagline { visibility: hidden
 }
 /* computers: the game's top bar keeps one line. Narrower windows drop the small logo, then move the account and
    sound buttons into the Menu (Chat, Field notes, Rules and Leave stay out) */
-@media (max-width: 1500px) { .topbar .logo-sm { display: none; } }
-@media (max-width: 1300px) {
+@media (max-width: 1660px) { .topbar .logo-sm { display: none; } }
+@media (max-width: 1460px) {
   .topbar .mmenu { display: block; position: relative; flex-shrink: 0; }
   .topbar .dkrow > :not(#rules):not(#quit) { display: none; }
 }
@@ -595,6 +595,7 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
   animation: peekin .12s steps(3);
 }
 .peek img { max-height: min(66dvh, 720px); max-width: min(80vw, 860px); width: auto; height: auto; }
+.peek > .rcard { display: block; } /* (inline-block left a strip of empty line space under the card) */
 /* a role card opened with a tap (touch screens) stays up until it's tapped */
 .peek.pinned { pointer-events: auto; cursor: pointer; }
 /* who a tapped player is and how they're doing, above their role card */
@@ -605,6 +606,16 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .tkbadge { position: absolute; top: -6px; left: -4px; z-index: 2; padding: 0 3px; font-family: var(--font-small); font-size: 13px; line-height: 15px; color: var(--ink); background: var(--brass); border: 2px solid var(--ink); pointer-events: none; }
 .tkbadge.zero { background: var(--paper-2); color: var(--ink-soft); }
 .playersmodal { width: min(560px, 100%) !important; }
+/* your scoring pile (pileModal) */
+.pilemodal { display: flex; flex-direction: column; gap: 8px; }
+.pilechips { display: flex; flex-wrap: wrap; gap: 4px; }
+.pilechips span { font-family: var(--font-small); font-size: 15px; padding: 0 6px; background: var(--paper-2); border: 2px solid var(--ink); }
+.pilegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; padding: 2px 4px 6px 2px; }
+.pilegrid .card { width: 100%; }
+.pilegrid > p { grid-column: 1 / -1; margin: 0; }
+.pilebtn { flex-shrink: 0; font: inherit; font-family: var(--font-small); font-size: 14px; line-height: 1.1; padding: 2px 6px; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); cursor: pointer; white-space: nowrap; }
+.pilebtn b { font-family: 'EGDigits', monospace; }
+@media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) { .pilegrid { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; } }
 .playersmodal .pthumb { width: 48px; }
 .playersmodal .pmname { width: 100%; overflow-wrap: anywhere; }
 .playersmodal .pmname b { font-size: 17px; }
@@ -845,6 +856,7 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
   }
   @media (orientation: landscape) { :root { --cw: min(10vw, 24dvh, 112px); } }
   body { -webkit-text-size-adjust: 100%; }
+  html, body { overscroll-behavior: none; } /* no pull-to-refresh or rubber-band bounce mid-game */
   .card, .portrait, .hand, .stageswitch { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 
   /* top bar: round, the Table / Map switch, the Menu */
@@ -870,12 +882,19 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
   .side { display: none; }
   .tablecol, .boardwrap { grid-area: stage; min-height: 0; min-width: 0; }
   .game[data-view="map"] .tablecol, .game[data-view="table"] .boardwrap { display: none; }
+  /* a sideways flick on the middle area switches table <-> map (client.js switchStage); nothing else on the screen moves */
+  .game { overflow: hidden; }
+  .game > .tablecol, .game > .boardwrap { touch-action: pan-y pinch-zoom; }
+  .game[data-slide="left"] > .tablecol, .game[data-slide="left"] > .boardwrap { animation: stageInL .26s ease-out; }
+  .game[data-slide="right"] > .tablecol, .game[data-slide="right"] > .boardwrap { animation: stageInR .26s ease-out; }
+  @keyframes stageInL { from { transform: translateX(28%); opacity: 0; } }
+  @keyframes stageInR { from { transform: translateX(-28%); opacity: 0; } }
   .boardwrap { container-type: size; align-items: center; justify-content: center; }
   .board { width: min(100cqw, 100cqh); height: min(100cqw, 100cqh); border-width: 3px; box-shadow: 3px 3px 0 var(--ink); }
   .tok { font-size: clamp(11px, 3.4cqmin, 18px); min-width: 6.5cqmin; }
 
   /* players: every character in one row, each tile sharing the width */
-  .game > .pstrip { grid-area: players; display: flex !important; flex-wrap: nowrap; justify-content: center; gap: 4px; padding: 6px 0 0; overflow-x: auto; scrollbar-width: none; }
+  .game > .pstrip { grid-area: players; display: flex !important; flex-wrap: nowrap; justify-content: center; gap: 4px; padding: 6px 0 0; overflow: hidden; }
   .tabletop > .players-mini { display: none !important; }
   .players-mini::-webkit-scrollbar { display: none; }
   .players-mini .pl { flex: 1 1 0; min-width: 52px; max-width: 96px; flex-direction: column; align-items: center; gap: 1px; padding: 2px 2px 3px; --ph: 38px; }
@@ -892,7 +911,7 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 
   /* the play area: the same layout as on a computer, sized to the space left (container units) */
   .tablecol { container-type: size; }
-  .tabletop { height: 100%; padding: 6px 8px 8px; gap: 6px; overflow-x: hidden; overflow-y: auto; border-width: 3px; box-shadow: 3px 3px 0 var(--ink); }
+  .tabletop { height: 100%; padding: 6px 8px 8px; gap: 6px; overflow: hidden; border-width: 3px; box-shadow: 3px 3px 0 var(--ink); }
   .tabletop h3 { font-size: 13px; white-space: normal; }
   .tabletop.play > h3 { display: none; } /* (the round is in the top bar) */
   .tt-info { gap: 4px 6px; flex-direction: row; flex-wrap: wrap; align-content: flex-start; align-items: center; }

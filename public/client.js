@@ -214,6 +214,7 @@ function menuHtml(game = false) {
     if (S.you >= 0) main += item('data-g="chat"', '💬', 'Chat lines');
     if (S.role) main += item('data-g="myrole"', '🃏', 'My role card', `<span class="mi-v">${esc(roleInfo(S.role).name)}</span>`);
     main += item('data-g="players"', '📋', 'Players &amp; tricks won');
+    if (S.you >= 0) main += item('data-g="pile"', '🗂', 'My scoring pile', `<span class="mi-v">${(S.pile || []).length}</span>`);
     main += item('data-g="notes"', '📜', 'Field notes', badge(ui.unread || 0));
     main += item('data-g="rules"', '📖', 'Rules');
   }
@@ -1426,7 +1427,7 @@ document.addEventListener('click', e => {
   if (ui.showLog && S && !e.target.closest('.notes-wrap')) { ui.showLog = false; render(); }
   if (ui.showChat && S && !e.target.closest('.chat-wrap')) { ui.showChat = false; render(); }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { hidePeek(); if (ui.confirm) { ui.confirm = null; render(); } if (ui.showLog) { ui.showLog = false; render(); } if (ui.showChat) { ui.showChat = false; render(); } if (ui.showRules) { ui.showRules = false; render(); } if (ui.showPlayers) { ui.showPlayers = false; render(); } } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { hidePeek(); if (ui.confirm) { ui.confirm = null; render(); } if (ui.showLog) { ui.showLog = false; render(); } if (ui.showChat) { ui.showChat = false; render(); } if (ui.showRules) { ui.showRules = false; render(); } if (ui.showPlayers) { ui.showPlayers = false; render(); } if (ui.showPile) { ui.showPile = false; render(); } } });
 
 // ---------- connection ----------
 function connect() {
@@ -2140,6 +2141,7 @@ function renderGame() {
       <button class="btn small dk ${ui.showChat ? 'brass' : ''}" id="chatBtn" title="Send a chat line to the table">💬 Chat ▾</button>
       ${ui.showChat ? chatDropHtml() : ''}
     </div>` : ''}
+    ${S.you >= 0 ? `<button class="btn small dk ${ui.showPile ? 'brass' : ''}" data-g="pile" title="The cards you have won in tricks">Scoring pile (${(S.pile || []).length})</button>` : ''}
     <div class="notes-wrap">
       <button class="btn small dk ${ui.showLog ? 'brass' : ''}" id="notesBtn">Field notes ${ui.unread && !ui.showLog ? `<span class="badge">${ui.unread > 9 ? '9+' : ui.unread}</span>` : ''}▾</button>
       ${ui.showLog ? `<div class="paper spiral notes-drop" id="log"><div class="panel-title">Field notes</div>${S.log.map(l => `<p class="${l.startsWith('INVASIVE') ? 'crisis' : ''}">${esc(l)}</p>`).join('')}</div>` : ''}
@@ -2153,7 +2155,7 @@ function renderGame() {
     </span>
     ${menuHtml(true)}
   </div>
-  <div class="game" data-view="${stage}">
+  <div class="game" data-view="${stage}" data-slide="${ui.slide || ''}">
     <div class="pstrip players-mini" style="--n:${S.players.length}">${playersHtml(true)}</div>
     <aside class="side">
       <div class="paper spiral players" style="--rows:${S.players.length}"><div class="panel-title" title="Hover a player to read their role card">Players <span class="hint">· hover to read roles</span></div>${playersHtml(false)}</div>
@@ -2162,7 +2164,7 @@ function renderGame() {
     <section class="tablecol">${tableHtml()}</section>
     <section class="handarea">
       ${promptHtml()}
-      <div class="hand-cap">${role ? `<span class="myrole" ${peekAttrs(S.role, tableSkin(S.role))}>You are the <b>${esc(role.name)}</b> <small>▸</small></span>` : ''}<span class="swipe">${hand.length} card${hand.length === 1 ? '' : 's'} · hold to read</span></div>
+      <div class="hand-cap">${role ? `<span class="myrole" ${peekAttrs(S.role, tableSkin(S.role))}>You are the <b>${esc(role.name)}</b> <small>▸</small></span>` : ''}${S.you >= 0 ? `<button class="pilebtn" data-g="pile" title="The cards you have won in tricks">Scoring pile <b>${(S.pile || []).length}</b> ▸</button>` : ''}</div>
       <div class="handrow">
         <div class="hand ${ui.dealing ? 'dealing' : ''} ${Date.now() - (ui.handIntro || 0) < 1400 ? 'intro' : ''}">${handHtml}</div>
         ${S.disruptions && (S.dis || []).length ? `<div class="dishand"><div class="cap">Disruptions</div><div class="dishand-cards">${S.dis.map(id => {
@@ -2178,6 +2180,7 @@ function renderGame() {
   ${ui.stealFrom !== null && ui.stealFrom !== undefined && S.stealPiles ? stealModal() : ''}
   ${ui.showRules ? rulesModal() : ''}
   ${ui.showPlayers ? playersModal() : ''}
+  ${ui.showPile ? pileModal() : ''}
   ${S.phase === 'ended' && !holding() ? endModal() : ''}
   ${coachHtml(tip)}`;
 
@@ -2204,6 +2207,33 @@ function renderGame() {
 const phoneMQ = matchMedia('(max-width: 760px), (max-height: 520px) and (max-width: 1000px)');
 const isPhone = () => phoneMQ.matches;
 phoneMQ.addEventListener?.('change', () => { if (S && S.phase !== 'lobby') render(); });
+
+// Phones: the middle of the screen shows the table or the map. Besides the Table / Map buttons, a quick sideways
+// swipe on that area flips between them (left to the map, right back to the table). It's a flick, not a drag: the
+// screen never follows the finger, and the top bar and hand never move.
+let swipeAt = null, swipeEnded = 0;
+function switchStage(to, dir) {
+  if (to === (ui.stage === 'map' ? 'map' : 'table')) return;
+  ui.stage = to; ui.slide = dir || (to === 'map' ? 'left' : 'right');
+  clearTimeout(switchStage.t); switchStage.t = setTimeout(() => { ui.slide = null; }, 400);
+  hidePeek(); render();
+}
+document.addEventListener('touchstart', e => {
+  swipeAt = null;
+  if (!isPhone() || !S || e.touches.length !== 1 || !e.target.closest('.game > .tablecol, .game > .boardwrap')) return;
+  const t = e.touches[0]; swipeAt = { x: t.clientX, y: t.clientY, at: Date.now() };
+}, { passive: true });
+document.addEventListener('touchend', e => {
+  if (!swipeAt) return;
+  const t = e.changedTouches[0], dx = t.clientX - swipeAt.x, dy = t.clientY - swipeAt.y, quick = Date.now() - swipeAt.at < 600;
+  swipeAt = null;
+  if (!quick || Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+  swipeEnded = Date.now();
+  switchStage(dx < 0 ? 'map' : 'table', dx < 0 ? 'left' : 'right');
+}, { passive: true });
+document.addEventListener('touchcancel', () => { swipeAt = null; });
+// a swipe that ends on a card or region must not also count as a tap on it
+addEventListener('click', e => { if (Date.now() - swipeEnded < 400) { e.stopPropagation(); e.preventDefault(); } }, true); // (window: before the page's own handlers)
 addEventListener('scroll', () => { if (Object.keys(ui.bubbles).length) placeBubbles(); }, { passive: true });
 
 // ---------- turn timer display ----------
@@ -2308,6 +2338,22 @@ function promptHtml() {
   return box(`Your turn — pick a card to play.<small>${follow}${S.abilityUsed ? ' Ability used.' : ''}${S.role === 'Conservationist' && shieldUsed ? " You've already stopped an Invasive card this round." : ''}</small>`, buttons);
 }
 
+// Your scoring pile: every card you've won in tricks (Natives first, then by habitat and Impact)
+function pileModal() {
+  const pile = (S.pile || []).slice().sort((a, b) => {
+    const A = CARDS[a], B = CARDS[b];
+    return (A.kind === B.kind ? 0 : A.kind === 'Invasive' ? 1 : -1) || SUIT_ORDER[A.habitat] - SUIT_ORDER[B.habitat] || B.impact - A.impact;
+  });
+  const count = (k, v) => pile.filter(id => CARDS[id][k] === v).length;
+  const chips = pile.length ? [['kind', 'Native'], ['kind', 'Invasive'], ['habitat', 'Water'], ['habitat', 'Wetland'], ['habitat', 'Land']]
+    .map(([k, v]) => `<span>${v} ${count(k, v)}</span>`).join('') : '';
+  return `<div class="modal"><div class="paper spiral pilemodal">
+    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Your scoring pile · ${pile.length} card${pile.length === 1 ? '' : 's'}</div><button class="btn small" id="closePile">Close</button></div>
+    <p class="hint" style="margin:0">Every card in a trick you win comes here. ${isPhone() ? 'Press and hold' : 'Hover over'} a card to read it.</p>
+    ${chips ? `<div class="pilechips">${chips}</div>` : ''}
+    <div class="pilegrid">${pile.length ? pile.map(id => cardEl(id, foil(id))).join('') : '<p class="hint">Empty so far. Win a trick to start your pile.</p>'}</div>
+  </div></div>`;
+}
 // Everyone at the table at a glance (Menu > Players & tricks won): role, tricks won, cards left, team
 function playersModal() {
   const rows = S.players.map((p, i) => {
@@ -2855,10 +2901,12 @@ function wire() {
   q('[data-g="mute"]', () => { muted = !muted; try { localStorage.setItem('eg_mute', muted ? '1' : '0'); } catch {} render(); });
   q('[data-g="myrole"]', () => { const el = $app.querySelector('.hand-cap .myrole'); if (el) pinPeek(el); });
   q('[data-g="players"]', () => { ui.showPlayers = true; render(); });
+  q('[data-g="pile"]', () => { ui.showPile = !ui.showPile; ui.showLog = ui.showChat = false; hidePeek(); render(); });
+  q('#closePile', () => { ui.showPile = false; render(); });
   q('#closePlayers', () => { ui.showPlayers = false; render(); });
   q('[data-pinseat]', el => { const t = [...$app.querySelectorAll(`.pl[data-seat="${el.dataset.pinseat}"]`)].find(x => x.dataset.peekrole); ui.showPlayers = false; render(); if (t) pinPeek(t); });
   q('[data-g="quit"]', () => { if (confirm('Leave this game?')) leave(); });
-  q('[data-stage]', el => { ui.stage = el.dataset.stage; hidePeek(); render(); });
+  q('[data-stage]', el => switchStage(el.dataset.stage));
   q('#closeRules', () => { ui.showRules = false; render(); });
   q('#quit', () => { if (confirm('Leave this game?')) leave(); });
   q('#quit2', () => leave());
