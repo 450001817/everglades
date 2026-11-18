@@ -244,7 +244,7 @@ html.intro-hold .hero .logo, html.intro-hold .hero .tagline { visibility: hidden
 .blurb p { margin: 0 0 8px; font-size: 17px; line-height: 1.35; }
 .blurb .crisisword { color: var(--red); }
 .blurb .stakes { margin: 0; padding-top: 8px; border-top: 2px dashed #d8d1b8; color: var(--leather-2); }
-.cast { display: flex; gap: 8px; flex-wrap: wrap; }
+.cast { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .castmember { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; position: relative; }
 .castmember .pthumb { width: 76px; box-shadow: 3px 3px 0 var(--ink); cursor: pointer; transition: transform .12s; }
 .castmember:hover .pthumb, .castmember:focus-visible .pthumb { transform: translateY(-3px); outline: 3px solid var(--brass); }
