@@ -291,6 +291,8 @@ module.exports = function makeAI(G) {
       for (const r of regions) for (const k of st.kinds) if (s.board[r][k] > 0) cands.push({ type: 'dRemove', region: r, kind: k });
     } else if (st.mode === 'dest') {
       for (const r of REGION_IDS) if (r !== st.from && !(s.trick.blocked && r === G.trickRegion(s))) cands.push({ type: 'dDest', region: r });
+    } else if (st.mode === 'migrate') {
+      for (const r of G.placeTargets(s)) cands.push({ type: 'dMigrate', region: r });
     } else if (st.mode === 'scatter') {
       for (const r of REGION_IDS) if (r !== st.from && !(s.trick.blocked && r === G.trickRegion(s)))
         for (const k of ['n', 'i']) if (st.pool[k] > 0) cands.push({ type: 'dScatter', region: r, kind: k });

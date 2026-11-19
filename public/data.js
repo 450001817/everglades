@@ -278,7 +278,7 @@
   // `steps` tells the engine which choices the card asks of its owner (see the disruption section of game.js).
   const DISRUPTIONS = {
     Hurricane:          { name: 'Hurricane', text: 'You must remove 2 population tokens from the current region, then do the same for all adjacent regions.' },
-    MassMigration:      { name: 'Mass Migration', text: 'You may move all tokens from the current region to any other region in a continuous line.' },
+    MassMigration:      { name: 'Mass Migration', text: 'You may move all tokens from the current region in a continuous line, like a Migratory card: all Native tokens first, then all Invasive tokens.' },
     HuntingSeason:      { name: 'Hunting Season', text: 'You may remove up to 5 total population tokens from any regions.' },
     EcologicalProtest:  { name: 'Ecological Protest', text: 'The Risk factor becomes 0 on the current region.' },
     CatchAndRelease:    { name: 'Catch and Release', text: 'You may move up to 5 population tokens from any regions to any other single region.' },
@@ -298,7 +298,7 @@
   };
   for (const [id, d] of Object.entries(DISRUPTIONS)) Object.assign(d, { id, img: 'assets/cards/disruption/' + id + '.png' });
 
-  // Foil cards: a shiny version of any Ecology or Disruption card, seen only by the player who owns it.
+  // Foil cards: a shiny version of any Ecology or Disruption card, seen by its owner in hand and by everyone once played.
   const FOIL_PRICE = 100;
   // Card treatments: finishes a player can own for a card (stored on accounts as '<id>:<card id>', e.g. 'foil:Manatee').
   // Each character profile chooses, card by card, which owned treatment shows (or none). `cls` is the CSS class

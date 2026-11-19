@@ -137,6 +137,15 @@ function cleanName(n) { return String(n || '').replace(/[^\p{L}\p{N} '._-]/gu, '
 function seatOf(room, pid) { return room.game.players.findIndex(p => p.id === pid); }
 
 // ---------- what each player is allowed to see ----------
+// Card treatments are public once a card is face up on the table: { [card id]: treatment id } for the cards seat i
+// has played this trick or last trick, or revealed as a Disruption.
+function shownFinishes(s, i, a) {
+  const out = {};
+  if (!a || typeof s.players[i].role !== 'string') return out;
+  const shown = [...(s.trick ? s.trick.plays : []), ...(s.lastTrick ? s.lastTrick.plays : []), ...((s.trick && s.trick.dis) || [])];
+  for (const pl of shown) if (pl.p === i) { const t = A.treatmentFor(a, s.players[i].role, pl.card); if (t) out[pl.card] = t; }
+  return out;
+}
 function viewFor(room, member) {
   const s = room.game;
   const me = member ? seatOf(room, member.pid) : -1;
@@ -172,6 +181,7 @@ function viewFor(room, member) {
         skin: a && typeof p.role === 'string' ? A.skinFor(a, p.role) : null, // the look everyone sees for this player's character
         profile: a ? A.publicProfile(a) : null,
         splash: A.splashFor(a, p.role), // the splash effect everyone sees when this player plays a card (set per character)
+        finish: shownFinishes(s, i, a), // card treatments (foil, …) on the cards this player has put on the table
       };
     }),
     settlement: room.settlement, // Eco-buck payouts once the game is over

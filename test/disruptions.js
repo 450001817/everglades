@@ -160,6 +160,37 @@ const reveal = (id, suit, board, region) => { const s = trickAt(biomeOf(suit, re
   ok(G.impactOf(s, { card: c.id, p: 0 }) === c.impact + 5 && G.impactOf(s, { card: c.id, p: 1 }) === c.impact, 'Nature Documentary: +5 Impact for its owner\'s Native cards');
 }
 {
+  // Mass Migration: every token leaves in a continuous line (like Migratory), Natives first, then Invasives
+  const bio = biomeOf('Land'), cur = BIOMES[bio].region;
+  const s = trickAt(bio, { dis: 'MassMigration' });
+  s.board[cur] = { n: 2, i: 1 };
+  const total = () => Object.values(s.board).reduce((a, r) => a + r.n + r.i, 0), before = total();
+  commitAll(s, 'MassMigration');
+  ok(s.step && s.step.mode === 'migrate' && s.step.kind === 'n' && s.board[cur].n + s.board[cur].i === 0, 'Mass Migration: picks up every token, Natives first');
+  ok(G.placeTargets(s).every(r => ADJ[cur].includes(r)), '...the line starts next to the current region');
+  const far = Object.keys(s.board).find(r => r !== cur && !ADJ[cur].includes(r));
+  let threw = false; try { G.applyAction(s, 0, { type: 'dMigrate', region: far }); } catch (e) { threw = !!e.userError; }
+  ok(threw, '...a region off the line is refused');
+  const a = ADJ[cur][0], b = ADJ[a].find(r => r !== cur);
+  const na = s.board[a].n, nb = s.board[b].n, ib = s.board[b].i;
+  G.applyAction(s, 0, { type: 'dMigrate', region: a });
+  threw = false; try { G.applyAction(s, 0, { type: 'dDone' }); } catch (e) { threw = !!e.userError; }
+  ok(threw, '...once started, it cannot be skipped');
+  ok(!G.placeTargets(s).includes(cur) && G.placeTargets(s).includes(b), '...it continues from the last region and never goes back');
+  G.applyAction(s, 0, { type: 'dMigrate', region: b });
+  ok(s.step && s.step.kind === 'i' && s.board[a].n === na + 1 && s.board[b].n === nb + 1, '...then the Invasive tokens');
+  G.applyAction(s, 0, { type: 'dMigrate', region: b });
+  ok(!s.step && s.board[b].i === ib + 1 && total() === before && s.phase === 'play', '...and the round goes on once all have moved (no tokens lost)');
+}
+{
+  const bio = biomeOf('Land'), cur = BIOMES[bio].region;
+  const s = trickAt(bio, { dis: 'MassMigration' });
+  s.board[cur] = { n: 2, i: 1 };
+  commitAll(s, 'MassMigration');
+  G.applyAction(s, 0, { type: 'dDone' });
+  ok(s.board[cur].n === 2 && s.board[cur].i === 1 && s.phase === 'play', 'Mass Migration: skipping leaves the tokens where they were');
+}
+{
   // the draft: 3 dealt, 2 kept, packs passed clockwise
   const s = G.newGame();
   for (let i = 0; i < 4; i++) G.addPlayer(s, { id: 'p' + i, name: 'P' + i, bot: i > 0 });

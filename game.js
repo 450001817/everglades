@@ -430,9 +430,16 @@ function placeToken(s, p, region) {
   }
 }
 
-// Valid regions for the next Migratory token.
+// Mass Migration: the line starts next to the current region, and never goes back into it.
+function migrateTargets(st) {
+  if (!st.line.length) return ADJ[st.from].slice();
+  const last = st.line[st.line.length - 1];
+  return [...st.line, ...ADJ[last].filter(r => !st.line.includes(r) && r !== st.from)];
+}
+// Valid regions for the next Migratory token (or Mass Migration token).
 function placeTargets(s) {
   const st = s.step;
+  if (st && st.type === 'dis' && st.mode === 'migrate') return migrateTargets(st);
   if (!st || st.type !== 'place') return [];
   const cur = trickRegion(s), blocked = s.trick && s.trick.blocked; // Land Development: the line starts next door
   if (!st.line.length) return blocked ? ADJ[cur].slice() : [cur];
@@ -690,7 +697,11 @@ function activateDis(s, p, id) {
     case 'CatchAndRelease': return removeStep({ regions: Object.keys(REGIONS), left: 5, collect: true });
     case 'MassMigration':
       if (!tokensIn(s, cur, both)) { log(s, `${name}'s Mass Migration finds no tokens to move.`); return false; }
-      s.step = { type: 'dis', card: id, p, mode: 'dest', from: cur, pool: { n: s.board[cur].n, i: s.board[cur].i }, must: false };
+      // Like a Migratory card, for every token in the region: they're picked up and placed one at a time in a
+      // continuous line that starts next door. All the Native tokens go first, then the Invasive ones.
+      s.step = { type: 'dis', card: id, p, mode: 'migrate', from: cur, pool: { n: s.board[cur].n, i: s.board[cur].i }, line: [], must: false };
+      s.step.kind = s.step.pool.n ? 'n' : 'i';
+      s.board[cur].n = 0; s.board[cur].i = 0; // in hand until placed; skipping before the first one puts them all back
       return true;
     case 'RunawayPets': {
       const M = s.board.M;
@@ -766,6 +777,21 @@ function disAct(s, p, a) {
     emit(s, { type: 'spread', p, card: null, regions: [r], dis: st.card });
     return nextDis(s);
   }
+  if (a.type === 'dMigrate') {
+    if (st.mode !== 'migrate') err('Not migrating tokens now.');
+    const r = a.region;
+    if (!migrateTargets(st).includes(r)) err('Mass Migration tokens move in a continuous line out of the current region.');
+    const k = st.kind;
+    if (!st.line.includes(r)) st.line.push(r);
+    st.pool[k]--; s.board[r][k]++; st.must = true; // once the first token has moved, the rest have to follow
+    emit(s, { type: 'spread', p, card: null, regions: [r], dis: st.card });
+    if (!st.pool.n) st.kind = 'i';
+    if (st.pool.n + st.pool.i === 0) {
+      log(s, `${D}: every token from ${REGIONS[st.from].name} moves on to ${st.line.map(x => REGIONS[x].name).join(' → ')}.`);
+      return nextDis(s);
+    }
+    return;
+  }
   if (a.type === 'dScatter') {
     if (st.mode !== 'scatter') err('Not placing tokens now.');
     const { region: r, kind } = a;
@@ -789,7 +815,7 @@ function disAct(s, p, a) {
   if (a.type === 'dDone') {
     if (st.must) err(`${D} must be finished.`);
     if (st.mode === 'remove') { finishRemove(s, false); return; }
-    if (st.mode === 'scatter') { s.board[st.from].n += st.pool.n; s.board[st.from].i += st.pool.i; }
+    if (st.mode === 'scatter' || st.mode === 'migrate') { s.board[st.from].n += st.pool.n; s.board[st.from].i += st.pool.i; }
     return nextDis(s);
   }
   err('Unknown Disruption action.');
@@ -857,6 +883,13 @@ function botDis(s, p) {
     return { type: 'dDest', region: pref || ok[0] };
   }
   if (st.mode === 'scatter') return { type: 'dDone' };
+  if (st.mode === 'migrate') {
+    const t = migrateTargets(st);
+    const score = r => role.map[r] ? (wantKind(r) === st.kind ? 2 : -2) : 0;
+    // only bother if it helps: the tokens would leave one of its own regions for the worse, or land somewhere useful
+    if (!st.must && !t.some(r => score(r) > 0)) return { type: 'dDone' };
+    return { type: 'dMigrate', region: t.reduce((b, r) => score(r) > score(b) ? r : b, t[0]) };
+  }
   if (st.mode === 'steal') {
     let best = null;
     s.players.forEach((o, k) => { if (k === p) return; for (const c of o.pile) if (!best || CARDS[c].impact > CARDS[best.card].impact) best = { from: k, card: c }; });
@@ -1008,7 +1041,7 @@ function applyAction(s, p, a) {
     case 'tourDecide': tourDecide(s, p, a.bottom); break;
     case 'draftDis': draftPick(s, p, a.card); break;
     case 'commitDis': commitDis(s, p, a.card || null); break;
-    case 'dRemove': case 'dDest': case 'dScatter': case 'dSteal': case 'dDone': disAct(s, p, a); break;
+    case 'dRemove': case 'dDest': case 'dMigrate': case 'dScatter': case 'dSteal': case 'dDone': disAct(s, p, a); break;
     default: err('Unknown action.');
   }
   refreshRisk(s); // Keystone is static: the Risk follows the Native tokens in the region

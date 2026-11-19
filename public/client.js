@@ -762,7 +762,7 @@ function chatStoreHtml(me) {
   return `<div class="panel-title" style="margin:6px 0 0">Chat lines <span class="hint" style="text-transform:none;letter-spacing:0">— ${CHAT[0].price} EB each. Everything the bots say. Equip up to ${CHAT_SLOTS} per character in its profile (click a character on the home page), then send them from the 💬 Chat button during a game.</span></div>
     <div class="skintabs">${tabs}</div><div class="chatlist">${rows}</div>`;
 }
-// Store section: foil versions of every Ecology and Disruption card (seen only by their owner when dealt)
+// Store section: foil versions of every Ecology and Disruption card (the owner sees them in hand; everyone sees them once played)
 const FOIL_DECKS = { Native: 'Native', Invasive: 'Invasive', Disruption: 'Disruption' };
 function foilStoreHtml(me) {
   const deck = FOIL_DECKS[acct.foilDeck] ? acct.foilDeck : 'Native';
@@ -777,7 +777,7 @@ function foilStoreHtml(me) {
       : `<button class="btn small brass" data-foilarm="${id}" ${me.balance < FOIL_PRICE ? 'disabled' : ''}>Buy · ${FOIL_PRICE} EB</button>`;
     return `<div class="foilitem">${card}${btn}</div>`;
   }).join('');
-  return `<div class="panel-title" style="margin:6px 0 0">Foil cards <span class="hint" style="text-transform:none;letter-spacing:0">— ${FOIL_PRICE} EB each. Whenever the card is dealt to you, it shines as foil (only you see it). Switch foils on or off per character in its profile. Hover a card to read it.</span></div>
+  return `<div class="panel-title" style="margin:6px 0 0">Foil cards <span class="hint" style="text-transform:none;letter-spacing:0">— ${FOIL_PRICE} EB each. Whenever the card is dealt to you, it shines as foil (in your hand only you see it; once you play it, everyone does). Switch foils on or off per character in its profile. Hover a card to read it.</span></div>
     <div class="skintabs">${tabs}</div><div class="foilgrid">${items}</div>`;
 }
 document.addEventListener('click', async e => {
@@ -895,7 +895,7 @@ function charCardsHtml(role, L) {
   const decks = { Native: Object.values(CARDS).filter(c => c.kind === 'Native').map(c => c.id), Invasive: Object.values(CARDS).filter(c => c.kind === 'Invasive').map(c => c.id), Disruption: Object.keys(DISRUPTIONS) };
   const mine = Object.fromEntries(Object.entries(decks).map(([d, ids]) => [d, ids.filter(id => ownedTs(id).length)]));
   const all = Object.values(mine).flat();
-  if (!all.length) return `<p class="hint">Card treatments make the cards dealt to you shine (only you see them). You don't own any yet: foil versions of every card are in the store.</p>
+  if (!all.length) return `<p class="hint">Card treatments make the cards dealt to you shine (everyone sees them once you play the card). You don't own any yet: foil versions of every card are in the store.</p>
     <button class="btn brass" data-gostore="foil">Browse foil cards</button>`;
   const deck = mine[acct.modal.deck] && mine[acct.modal.deck].length ? acct.modal.deck : Object.keys(mine).find(d => mine[d].length);
   const tabs = Object.keys(mine).filter(d => mine[d].length).map(d => `<button class="skintab ${d === deck ? 'on' : ''}" data-chardeck="${d}">${d} <small>${mine[d].filter(id => L.finish[id]).length}/${mine[d].length}</small></button>`).join('');
@@ -904,7 +904,7 @@ function charCardsHtml(role, L) {
     const opts = [{ id: 'none', name: 'Plain' }, ...ownedTs(id)].map(t => `<button class="seg ${cur === t.id ? 'on' : ''}" data-charfinish="${id}:${t.id}">${esc(t.name)}</button>`).join('');
     return `<div class="foilitem">${deck === 'Disruption' ? disEl(id, cls) : cardEl(id, cls)}<div class="segs">${opts}</div></div>`;
   }).join('');
-  return `<p class="hint" style="margin:0 0 8px">Choose, card by card, how your cards look when they're dealt to you as the ${esc(R.name)} (only you see them). New treatments will show up here as they arrive.</p>
+  return `<p class="hint" style="margin:0 0 8px">Choose, card by card, how your cards look when they're dealt to you as the ${esc(R.name)} (everyone at the table sees them once you play the card). New treatments will show up here as they arrive.</p>
     <div class="row" style="justify-content:space-between"><div class="skintabs">${tabs}</div>
       <div class="row"><button class="btn small brass" data-charfinishall="default">Everything on</button><button class="btn small" data-charfinishall="none">All plain</button></div></div>
     <div class="foilgrid" style="margin-top:8px">${items}</div>
@@ -1465,13 +1465,13 @@ function onUpdate(prev) {
   // phones: scroll to the map when you must click it, or to the play area when you must pick a biome or role
   if (prev && S.waiting === S.you && S.phase !== 'ended') {
     const stepNow = S.step && S.step.type, stepBefore = prev.step && prev.waiting === S.you && prev.step.type;
-    const mapStep = stepNow === 'place' || stepNow === 'predate' || (stepNow === 'dis' && ['remove', 'dest', 'scatter'].includes(S.step.mode));
+    const mapStep = stepNow === 'place' || stepNow === 'predate' || (stepNow === 'dis' && ['remove', 'dest', 'scatter', 'migrate'].includes(S.step.mode));
     if (mapStep && (stepNow !== stepBefore || (stepNow === 'dis' && prev.step.mode !== S.step.mode))) ui.scrollTo = 'board';
     else if (prev.waiting !== S.you && (S.phase === 'choose' || S.phase === 'draft')) ui.scrollTo = 'table';
   }
   // phones: after you've finished clicking the map, go back to the table; while you look at the table, the Map
   // switch shows a dot when the map changes
-  const myMapStep = v => v && v.waiting === v.you && v.step && (['place', 'predate'].includes(v.step.type) || (v.step.type === 'dis' && ['remove', 'dest', 'scatter'].includes(v.step.mode)));
+  const myMapStep = v => v && v.waiting === v.you && v.step && (['place', 'predate'].includes(v.step.type) || (v.step.type === 'dis' && ['remove', 'dest', 'scatter', 'migrate'].includes(v.step.mode)));
   if (prev && myMapStep(prev) && !myMapStep(S) && !ui.scrollTo) ui.scrollTo = 'table';
   if (prev && prev.board && S.board && ui.stage === 'map' && !myMapStep(S) && !ui.scrollTo && S.lastTrick && (!prev.lastTrick || prev.lastTrick.round !== S.lastTrick.round)) ui.scrollTo = 'table'; // a trick just ended: show it
   if (prev && prev.board && S.board && ui.stage !== 'map' && JSON.stringify(prev.board) !== JSON.stringify(S.board)) ui.mapNew = true;
@@ -1859,7 +1859,7 @@ function disEl(id, cls = '', extra = '', who = '') {
 // Card backs (drawn by tools/make_card_backs.js): change BACK_V whenever they are redrawn, so browsers fetch the new ones.
 const BACK_V = '20261115';
 const disBack = (who = '') => `<div class="card eco dis facedown"><img src="assets/cards/disruption/back.png?v=${BACK_V}" alt="Face-down Disruption">${who ? `<div class="who">${esc(who)}</div>` : ''}</div>`;
-// Card treatments (foil, …): shown only to the player who owns them, for cards dealt to them. Which treatment a
+// Card treatments (foil, …): shown to their owner on the cards dealt to them, and to everyone once played (see seatFoil). Which treatment a
 // card shows is set per character in its character profile; before a role is chosen, every owned one shows.
 function myLoadout(role) {
   const me = (S && S.myAccount) || acct.me;
@@ -1876,6 +1876,13 @@ function treatmentCls(id, role = S && S.role) {
   return T ? T.cls : '';
 }
 const foil = id => treatmentCls(id);
+// A card on the table: your own treatments from your loadout, other players' from what the server says they show.
+function seatFoil(p, id) {
+  if (p === S.you) return foil(id);
+  const t = S.players && S.players[p] && S.players[p].finish ? S.players[p].finish[id] : null;
+  const T = t && TREATMENTS.find(x => x.id === t);
+  return T ? T.cls : '';
+}
 function biomeEl(id, cls = '', extra = '') {
   const b = BIOMES[id];
   return `<div class="card bio ${cls}" data-peek="${b.img}" ${extra}><img src="${b.img}" alt="${esc(b.name)}"></div>`;
@@ -1895,8 +1902,9 @@ function boardHtml() {
     const target = myTurn && step && step.type === 'place' && S.placeTargets.includes(id);
     const dDest = disSt && disSt.mode === 'dest' && id !== disSt.from && placeOk;
     const dScatter = disSt && disSt.mode === 'scatter' && id !== disSt.from && placeOk;
-    const attr = target ? `data-place="${id}"` : dDest ? `data-ddest="${id}"` : dScatter ? `data-dscatter="${id}"` : '';
-    polys += `<polygon class="rg ${id === curRegion ? 'current' : ''} ${target || dDest || dScatter ? 'target' : ''}" points="${g.poly.map(p => p.join(',')).join(' ')}" ${attr}><title>${esc(REGIONS[id].name)}</title></polygon>`;
+    const dMig = disSt && disSt.mode === 'migrate' && S.placeTargets.includes(id);
+    const attr = target || dMig ? `data-${dMig ? 'dmig' : 'place'}="${id}"` : dDest ? `data-ddest="${id}"` : dScatter ? `data-dscatter="${id}"` : '';
+    polys += `<polygon class="rg ${id === curRegion ? 'current' : ''} ${target || dMig || dDest || dScatter ? 'target' : ''}" points="${g.poly.map(p => p.join(',')).join(' ')}" ${attr}><title>${esc(REGIONS[id].name)}</title></polygon>`;
     // natives on even spots, invasives on odd spots, so they mingle
     const spots = SPOTS[id];
     const draw = (kind, count, offset) => {
@@ -1995,8 +2003,8 @@ function trickDoneHtml() {
       </div>
     </div>
     <div class="played" style="--n:${lt.plays.length};--n2:${Math.ceil(lt.plays.length / 2)}">${lt.plays.map(pl => pl.card === lt.card
-      ? captioned(cardEl(pl.card, `winner ${pl.p === S.you ? foil(pl.card) : ''}`, `data-played="${pl.card}"`, '', `<div class="winribbon">${lt.crisis ? 'CRISIS!' : 'WINNER'}</div>`), who(pl.p), 'win')
-      : captioned(cardEl(pl.card, `loser ${pl.p === S.you ? foil(pl.card) : ''}`, `data-played="${pl.card}"`), who(pl.p), 'lose')).join('')}</div>
+      ? captioned(cardEl(pl.card, `winner ${seatFoil(pl.p, pl.card)}`, `data-played="${pl.card}"`, '', `<div class="winribbon">${lt.crisis ? 'CRISIS!' : 'WINNER'}</div>`), who(pl.p), 'win')
+      : captioned(cardEl(pl.card, `loser ${seatFoil(pl.p, pl.card)}`, `data-played="${pl.card}"`), who(pl.p), 'lose')).join('')}</div>
     <div class="holdbar"><span style="animation-duration:${ui.trickHold.ms}ms;animation-delay:-${elapsed}ms"></span></div>
   </div>`;
 }
@@ -2042,7 +2050,7 @@ function disPanelHtml() {
       : captioned(disBack(), S.players[i].name)).join('');
     if (!cards) cards = '<span class="dis-empty">Nothing committed yet.</span>';
   } else if (T.dis.length) {
-    cards = T.dis.map(d => captioned(disEl(d.card, d.p === S.you ? foil(d.card) : ''), S.players[d.p].name)).join('');
+    cards = T.dis.map(d => captioned(disEl(d.card, seatFoil(d.p, d.card)), S.players[d.p].name)).join('');
   } else cards = '<span class="dis-empty">No Disruptions this round.</span>';
   const fx = [];
   if (T.protest) fx.push('Risk is 0');
@@ -2082,7 +2090,7 @@ function tableHtml() {
         <div class="strip-cards guide">${guide.map(id => biomeEl(id, 'choosable', `data-choose="${id}"`)).join('')}</div></div>` : ''}
       ${lt ? `<div class="strip">
         <h3>Last trick — ${esc(S.players[lt.winner].name)} won${lt.crisis ? ' · <span style="color:#ffb3b3">Crisis!</span>' : ''}</h3>
-        <div class="strip-cards">${biomeEl(lt.biome)}${lt.plays.map(pl => cardEl(pl.card, pl.card === lt.card ? 'win' : '')).join('')}</div>
+        <div class="strip-cards">${biomeEl(lt.biome)}${lt.plays.map(pl => cardEl(pl.card, `${pl.card === lt.card ? 'win' : ''} ${seatFoil(pl.p, pl.card)}`)).join('')}</div>
       </div>` : ''}
     </div>`;
   }
@@ -2105,7 +2113,7 @@ function tableHtml() {
       </div>
       ${disPanelHtml()}
     </div>
-    <div class="played" style="--n:${slots};--n2:${Math.ceil(slots / 2)}">${S.trick.plays.map(pl => captioned(cardEl(pl.card, pl.p === S.you ? foil(pl.card) : '', `data-played="${pl.card}"`), seatName(pl.p) + (S.trick.shield && S.trick.shield.card === pl.card ? ' · stopped' : ''), S.trick.shield && S.trick.shield.card === pl.card ? 'stopped' : '')).join('')}${
+    <div class="played" style="--n:${slots};--n2:${Math.ceil(slots / 2)}">${S.trick.plays.map(pl => captioned(cardEl(pl.card, seatFoil(pl.p, pl.card), `data-played="${pl.card}"`), seatName(pl.p) + (S.trick.shield && S.trick.shield.card === pl.card ? ' · stopped' : ''), S.trick.shield && S.trick.shield.card === pl.card ? 'stopped' : '')).join('')}${
       // an empty slot for each card still to come, labelled with who plays it (the next one is marked)
       (S.trick.seq || S.players.map((_, k) => (S.leader + k) % n)).slice(S.trick.plays.length, slots).map((p, k) =>
         `<div class="pcard slot ${k === 0 && S.phase === 'play' ? 'next' : ''}"><div class="cardslot"></div><div class="pname">${k === 0 && S.phase === 'play' ? '▶ ' : ''}${esc(seatName(p))}</div></div>`).join('')}</div>
@@ -2146,7 +2154,7 @@ function renderGame() {
   if (isPhone() && tip && tip.focus === '.tablecol') ui.stage = 'table';
   const stage = ui.stage === 'map' ? 'map' : 'table';
   if (stage === 'map') ui.mapNew = false;
-  const mapTurn = isMine() && ((S.step && ['place', 'predate'].includes(S.step.type)) || (S.step && S.step.type === 'dis' && ['remove', 'dest', 'scatter'].includes(S.step.mode)) || ui.mode === 'landdev');
+  const mapTurn = isMine() && ((S.step && ['place', 'predate'].includes(S.step.type)) || (S.step && S.step.type === 'dis' && ['remove', 'dest', 'scatter', 'migrate'].includes(S.step.mode)) || ui.mode === 'landdev');
 
   view.html = `
   <div class="topbar">
@@ -2322,6 +2330,11 @@ function promptHtml() {
       return box(`${D}: ${st.must ? 'remove' : st.collect ? 'pick up' : 'you may remove'} ${st.quota || left < 100 ? `${left} more` : 'any number of'} ${kinds} token${left === 1 ? '' : 's'} from ${where}.<small>Click a blinking counter on the map.${st.collect ? ' Then you choose one region to move them to.' : ''}</small>`, done);
     }
     if (st.mode === 'dest') return box(`${D}: choose where the ${st.pool.n + st.pool.i} token${st.pool.n + st.pool.i === 1 ? '' : 's'} (${st.pool.n} Native, ${st.pool.i} Invasive) go.<small>Click a glowing region on the map.</small>`, done);
+    if (st.mode === 'migrate') {
+      const kind = st.kind === 'n' ? 'Native' : 'Invasive', left = st.pool[st.kind];
+      const then = st.kind === 'n' && st.pool.i ? ` Then the ${st.pool.i} Invasive token${st.pool.i === 1 ? '' : 's'}.` : '';
+      return box(`${D}: move ${left} more ${kind} token${left === 1 ? '' : 's'} out of ${esc(REGIONS[st.from].name)}.<small>Click a glowing region on the map. Tokens move in a continuous line that starts next door.${then}${st.must ? '' : ' Skip leaves them all where they are.'}</small>`, done);
+    }
     if (st.mode === 'scatter') {
       const kind = ui.scatterKind === 'i' && st.pool.i ? 'i' : st.pool.n ? 'n' : 'i';
       ui.scatterKind = kind;
@@ -2954,6 +2967,7 @@ function wire() {
   q('[data-commit]', el => { hidePeek(); act({ type: 'commitDis', card: el.dataset.commit || null }); });
   q('[data-dpick]', el => { const [region, kind] = el.dataset.dpick.split(':'); act({ type: 'dRemove', region, kind }); });
   $app.querySelectorAll('[data-ddest]').forEach(el => on(el, '[data-ddest]', () => act({ type: 'dDest', region: el.dataset.ddest })));
+  $app.querySelectorAll('[data-dmig]').forEach(el => on(el, '[data-dmig]', () => act({ type: 'dMigrate', region: el.dataset.dmig })));
   $app.querySelectorAll('[data-dscatter]').forEach(el => on(el, '[data-dscatter]', () => act({ type: 'dScatter', region: el.dataset.dscatter, kind: ui.scatterKind || 'n' })));
   q('[data-skind]', el => { ui.scatterKind = el.dataset.skind; render(); });
   q('#dDone', () => { ui.stealFrom = null; act({ type: 'dDone' }); });
