@@ -171,7 +171,7 @@
 
   // Role card art changes now and then (new objective numbers): bump CARD_V whenever a role card image is replaced,
   // so every browser fetches the new card at once instead of showing one it saved earlier.
-  const CARD_V = '20261119';
+  const CARD_V = '20261120';
   for (const r of Object.values(ROLES)) r.img += '?v=' + CARD_V;
 
   // Balance experiments only (test runs): EG_ROLE_TUNE='{"Tourist":{"anyPopPts":20}}' overrides role numbers.

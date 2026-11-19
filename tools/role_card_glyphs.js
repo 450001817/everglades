@@ -12,7 +12,8 @@ const PNG = require('./png.js');
 
 const PAPER = [247, 249, 240];
 const ROLES_DIR = path.join(__dirname, '..', 'public', 'assets', 'cards', 'roles');
-// What each card's objectives say, line by line (as printed; spaces mark word gaps)
+// What each card's objectives say, line by line (as printed on the ORIGINAL cards, before tools/update_role_cards.js;
+// read the library from a folder of those: buildLibrary(dir))
 const TEXT = {
   LandDeveloper: ['5pts: For each map', 'objective met.', '15pts: If there is no', 'population in at least', 'three regions.', '10pts: If you won the Most', 'total Tricks.'],
   Tourist: ['5pts: For each map', 'objective met.', '10pts: If all map objectives', 'met.', '20pts: If you won tricks', 'from only your map', 'objective regions.'],
@@ -62,11 +63,11 @@ function segmentsOf(card, y0, y1) {
 // Pass 1 keeps letters from words whose letters all stand apart; pass 2 also reads words where some letters touch
 // (r, t and f reach into the next letter: "re", "ta", "fro"), matching the ink pieces to letters by their widths,
 // and keeps only the pieces that hold a single letter.
-function buildLibrary() {
+function buildLibrary(dir = ROLES_DIR) {
   const glyphs = {}, gaps = [], spaces = [], pitches = [];
   const cards = [];
   for (const [role, text] of Object.entries(TEXT)) {
-    const card = readCard(path.join(ROLES_DIR, role + '.png'));
+    const card = readCard(path.join(dir, role + '.png'));
     if (card.lines.length < text.length) continue;
     const lines = card.lines.slice(0, text.length).map(([y0, y1], li) => {
       const segs = segmentsOf(card, y0, y1);

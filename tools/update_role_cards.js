@@ -4,8 +4,8 @@
 //    in red, the rest in black.
 //  * Left page (start-of-turn ability), when given: the body under the red heading is redrawn in the hand-made pixel
 //    font (tools/pixelfont.py), as on the Conservationist, Fisherman and Hunter cards.
-// Works on the original card images (in git: git show 920d2e8:public/assets/cards/roles/<Role>.png), so it can't be run twice on its own output.
-// Usage: node tools/update_role_cards.js <folder with the original cards> <output folder>
+// Works on the original card images (in git: git show 920d2e8:public/assets/cards/roles/<Role>.png for all six), so it can't be run twice on its own output.
+// Usage: node tools/update_role_cards.js <folder with all six original role cards> <output folder>
 // After replacing a role card, bump CARD_V in public/data.js so browsers fetch the new image.
 'use strict';
 const fs = require('fs'), path = require('path');
@@ -17,6 +17,15 @@ if (!srcDir || !outDir) { console.error('usage: node tools/update_role_cards.js 
 const RED = [237, 28, 36], BLACK = [0, 0, 0], PAPER = G.PAPER;
 // Each objective: its red label, then its words (wrapped by hand to fit the page, about 460 px wide).
 const CARDS = {
+  Conservationist: {
+    pitch: 37,
+    objectives: [
+      ['15pts:', 'For each map', 'objective met.'],
+      ['15pts:', 'If the total', 'population majority is', 'Native.'],
+      ['15pts:', 'If you never trigger', 'an Invasive crisis.'],
+    ],
+    redraw: ['15pts: If you never trigger'], // the printed "trigger" had a broken r and i
+  },
   LandDeveloper: {
     pitch: 37,
     objectives: [
@@ -56,7 +65,7 @@ function fill(img, x0, y0, x1, y1, rgb) {
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = (y * img.w + x) * 4; img.data[i] = rgb[0]; img.data[i + 1] = rgb[1]; img.data[i + 2] = rgb[2]; img.data[i + 3] = 255; }
 }
 
-const lib = G.buildLibrary();
+const lib = G.buildLibrary(srcDir); // (letters from all six original cards in the source folder)
 fs.mkdirSync(outDir, { recursive: true });
 for (const [role, spec] of Object.entries(CARDS)) {
   const img = PNG.read(path.join(srcDir, role + '.png'));
@@ -72,7 +81,7 @@ for (const [role, spec] of Object.entries(CARDS)) {
   for (const [label, ...rest] of spec.objectives) {
     rest.forEach((words, k) => {
       const y = base0 + line * spec.pitch, full = k === 0 ? label + ' ' + words : words;
-      const same = oldLines.find(o => o.text === full);
+      const same = !(spec.redraw || []).includes(full) && oldLines.find(o => o.text === full);
       if (same) {
         for (let yy = same.a - 1; yy <= same.b + 1; yy++) for (let xx = G.BOX.x0; xx <= 1006; xx++) {
           const si = (yy * orig.w + xx) * 4, di = ((yy - same.base + y) * img.w + xx) * 4;
