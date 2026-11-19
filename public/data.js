@@ -151,9 +151,9 @@
     },
     LandDeveloper: {
       name: 'Land Developer', img: 'assets/cards/roles/LandDeveloper.png', ending: 'assets/cards/roles/LandDeveloperENDING.png',
-      map: { NG: 'N', SG: 'N', KW: 'N', KL: 'N', M: 'I' }, mapPts: 5, emptyNeed: 3, emptyPts: 15,
+      map: { NG: 'N', SG: 'N', KW: 'N', KL: 'N', M: 'I' }, mapPts: 5, emptyNeed: 2, emptyPts: 15, crisisPts: 10,
       ability: 'Start of turn: remove 1 population token from any region.',
-      goals: ['5 pts for each map objective met', '15 pts if there is no population in at least three regions', '10 pts if you won the most total tricks'],
+      goals: ['5 pts for each map objective met', '15 pts if there is no population in at least two regions', '10 pts if you trigger the most Invasive Crises'],
     },
     Researcher: {
       name: 'Researcher', img: 'assets/cards/roles/Researcher.png', ending: 'assets/cards/roles/ResearcherENDING.png',
@@ -163,18 +163,18 @@
     },
     Tourist: {
       name: 'Tourist', img: 'assets/cards/roles/Tourist.png', ending: 'assets/cards/roles/TouristENDING.png',
-      map: { M: 'I', ENP: 'N', KL: 'N', FK: 'N', KW: 'N' }, mapPts: 5, allMetPts: 10, onlyObjPts: 20,
-      ability: 'Start of turn: look at the top card of the location deck. You may then replace it or put it on the bottom.',
-      goals: ['5 pts for each map objective met', '10 pts if all map objectives are met', '20 pts if you won tricks only from your map objective regions'],
+      map: { M: 'I', ENP: 'N', KL: 'N', FK: 'N', KW: 'N' }, mapPts: 5, anyPopPts: 10, onlyObjPts: 20,
+      ability: 'Start of turn: look at the top 2 cards of the Travel deck and put 1 on the bottom.',
+      goals: ['5 pts for each map objective met', '10 pts if there is at least 1 population in each of your map objectives', '20 pts if you did not win any tricks outside of your objective regions'],
     },
   };
 
   // Role card art changes now and then (new objective numbers): bump CARD_V whenever a role card image is replaced,
   // so every browser fetches the new card at once instead of showing one it saved earlier.
-  const CARD_V = '20261118';
+  const CARD_V = '20261119';
   for (const r of Object.values(ROLES)) r.img += '?v=' + CARD_V;
 
-  // Balance experiments only (test runs): EG_ROLE_TUNE='{"Tourist":{"allMetPts":20}}' overrides role numbers.
+  // Balance experiments only (test runs): EG_ROLE_TUNE='{"Tourist":{"anyPopPts":20}}' overrides role numbers.
   if (typeof process !== 'undefined' && process.env && process.env.EG_ROLE_TUNE) {
     const tune = JSON.parse(process.env.EG_ROLE_TUNE);
     for (const r of Object.keys(tune)) Object.assign(ROLES[r], tune[r]);

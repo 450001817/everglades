@@ -554,6 +554,7 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .prompt .msg small { display: block; font-family: var(--font-small); font-weight: 400; font-size: 18px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .prompt.yours { background: #fff3c4; }
 .prompt .card.bio { width: 58px; }
+.prompt .tourpick { display: inline-flex; align-items: center; gap: 6px; }
 .handrow { flex: 1; min-height: 0; display: flex; gap: 14px; align-items: stretch; }
 .hand { flex: 1; min-width: 0; display: flex; align-items: flex-end; padding: 0 0 2px 0; overflow-x: clip; }
 /* card slots shrink so a full hand always fits, overlapping like a fan */

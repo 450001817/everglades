@@ -135,8 +135,9 @@ module.exports = function makeAI(G) {
         case 'LandDeveloper': {
           const e = REGION_IDS.reduce((a, r) => a + L((0.5 - b[r].n - b[r].i) / (0.35 + 0.25 * R)), 0);
           v += Rl.emptyPts * L((e - (Rl.emptyNeed - 0.5)) / 0.45);
-          const mine = totalTricks(k), best = Math.max(0, ...others.map(totalTricks));
-          if (mine > 0.05) v += 10 * L((mine - best + 0.25) / tsig);
+          // the most Invasive Crises triggered (so far; more can come while rounds remain)
+          const crises = q => s.players[q].stats.crises, mine = crises(k), best = Math.max(0, ...others.map(crises));
+          if (mine > 0) v += Rl.crisisPts * L((mine - best + 0.25) / (0.5 + 0.15 * R));
           break;
         }
         case 'Researcher': {
@@ -148,10 +149,12 @@ module.exports = function makeAI(G) {
           break;
         }
         case 'Tourist': {
-          v += Rl.allMetPts * mets.reduce((a, x) => a * x, 1);
+          // at least 1 population in each objective region
+          v += Rl.anyPopPts * objs.reduce((a, r) => a * L((b[r].n + b[r].i - 0.5) / (0.35 + 0.25 * R)), 1);
+          // no tricks won outside the objective regions (winning none counts too)
           const off = pl.biomesWon.filter(id => !Rl.map[BIOMES[id].region]).length;
           const inObj = objs.length / REGION_IDS.length;
-          if (off === 0) v += Rl.onlyObjPts * (pl.biomesWon.length ? 1 : (R > 0 ? 0.6 : 0)) * Math.pow(inObj, fut[k].all * 0.6);
+          if (off === 0) v += Rl.onlyObjPts * Math.pow(inObj, fut[k].all * 0.6);
           break;
         }
       }
@@ -248,14 +251,16 @@ module.exports = function makeAI(G) {
     return search(s, p, opts.map(biome => ({ type: 'chooseBiome', biome })), (c, a) => G.applyAction(c, p, a), BUDGET * 0.7);
   }
 
-  // Tourist peek: keep the top biome if the bot would rather see it come up.
+  // Tourist: of the top 2 Travel cards, put the one the bot would rather not see come up on the bottom.
   function tourDecide(s, p) {
-    const id = s.tourPeek, pl = s.players[p], Rl = ROLES[pl.role];
-    const S = strengths(s, p, false), suit = BIOMES[id].suit;
-    const share = S[p][suit] / (S.reduce((a, o) => a + o[suit], 0) || 1);
-    const people = s.players.filter(x => !x.boss).length;
-    const good = (Rl.map[BIOMES[id].region] ? 1 : 0) + (share > 1 / people ? 1 : 0) - (pl.role === 'Researcher' ? 1 : 0);
-    return { type: 'tourDecide', bottom: good <= 0 };
+    const pl = s.players[p], Rl = ROLES[pl.role], [a, b] = s.tourPeek;
+    if (!b) return { type: 'tourDecide', bottom: a };
+    const S = strengths(s, p, false), people = s.players.filter(x => !x.boss).length;
+    const good = id => {
+      const suit = BIOMES[id].suit, share = S[p][suit] / (S.reduce((t, o) => t + o[suit], 0) || 1);
+      return (Rl.map[BIOMES[id].region] ? 1 : 0) + (share > 1 / people ? 1 : 0) - (pl.role === 'Researcher' ? 1 : 0);
+    };
+    return { type: 'tourDecide', bottom: good(a) < good(b) ? a : b }; // (a tie: the second goes, the first stays on top)
   }
 
   // Start-of-turn abilities: used when they improve the position.

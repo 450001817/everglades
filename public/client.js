@@ -16,7 +16,7 @@ const ACTIVE_ABILITY = {
   Hunter: 'Swap with scoring pile (Land)',
   Researcher: 'Swap with scoring pile',
   LandDeveloper: 'Remove a token',
-  Tourist: 'Peek at location deck',
+  Tourist: 'Look at the top 2 Travel cards',
 };
 const SUIT_ORDER = { Water: 0, Wetland: 1, Land: 2 };
 // Bot speed (set by the host; the server does the pacing)
@@ -2341,10 +2341,12 @@ function promptHtml() {
   }
   if (st?.type === 'place') return box(`Migratory: place ${st.left} more ${CARDS[st.card].kind} token${st.left > 1 ? 's' : ''}.<small>Click a glowing region on the map. Tokens spread in a continuous line from the current region.</small>`);
   if (st?.type === 'predate') return box(`Predatory: first remove up to ${st.left} token${st.left > 1 ? 's' : ''} — Native or Invasive.<small>Click a blinking green or red counter on the map. ${esc(CARDS[st.card].name)}'s own tokens are added after the hunt.</small>`, `<button class="btn" id="predDone">Done hunting</button>`);
-  if (S.tourPeek) {
-    const b = BIOMES[S.tourPeek];
-    return box(`Top of the location deck: <b>${esc(b.name)}</b><small>${esc(REGIONS[b.region].name)} · ${b.suit} · Risk ${b.risk}</small>`,
-      `${biomeEl(S.tourPeek)}<button class="btn" data-tour="0">Leave on top</button><button class="btn brass" data-tour="1">Put on bottom</button>`);
+  if (S.tourPeek) { // Tourist: the top 2 cards of the Travel deck; one goes to the bottom, the other stays on top
+    const peek = [].concat(S.tourPeek), info = id => `${esc(BIOMES[id].name)} (${esc(REGIONS[BIOMES[id].region].name)} · ${BIOMES[id].suit} · Risk ${BIOMES[id].risk})`;
+    if (peek.length < 2) return box(`Top of the Travel deck: <b>${info(peek[0])}</b><small>It's the last card, so it stays where it is.</small>`,
+      `${biomeEl(peek[0])}<button class="btn brass" data-tour="${peek[0]}">OK</button>`);
+    return box(`Top 2 cards of the Travel deck: put 1 on the bottom.<small>1st: ${info(peek[0])} · 2nd: ${info(peek[1])}. The other stays on top.</small>`,
+      peek.map((id, k) => `<span class="tourpick">${biomeEl(id)}<button class="btn ${k ? '' : 'brass'}" data-tour="${id}">Bottom ${k ? '2nd' : '1st'}</button></span>`).join(''));
   }
   if (ui.mode === 'landdev') { return box('Land Developer: click any counter on the map to remove 1 token.', `<button class="btn" id="cancelMode">Cancel</button>`); }
   const suit = S.trick.suit || BIOMES[S.trick.biome].suit;
@@ -2477,7 +2479,7 @@ const COACH = [
   { id: 'offsuit', when: () => S.lastTrick && S.lastTrick.matched === false, title: 'Nobody matched',
     body: () => 'When no card matches the suit, the highest-Impact <b>off-suit</b> card wins. Invasive cards above the Invasive Risk can never win this way.' },
   { id: 'rivals', when: () => S.lastTrick && S.phase !== 'ended' && !S.trick, focus: '.players', title: 'Your rivals',
-    body: () => `Everyone's role is public. ${isPhone() ? 'Tap' : 'Hover'} a player to read their goals. ${S.players.map((p, i) => i === S.you ? '' : `<b>${esc(p.name)}</b> is the ${esc(ROLES[p.role].name)}.`).join(' ')} The Land Developer wants Invasives in Miami, empty regions and the most tricks. Get in their way when you can.` },
+    body: () => `Everyone's role is public. ${isPhone() ? 'Tap' : 'Hover'} a player to read their goals. ${S.players.map((p, i) => i === S.you ? '' : `<b>${esc(p.name)}</b> is the ${esc(ROLES[p.role].name)}.`).join(' ')} The Land Developer wants Invasives in Miami, empty regions and the most Invasive Crises. Get in their way when you can.` },
   { id: 'end', when: () => S.phase === 'ended' && !holding(), title: 'Final scoring',
     body: () => "The game ends when the cards run out. Each player scores 5 points per trick plus their role's objectives, and the table shows how every score was made. That's the whole game! Real tables have 2 to 6 players, a role draft, character abilities, Partners and Co-op modes, and optional Disruption cards." },
 ];
@@ -2958,7 +2960,7 @@ function wire() {
   q('[data-stealfrom]', el => { ui.stealFrom = +el.dataset.stealfrom; render(); });
   q('#stealBack', () => { ui.stealFrom = null; render(); });
   q('[data-steal]', el => { const from = ui.stealFrom; ui.stealFrom = null; hidePeek(); act({ type: 'dSteal', from, card: el.dataset.steal }); });
-  q('[data-tour]', el => act({ type: 'tourDecide', bottom: el.dataset.tour === '1' }));
+  q('[data-tour]', el => act({ type: 'tourDecide', bottom: el.dataset.tour }));
   q('[data-protect]', el => act({ type: 'protect', block: el.dataset.protect === '1' }));
   q('#cancelMode', () => { ui.mode = null; ui.swapHand = ui.swapPile = null; render(); });
   q('#ability', () => {

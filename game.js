@@ -549,19 +549,26 @@ function useAbility(s, p, a) {
     pl.stats[kind === 'n' ? 'bulldozedN' : 'bulldozedI']++;
     log(s, `${pl.name} removes 1 ${kind === 'n' ? 'Native' : 'Invasive'} token from ${REGIONS[region].name}.`);
   } else if (role === 'Tourist') {
-    if (!s.biomeDeck.length) err('The location deck is empty.');
-    s.tourPeek = s.biomeDeck[0];
+    // look at the top 2 cards of the Travel deck; one of them then goes to the bottom (tourDecide)
+    if (!s.biomeDeck.length) err('The Travel deck is empty.');
+    s.tourPeek = s.biomeDeck.slice(0, 2);
     s.abilityUsed = true;
-    log(s, `${pl.name} peeks at the top of the location deck.`);
+    log(s, `${pl.name} looks at the top ${s.tourPeek.length > 1 ? '2 cards' : 'card'} of the Travel deck.`);
   } else err('Your role has no start-of-turn action.');
   pl.stats.abilities++;
   emit(s, { type: 'ability', p, role, region: a.region || null, kind: a.kind || null });
 }
 
+// The Tourist puts 1 of the 2 cards they looked at on the bottom of the Travel deck; the other stays on top.
+// (With only 1 card left in the deck there's nothing to reorder.)
 function tourDecide(s, p, bottom) {
   if (p !== s.turn || !s.tourPeek) err('Nothing to decide.');
-  if (bottom) { s.biomeDeck.push(s.biomeDeck.shift()); log(s, `${pname(s, p)} puts it on the bottom.`); }
-  else log(s, `${pname(s, p)} leaves it on top.`);
+  if (s.tourPeek.length > 1) {
+    if (!s.tourPeek.includes(bottom)) err('Pick one of the two cards to put on the bottom.');
+    s.biomeDeck.splice(s.biomeDeck.indexOf(bottom), 1);
+    s.biomeDeck.push(bottom);
+    log(s, `${pname(s, p)} puts a card on the bottom of the Travel deck.`);
+  }
   s.tourPeek = null;
 }
 
@@ -890,15 +897,17 @@ function computeResults(s) {
     } else if (role === 'LandDeveloper') {
       const empty = REGION_IDS.filter(r => b[r].n + b[r].i === 0).length;
       lines.push({ label: `No population in ${R.emptyNeed}+ regions (${empty} empty)`, pts: empty >= R.emptyNeed ? R.emptyPts : 0 });
-      lines.push({ label: `Most total tricks (${tricks[p]})`, pts: tricks[p] > 0 && tricks[p] === maxOf(tricks) ? 10 : 0 });
+      const crises = people.map(x => x.stats.crises), mine = crises[p];
+      lines.push({ label: `Triggered the most Invasive Crises (${mine})`, pts: mine > 0 && mine === maxOf(crises) ? R.crisisPts : 0 });
     } else if (role === 'Researcher') {
       const tax = new Set(pl.pile.map(c => CARDS[c].taxon));
       lines.push({ label: `6 unique taxonomies in scoring pile (${tax.size})`, pts: tax.size >= 6 ? 15 : 0 });
       lines.push({ label: `Fewest tricks (${tricks[p]})`, pts: tricks[p] === minOf(tricks) ? 10 : 0 });
     } else if (role === 'Tourist') {
-      lines.push({ label: 'All map objectives met', pts: met.length === objRegions.length ? R.allMetPts : 0 });
-      const only = pl.biomesWon.length > 0 && pl.biomesWon.every(id => R.map[BIOMES[id].region]);
-      lines.push({ label: 'Won tricks only from objective regions', pts: only ? R.onlyObjPts : 0 });
+      const bare = objRegions.filter(r => b[r].n + b[r].i === 0).length;
+      lines.push({ label: `At least 1 population in each objective region${bare ? ` (${bare} empty)` : ''}`, pts: bare === 0 ? R.anyPopPts : 0 });
+      const outside = pl.biomesWon.filter(id => !R.map[BIOMES[id].region]).length; // (winning no tricks at all counts too)
+      lines.push({ label: `No tricks won outside objective regions${outside ? ` (${outside} outside)` : ''}`, pts: outside === 0 ? R.onlyObjPts : 0 });
     }
     lines.push({ label: `Tricks won: ${tricks[p]} × ${TRICK_POINTS}`, pts: tricks[p] * TRICK_POINTS });
     const total = lines.reduce((a, l) => a + l.pts, 0);
@@ -996,7 +1005,7 @@ function applyAction(s, p, a) {
     case 'predate': predate(s, p, a.region, a.kind); break;
     case 'predateDone': predateDone(s, p); break;
     case 'ability': useAbility(s, p, a); break;
-    case 'tourDecide': tourDecide(s, p, !!a.bottom); break;
+    case 'tourDecide': tourDecide(s, p, a.bottom); break;
     case 'draftDis': draftPick(s, p, a.card); break;
     case 'commitDis': commitDis(s, p, a.card || null); break;
     case 'dRemove': case 'dDest': case 'dScatter': case 'dSteal': case 'dDone': disAct(s, p, a); break;
@@ -1058,7 +1067,7 @@ function simpleBot(s, p) {
     }
     return { type: 'chooseBiome', biome: best };
   }
-  if (s.tourPeek) return { type: 'tourDecide', bottom: !role.map[BIOMES[s.tourPeek].region] }; // keep biomes in its objective regions on top
+  if (s.tourPeek) { const [a, b] = s.tourPeek; return { type: 'tourDecide', bottom: !b || !role.map[BIOMES[a].region] ? a : b }; } // keep biomes in its objective regions on top
   if (s.step && s.step.type === 'place') {
     // Spread toward regions where the bot's role wants this kind of population.
     const t = placeTargets(s);
@@ -1132,7 +1141,7 @@ function easyBot(s, p, rnd = Math.random) {
     const opts = s.guide && s.guide.p === p ? [...s.travel, ...s.guide.options] : s.travel;
     return { type: 'chooseBiome', biome: best(opts, id => mine(BIOMES[id].region) ? 1.5 : 0) };
   }
-  if (s.tourPeek) return { type: 'tourDecide', bottom: !mine(BIOMES[s.tourPeek].region) };
+  if (s.tourPeek) { const [a, b] = s.tourPeek; return { type: 'tourDecide', bottom: !b || !mine(BIOMES[a].region) ? a : b }; }
   // the Conservationist's block: only for its own protected regions, and not always
   if (s.step && s.step.type === 'protect') { const r = trickRegion(s); return { type: 'protect', block: mine(r) && want(r) === 'n' && rnd() < 0.6 }; }
   if (s.step && s.step.type === 'place') { // spread toward its own objectives
@@ -1296,7 +1305,10 @@ function botSay(s, p, a) {
       if (pl.role === 'Fisherman') return `Swapping catches — keeping my ${CARDS[a.pileCard].name}.`;
       if (pl.role === 'Hunter') return `Trading trophies — back on the trail of ${CARDS[a.pileCard].name}.`;
       return null;
-    case 'tourDecide': return a.bottom ? `Skipping ${BIOMES[s.tourPeek].name}. Too touristy.` : `${BIOMES[s.tourPeek].name} stays on my itinerary!`;
+    case 'tourDecide': {
+      const keep = (s.tourPeek || []).find(id => id !== a.bottom);
+      return keep ? `${BIOMES[keep].name} stays on my itinerary!` : a.bottom && BIOMES[a.bottom] ? `Skipping ${BIOMES[a.bottom].name}. Too touristy.` : null;
+    }
     case 'place': return s.step.left === 1 ? `${CARDS[s.step.card].name} spreads to ${rn(a.region)}!` : null;
     case 'predate': return s.step.left < CARDS[s.step.card].predatory ? null : `${CARDS[s.step.card].name} hunts ${a.kind === 'n' ? 'Natives' : 'Invasives'} in ${rn(a.region)}.`;
     default: return null;
