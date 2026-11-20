@@ -21,6 +21,82 @@ const SUITS = ['Wetland', 'Water', 'Land'];
 const L = x => 1 / (1 + Math.exp(-x));
 const BUDGET = +process.env.BOT_BUDGET || 900; // play-outs per decision (a few ms each) // logistic: a soft "is this above zero?"
 
+// ---------- role draft: how well a dealt hand serves each role ----------
+// Expected points from each role's objectives, judged only from the cards in hand.
+//  * A Native card follows a biome of its own habitat; an Invasive follows any biome whose Risk is at least its
+//    Impact. Natives top out at Impact 9, so a matched Invasive of Impact 10+ ("dominant") beats every Native,
+//    and winning with an Invasive sets off a Crisis (which also thins out the board).
+//  * winChance(c) is a rough chance that card takes the trick it's played in; a hand's expected tricks is the sum.
+const BIOME_LIST = Object.values(BIOMES);
+const suitShare = h => BIOME_LIST.filter(b => b.suit === h).length / BIOME_LIST.length;
+const riskShare = i => BIOME_LIST.filter(b => b.risk >= i).length / BIOME_LIST.length; // biomes an Invasive of Impact i follows
+const clamp01 = x => Math.max(0, Math.min(1, x));
+function winChance(c) {
+  if (c.kind === 'Invasive') return riskShare(c.impact) * (c.impact >= 10 ? 0.9 : 0.15 + c.impact / 15);
+  return Math.min(1, suitShare(c.habitat) * 1.6) * Math.pow(c.impact / 9, 1.4) * 0.85;
+}
+function handFit(handIds, np = 4) {
+  const hand = handIds.map(id => CARDS[id]);
+  const nat = hand.filter(c => c.kind === 'Native'), inv = hand.filter(c => c.kind === 'Invasive');
+  const pop = cs => cs.reduce((a, c) => a + c.pop, 0);
+  const natPop = pop(nat), invPop = pop(inv), natShare = natPop / Math.max(1, natPop + invPop);
+  const tricks = hand.reduce((a, c) => a + winChance(c), 0) * 0.7;            // expected tricks won (4 players contest each)
+  const crises = inv.reduce((a, c) => a + winChance(c), 0) * 0.7;             // expected Crises set off
+  const dominant = inv.filter(c => c.impact >= 10).length;
+  const fairTricks = hand.length / Math.max(2, np);
+  // a map objective: Native regions lean on the Native population you bring, Invasive regions on the Invasive
+  const mapP = kind => clamp01(kind === 'N' ? 0.3 + 0.5 * (natShare - 0.5) + 0.03 * nat.filter(c => c.keystone).length
+                                            : 0.3 + 0.5 * (0.5 - natShare));
+  const mapPts = role => { const R = ROLES[role]; return Object.values(R.map).reduce((a, k) => a + R.mapPts * mapP(k), 0); };
+  const suitWins = h => nat.filter(c => c.habitat === h).reduce((a, c) => a + winChance(c), 0) * 0.7;
+  const suitPop = h => pop(nat.filter(c => c.habitat === h));
+  const R = ROLES, fit = {};
+  // Land Developer: the most Crises needs several dominant Invasives; Crises and the token-removing ability empty regions
+  fit.LandDeveloper = mapPts('LandDeveloper')
+    + R.LandDeveloper.crisisPts * L((crises - 1.3) * 2.5) * (dominant >= 2 ? 1 : 0.5)
+    + R.LandDeveloper.emptyPts * clamp01(0.3 + 0.15 * crises + 0.04 * hand.filter(c => c.predatory).length);
+  // Conservationist: big Native population for the majority and its map regions; Invasives that would win are Crisis risks
+  fit.Conservationist = mapPts('Conservationist')
+    + R.Conservationist.majorityPts * clamp01(0.35 + 0.6 * (natShare - 0.55))
+    // (an Invasive can usually be dumped where it doesn't follow, so each one is only a modest Crisis risk)
+    + R.Conservationist.noCrisisPts * inv.reduce((a, c) => a * (1 - 0.3 * winChance(c)), 1);
+  // Fisherman / Hunter: strong Natives of their habitat win its tricks and fill its regions
+  fit.Fisherman = mapPts('Fisherman') + 15 * L((suitWins('Water') - 0.9) * 2.5) + 10 * L((suitPop('Water') - 9) / 3);
+  fit.Hunter = mapPts('Hunter') + 15 * L((suitWins('Land') - 0.9) * 2.5) + 15 * L((suitPop('Land') - 9) / 3);
+  // Researcher: a weak hand wins the fewest tricks; many taxonomies in hand feed the pile (and its swap ability)
+  fit.Researcher = mapPts('Researcher') + 10 * L((fairTricks * 0.7 - tricks) * 1.5)
+    + 15 * clamp01(0.15 + 0.12 * (new Set(hand.map(c => c.taxon)).size - 3));
+  // Tourist: any trick won outside its objective regions costs the 20, so a hand that seldom wins suits it
+  const objShare = BIOME_LIST.filter(b => R.Tourist.map[b.region]).length / BIOME_LIST.length;
+  fit.Tourist = mapPts('Tourist') + R.Tourist.onlyObjPts * Math.exp(-0.9 * tricks * (1 - objShare))
+    + R.Tourist.anyPopPts * clamp01(0.35 + 0.01 * (natPop + invPop));
+  return fit;
+}
+// How well a hand suits each role compared with a typical hand of the same size *for that role*: the fit's z-score
+// against random deals. Roles whose objectives are simply worth more points don't win the draft by default; the
+// hand decides. (The baseline is sampled once per hand size from a fixed-seed shuffle of the deck.)
+const FIT_BASE = {};
+function fitBaseline(size, np) {
+  const key = size + '/' + np;
+  if (FIT_BASE[key]) return FIT_BASE[key];
+  let seed = 12345;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const ids = Object.keys(CARDS), sum = {}, sq = {}, N = 3000;
+  for (let k = 0; k < N; k++) {
+    const d = ids.slice();
+    for (let i = d.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [d[i], d[j]] = [d[j], d[i]]; }
+    for (const [r, v] of Object.entries(handFit(d.slice(0, size), np))) { sum[r] = (sum[r] || 0) + v; sq[r] = (sq[r] || 0) + v * v; }
+  }
+  const out = {};
+  for (const r of Object.keys(sum)) { const m = sum[r] / N; out[r] = { mean: m, sd: Math.sqrt(Math.max(1e-6, sq[r] / N - m * m)) }; }
+  return (FIT_BASE[key] = out);
+}
+function handAlignment(handIds, np = 4) {
+  const fit = handFit(handIds, np), base = fitBaseline(handIds.length, np), out = {};
+  for (const r of Object.keys(fit)) out[r] = (fit[r] - base[r].mean) / base[r].sd;
+  return out;
+}
+
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
   return a;
@@ -303,24 +379,13 @@ module.exports = function makeAI(G) {
     return best || { type: 'dDone' };
   }
 
-  // Role draft: what the hand is good for (with a little variety).
+  // Role draft: pick the role this hand is built for. Each role's objectives are scored on these cards (handFit) and
+  // compared with a typical hand for that role (handAlignment); nothing comes from simulated win rates.
   function pickRole(s, p) {
-    const hand = s.players[p].hand.map(id => CARDS[id]);
-    const top = (f, n) => hand.filter(f).map(c => c.impact).sort((a, b) => b - a).slice(0, n).reduce((a, x) => a + x, 0);
-    const nat = c => c.kind === 'Native';
-    const allPow = hand.reduce((a, c) => a + c.impact * c.impact * (nat(c) ? 1 : 0.45), 0) / Math.max(1, hand.length);
-    const score = {
-      Fisherman: 6 + top(c => nat(c) && c.habitat === 'Water', 4) * 0.55,
-      Hunter: 7 + top(c => nat(c) && c.habitat === 'Land', 4) * 0.6,
-      LandDeveloper: 4 + allPow * 0.32,
-      Researcher: 26 - allPow * 0.38 + new Set(hand.map(c => c.taxon)).size * 0.4,
-      Conservationist: 10 + hand.filter(nat).length * 0.45 + hand.filter(c => c.keystone).length * 1.5,
-      Tourist: 15,
-    };
-    if (s.coop) { score.Conservationist += 3; score.Hunter += 2; } // Native-majority goals pull together against the Anaconda
+    const fit = handAlignment(s.players[p].hand, s.np);
     const av = G.availableRoles(s);
     let best = av[0], bv = -Infinity;
-    for (const r of av) { const v = (score[r] || 10) + Math.random() * 3; if (v > bv) { bv = v; best = r; } }
+    for (const r of av) { const v = (fit[r] || 0) + Math.random() * 0.25; if (v > bv) { bv = v; best = r; } } // a little variety on near-ties
     return best;
   }
 
@@ -369,5 +434,5 @@ module.exports = function makeAI(G) {
     return cands[bi];
   }
 
-  return { decide, draftPick, commit, value, estimates };
+  return { decide, draftPick, commit, value, estimates, handFit, handAlignment };
 };
