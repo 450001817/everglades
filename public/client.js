@@ -1784,7 +1784,7 @@ function renderLobby() {
           <div><div class="panel-title" style="margin:0">Buy-in</div>
             ${S.buyIn === 0 ? '<span style="font-size:18px"><b>Free table</b></span> <span class="hint">· just for fun: no risk, no reward</span>'
               : `<span style="font-size:18px">${fmtEB(S.buyIn)} per player</span> <span class="hint">· pot ${fmtEB(S.buyIn * tableSize)} with ${tableSize} seats</span>`}</div>
-          ${S.isHost ? `<div class="modepick">${S.buyIns.map(b => `<button class="btn small ${S.buyIn === b ? 'brass' : ''}" data-buyin="${b}" ${b === 0 ? 'title="Play just for fun: no Eco-bucks are bet or won"' : ''}>${b === 0 ? 'Free' : b + ' EB'}</button>`).join('')}</div>` : ''}
+          ${S.isHost ? `<div class="modepick bidpick">${S.buyIns.map(b => `<button class="btn small ${S.buyIn === b ? 'brass' : ''}" data-buyin="${b}" ${b === 0 ? 'title="Play just for fun: no Eco-bucks are bet or won"' : ''}>${b === 0 ? 'Free' : b + ' EB'}</button>`).join('')}</div>` : ''}
         </div>
         ${S.buyIn === 0 ? '<p class="hint" style="margin:2px 0 0">Nobody pays in and nobody gets paid out. Your Eco-bucks stay exactly where they are.</p>' : `<p class="hint" style="margin:2px 0 0">${S.mode === 'coop'
           ? 'Co-op: beat the Anaconda and everyone gets double their bet back. Lose, and everyone loses it.'
@@ -2010,15 +2010,25 @@ function trickDoneHtml() {
 }
 
 // Disruption draft: pick 1 card from your pack; the rest pass clockwise.
+// Once you've picked, your card goes straight into your hand and the next pack waits face down until the player
+// before you has picked too and passed it on; then the cards flip over and you pick again.
 function ddraftHtml() {
   const D = S.ddraft;
   const waitingNames = D.waiting.map(p => S.players[p].name);
   const canPick = S.you >= 0 && !D.picked && D.pack.length;
+  const mine = D.picked ? [...S.dis, D.picked] : S.dis;
+  if (D.picked) ui.ddraftBacks = D.round; // the face-down pack is on show for this round
+  const flip = canPick && ui.ddraftBacks === D.round - 1; // the pack you were waiting on just arrived
+  const grid = canPick
+    ? D.pack.map(id => disEl(id, `choosable ${flip ? 'flipin' : ''} ${foil(id)}`, `data-ddraft="${id}"`)).join('')
+    : D.picked && D.incoming ? Array.from({ length: D.incoming }, () => disBack()).join('') : '';
+  const head = canPick ? `▶ Disruption draft — pick ${D.round === 0 ? 'your first' : 'your second'} card <span style="color:var(--blush)">(the rest pass clockwise)</span>`
+    : D.picked && D.incoming ? `Waiting for ${esc(waitingNames.join(', ') || '…')} to pass you the next cards…`
+    : `Waiting for ${esc(waitingNames.join(', ') || '…')} to finish drafting…`;
   return `<div class="tabletop draft">${terrainHtml(null)}<div class="players-mini">${playersHtml(true)}</div>
-    <h3>${canPick ? `▶ Disruption draft — pick ${D.round === 0 ? 'your first' : 'your second'} card` : `Waiting for ${esc(waitingNames.join(', ') || '…')}…`}
-      <span style="color:var(--blush)">(the rest pass clockwise)</span></h3>
-    <div class="rolegrid ${canPick ? 'choosing' : ''}">${D.pack.map(id => disEl(id, `${canPick ? 'choosable' : ''} ${D.picked === id ? 'sel' : ''} ${foil(id)}`, canPick ? `data-ddraft="${id}"` : '')).join('')}</div>
-    ${S.dis.length ? `<div class="strip"><h3>Your Disruptions</h3><div class="strip-cards">${S.dis.map(id => disEl(id, foil(id))).join('')}</div></div>` : ''}
+    <h3>${head}</h3>
+    <div class="rolegrid ${canPick ? 'choosing' : 'dealt'}">${grid}</div>
+    ${mine.length ? `<div class="strip"><h3>Your Disruptions</h3><div class="strip-cards">${mine.map(id => disEl(id, `${id === D.picked ? 'dealin' : ''} ${foil(id)}`)).join('')}</div></div>` : ''}
   </div>`;
 }
 // The play area's ground shows the round's suit: dry earth (Land), pools and mud (Wetland) or open sea (Water), all
@@ -2247,7 +2257,7 @@ function switchStage(to, dir) {
   if (to === (ui.stage === 'map' ? 'map' : 'table')) return;
   ui.stage = to; ui.slide = dir || (to === 'map' ? 'left' : 'right');
   clearTimeout(switchStage.t); switchStage.t = setTimeout(() => { ui.slide = null; }, 400);
-  hidePeek(); render();
+  hidePeek(); render(); placeBubbles();
 }
 document.addEventListener('touchstart', e => {
   swipeAt = null;
@@ -2301,7 +2311,7 @@ function promptHtml() {
   // Disruptions: the simultaneous parts (everyone decides at once)
   if (S.phase === 'ddraft' && S.ddraft) {
     if (S.you >= 0 && !S.ddraft.picked) return yours(`Disruption draft: pick 1 card from your pack.<small>${isPhone() ? 'Tap' : 'Click'} a card in the play area. The rest pass clockwise; you'll keep 2.</small>`);
-    return `<div class="paper spiral prompt"><div class="msg">Waiting for ${names(S.ddraft.waiting)} to pick…</div></div>`;
+    return `<div class="paper spiral prompt"><div class="msg">Waiting for ${names(S.ddraft.waiting)} to pick…<small>${S.ddraft.picked ? `You took ${esc(DISRUPTIONS[S.ddraft.picked].name)}.${S.ddraft.incoming ? ' Your next cards arrive face down until they pass them on.' : ''}` : ''}</small></div></div>`;
   }
   if (S.phase === 'disrupt' && S.dcommit) {
     if (S.you >= 0 && S.dcommit.waiting.includes(S.you)) return yours('Disruption phase: commit 1 Disruption card face down, or pass.<small>All committed cards are revealed together, then activated in turn order. Hover a card to read it.</small>',
@@ -2827,18 +2837,31 @@ function placeBubbles() {
   if (!$bubbles) return;
   const now = Date.now();
   let html = '';
-  // phones have room for one speech bubble at a time: show only the newest
+  // Phones have room for one speech bubble at a time (the newest), and only over the trick board: on the map it
+  // would cover the population counters. It always hangs under the speaker, its tail aimed at their portrait.
+  const phone = isPhone(), onMap = phone && ui.stage === 'map';
   const newest = Math.max(0, ...Object.values(ui.bubbles).map(b => b.id));
   for (const [seat, b] of Object.entries(ui.bubbles)) {
     if (b.until < now || !S || !S.players || !S.players[seat]) { delete ui.bubbles[seat]; continue; }
-    if (isPhone() && b.id !== newest) continue;
+    if (phone && (b.id !== newest || onMap)) continue;
     const rows = [...document.querySelectorAll(`.pl[data-seat="${seat}"]`)].filter(el => el.offsetParent);
     if (!rows.length) continue;
     const r = rows[0].getBoundingClientRect();
-    const below = r.right + 260 > innerWidth;         // no room on the right: hang it underneath instead
-    const x = below ? Math.max(8, Math.min(r.left, innerWidth - Math.min(240, innerWidth * 0.7) - 8)) : r.right + 12;
+    const below = phone || r.right + 260 > innerWidth; // no room on the right: hang it underneath instead
+    const w = Math.min(240, innerWidth * 0.7);
+    const mid = r.left + r.width / 2;
     const y = below ? r.bottom + 8 : r.top + 4;
-    html += `<div class="bubble ${below ? 'below' : ''}" data-id="${b.id}" style="left:${x}px;top:${y}px">${esc(b.text)}</div>`;
+    let pos;
+    if (phone && mid > innerWidth / 2) { // right-hand seats: anchor the bubble's right edge, so short lines still reach
+      const right = Math.max(8, innerWidth - mid - 24);
+      pos = `right:${right}px;left:auto;top:${y}px;max-width:${Math.min(w, innerWidth - right - 8)}px;--tail:${Math.round(innerWidth - right - mid - 6)}px`;
+    } else if (phone) {
+      const x = Math.max(8, mid - 24);
+      pos = `left:${x}px;top:${y}px;max-width:${Math.min(w, innerWidth - x - 8)}px;--tail:${Math.round(mid - x - 6)}px`;
+    } else {
+      pos = `left:${below ? Math.max(8, Math.min(r.left, innerWidth - w - 8)) : r.right + 12}px;top:${y}px`;
+    }
+    html += `<div class="bubble ${below ? 'below' : ''} ${phone && mid > innerWidth / 2 ? 'rtail' : ''}" data-id="${b.id}" style="${pos}">${esc(b.text)}</div>`;
   }
   // keep existing bubbles (so their pop-in animation doesn't replay), add new ones
   const keep = new Set([...$bubbles.children].map(el => el.dataset.id));
@@ -2847,7 +2870,7 @@ function placeBubbles() {
   [...$bubbles.children].forEach(el => { if (!want.has(el.dataset.id)) el.remove(); });
   [...tmp.children].forEach(el => {
     const old = $bubbles.querySelector(`[data-id="${el.dataset.id}"]`);
-    if (old) { old.style.left = el.style.left; old.style.top = el.style.top; old.className = el.className; }
+    if (old) { old.style.cssText = el.style.cssText; old.className = el.className; }
     else $bubbles.appendChild(el);
   });
   void keep;

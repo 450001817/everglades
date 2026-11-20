@@ -197,7 +197,9 @@ function viewFor(room, member) {
     dis: myP ? (myP.dis || []) : [],
     disCounts: s.players.map(p => (p.dis || []).length),
     ddraft: s.phase === 'ddraft' && s.ddraft ? { round: s.ddraft.round, pack: me >= 0 && me < s.np ? s.ddraft.packs[me] : [],
-      picked: me >= 0 ? s.ddraft.picks[me] || null : null, waiting: G.pendingSimultaneous(s) } : null,
+      picked: me >= 0 ? s.ddraft.picks[me] || null : null, waiting: G.pendingSimultaneous(s),
+      // how many cards the next pack passed to you will hold (0 after the last pick: the leftover is discarded)
+      incoming: me >= 0 && me < s.np && s.ddraft.round + 1 < G.DIS_KEEP ? s.ddraft.packs[me].length - 1 : 0 } : null,
     dcommit: s.phase === 'disrupt' && s.dcommit ? { waiting: G.pendingSimultaneous(s),
       committed: Object.keys(s.dcommit.picks).filter(p => s.dcommit.picks[p]).map(Number), // face-down cards are visible on the table
       mine: me >= 0 && s.dcommit.picks[me] !== undefined ? (s.dcommit.picks[me] || 'pass') : null } : null,
@@ -309,20 +311,31 @@ function turnExpired(room, key) {
   if (!room.deadline || room.deadline.key !== key) return;
   const s = room.game;
   room.deadline = null;
+  const late = [];
   for (const p of humansPending(s)) {
     const pl = s.players[p];
     const n = room.strikes[pl.id] = (room.strikes[pl.id] || 0) + 1;
     if (n >= MAX_STRIKES) { kickToBot(room, p); continue; }
     s.log.push(`${pl.name} ran out of time, so a bot played that turn for them (${n}/${MAX_STRIKES}).`);
-    autoPlay(room, p);
+    late.push(p);
   }
+  // A draft pick or Disruption commit: decide for all the late players at once. (One at a time, the first pick
+  // could complete the round and pass the packs, and the next player would then be picked for twice.)
+  if (G.waitingOn(s) < 0) autoDecide(s, late);
+  else for (const p of late) autoPlay(room, p);
   broadcast(room);
+}
+function autoDecide(s, seats) {
+  const temp = seats.filter(p => !s.players[p].bot);
+  temp.forEach(p => { s.players[p].bot = true; });
+  try { G.autoBots(s); } catch (e) { console.error('auto-play error', e); }
+  temp.forEach(p => { s.players[p].bot = false; });
 }
 // A bot finishes this player's current turn (they stay seated).
 function autoPlay(room, p) {
   const s = room.game, pl = s.players[p];
   try {
-    if (G.waitingOn(s) < 0) { pl.bot = true; G.autoBots(s); pl.bot = false; return; } // a draft pick or Disruption commit
+    if (G.waitingOn(s) < 0) return autoDecide(s, [p]); // a draft pick or Disruption commit
     for (let g = 0; g < 60 && G.waitingOn(s) === p && !pl.bot; g++) G.applyAction(s, p, G.botAction(s, p));
   } catch (e) { pl.bot = false; console.error('auto-play error', e); }
 }

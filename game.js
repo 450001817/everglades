@@ -1519,5 +1519,5 @@ module.exports = {
   botSay, reactionsFor, reactionLine,
   newGame, addPlayer, startGame, availableRoles, partnerSeating, applyAction, legalCards, placeTargets, waitingOn, botAction, easyBot, easyBotsFor,
   computeResults, trickWinner, cardMatches, MIN_PLAYERS, MAX_PLAYERS,
-  autoBots, pendingSimultaneous, leadSuit, riskFor, impactOf,
+  autoBots, pendingSimultaneous, leadSuit, riskFor, impactOf, DIS_KEEP,
 };

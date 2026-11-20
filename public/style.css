@@ -582,6 +582,13 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .card.dis.facedown { cursor: default; }
 .card.dis.choosable[data-ddraft]::after { content: 'PICK'; }
 .card.dis.choosable[data-commit]::after { content: 'COMMIT'; }
+/* Disruption draft: the passed pack flips face up when it arrives; your pick slides into your hand */
+.card.dis.flipin { animation: disflip .45s steps(6) both; }
+.card.dis.flipin:nth-child(2) { animation-delay: .08s; } .card.dis.flipin:nth-child(3) { animation-delay: .16s; }
+@keyframes disflip { from { transform: perspective(600px) rotateY(90deg); } to { transform: none; } }
+.card.dis.dealin { animation: disdeal .35s steps(5) both; }
+@keyframes disdeal { from { transform: translateY(-40px) scale(1.15); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .card.dis.flipin, .card.dis.dealin { animation: none; } }
 .card.choosable[data-steal]::after { content: 'TAKE'; }
 .dishand { flex-shrink: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
 .dishand .cap { color: var(--paper); font-family: var(--font-small); font-size: 18px; line-height: 1; white-space: nowrap; }
@@ -743,8 +750,10 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
   clip-path: polygon(100% 0, 0 50%, 100% 100%);
 }
 .bubble::after { content: ''; position: absolute; left: -6px; top: 11px; width: 7px; height: 6px; background: #fff; clip-path: polygon(100% 0, 0 50%, 100% 100%); }
-.bubble.below::before { left: 12px; top: -12px; clip-path: polygon(0 100%, 50% 0, 100% 100%); }
-.bubble.below::after { left: 15px; top: -6px; clip-path: polygon(0 100%, 50% 0, 100% 100%); }
+.bubble.below::before { left: var(--tail, 12px); top: -12px; clip-path: polygon(0 100%, 50% 0, 100% 100%); }
+.bubble.below::after { left: calc(var(--tail, 12px) + 3px); top: -6px; clip-path: polygon(0 100%, 50% 0, 100% 100%); }
+.bubble.below.rtail::before { left: auto; right: var(--tail); }
+.bubble.below.rtail::after { left: auto; right: calc(var(--tail) + 3px); }
 @keyframes bubblein { from { transform: scale(.6); opacity: 0; } }
 
 /* shuffle & deal */
@@ -822,6 +831,11 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .acctbox { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; background: var(--paper-2); border: 3px solid var(--ink); }
 .gbtn { min-height: 44px; }
 .buyin { padding: 6px 8px; border: 3px dashed var(--brass); background: #fff9e3; }
+/* the buy-in choices: one row that scrolls sideways when the panel is too narrow for all of them (phones) */
+.buyin > .row { flex-wrap: wrap; min-width: 0; }
+.bidpick { min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; padding-bottom: 2px;
+  overscroll-behavior-x: contain; touch-action: pan-x; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+.bidpick > .btn { flex: none; }
 .member .pbanner { padding: 2px 0; }
 .acctmodal { width: min(860px, 100%) !important; display: flex; flex-direction: column; gap: 10px; }
 .avgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
