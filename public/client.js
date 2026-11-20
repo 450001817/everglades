@@ -19,9 +19,6 @@ const ACTIVE_ABILITY = {
   Tourist: 'Look at the top 2 Travel cards',
 };
 const SUIT_ORDER = { Water: 0, Wetland: 1, Land: 2 };
-// Bot speed (set by the host; the server does the pacing)
-const SPEED_ORDER = ['slow', 'normal', 'fast'];
-const SPEED_LABEL = { slow: 'Slow', normal: 'Normal', fast: 'Fast' };
 // The finished trick stays on screen (winning card highlighted) until this time.
 const holding = () => !!(ui.trickHold && Date.now() < ui.trickHold.until && S && S.lastTrick);
 
@@ -202,7 +199,7 @@ document.addEventListener('click', e => {
 
 // ---------- the phone menu ----------
 // Phones have no room for a row of buttons, so everything that sits along the top on a computer (leaderboard, stats,
-// friends, music, and in a game: chat, field notes, sound, speed, rules, leave) lives in one Menu button with a list.
+// friends, music, and in a game: chat, field notes, sound, rules, leave) lives in one Menu button with a list.
 // Desktop keeps its buttons; style.css shows one or the other.
 function menuHtml(game = false) {
   const nFr = frBadgeCount(), badge = n => n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : '';
@@ -225,7 +222,6 @@ function menuHtml(game = false) {
   more += item('data-music', '♪', 'Music', val(musicOn ? 'On' : 'Off'), 'keep');
   if (game) {
     more += item('data-g="mute"', '🔊', 'Sound', val(muted ? 'Off' : 'On'), 'keep');
-    more += item(`data-g="speed" ${S.isHost ? '' : 'disabled'}`, '⏩', 'Bot speed', val(SPEED_LABEL[S.speed] || 'Normal'), 'keep');
     more += item('data-g="quit"', '🚪', 'Leave game', '', 'danger');
   }
   const head = game ? `<div class="mi-head">${S.tutorial ? 'Tutorial' : `Room <span class="code">${S.room}</span>`}${S.coop ? ' · Co-op' : S.partners ? ' · Partners' : ''}</div>` : '';
@@ -1773,12 +1769,6 @@ function renderLobby() {
           <span style="font-size:18px">${S.turnTimer ? `${Math.round(S.turnLimitMs / 1000)} seconds` : 'Off'}</span> <span class="hint">${S.turnTimer ? `— run out of time and a bot plays that turn; ${S.maxStrikes} times and a bot takes your seat` : '— take as long as you like'}${S.public ? ' · always on at public tables' : ''}</span></div>
         ${S.isHost && !S.public ? `<div class="modepick"><button class="btn small ${S.turnTimer ? 'brass' : ''}" data-timer="1">On</button><button class="btn small ${S.turnTimer ? '' : 'brass'}" data-timer="0">Off</button></div>` : ''}
       </div>
-      <div class="row" style="justify-content:space-between">
-        <div><div class="panel-title" style="margin:0">Bot speed</div>
-          <span style="font-size:18px">${SPEED_LABEL[S.speed] || 'Normal'}</span> <span class="hint">${({ slow: '— relaxed, plenty of time to read', normal: '— steady pace', fast: '— quick games' })[S.speed] || ''}</span></div>
-        ${S.isHost ? `<div class="modepick">${SPEED_ORDER.map(sp =>
-          `<button class="btn small ${S.speed === sp ? 'brass' : ''}" data-speed="${sp}">${SPEED_LABEL[sp]}</button>`).join('')}</div>` : ''}
-      </div>
       <div class="buyin">
         <div class="row" style="justify-content:space-between">
           <div><div class="panel-title" style="margin:0">Buy-in</div>
@@ -1835,7 +1825,6 @@ function renderLobby() {
   });
   if (S.isHost) {
     $app.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => lobby('mode', { mode: b.dataset.mode }));
-    $app.querySelectorAll('[data-speed]').forEach(b => b.onclick = () => lobby('speed', { speed: b.dataset.speed }));
     $app.querySelectorAll('[data-dis]').forEach(b => b.onclick = () => lobby('disruptions', { on: b.dataset.dis === '1' }));
     $app.querySelectorAll('[data-buyin]').forEach(b => b.onclick = () => lobby('buyin', { amount: +b.dataset.buyin }));
     $app.querySelectorAll('[data-public]').forEach(b => b.onclick = () => lobby('visibility', { public: b.dataset.public === '1' }));
@@ -2187,7 +2176,6 @@ function renderGame() {
       ${ui.showLog ? `<div class="paper spiral notes-drop" id="log"><div class="panel-title">Field notes</div>${S.log.map(l => `<p class="${l.startsWith('INVASIVE') ? 'crisis' : ''}">${esc(l)}</p>`).join('')}</div>` : ''}
     </div>
     <span class="dk dkrow">
-    <button class="btn small" id="speed" ${S.isHost ? '' : 'disabled'} title="${S.isHost ? 'How fast the bots play. Click to change.' : 'Bot speed (the host can change it)'}">Speed: ${SPEED_LABEL[S.speed] || 'Normal'}</button>
     ${musicBtnHtml('')}
     <button class="btn small" id="mute" title="Sound effects on/off">${muted ? 'Sound: Off' : 'Sound: On'}</button>
     <button class="btn small" id="rules">Rules</button>
@@ -2953,12 +2941,10 @@ function wire() {
     (el.__on = el.__on || {})[sel] = fn;
   };
   const q = (sel, fn) => $app.querySelectorAll(sel).forEach(el => on(el, sel, e => { e.stopPropagation(); fn(el, e); }));
-  q('#speed', () => lobby('speed', { speed: SPEED_ORDER[(SPEED_ORDER.indexOf(S.speed) + 1) % SPEED_ORDER.length] }));
   q('#mute', () => { muted = !muted; try { localStorage.setItem('eg_mute', muted ? '1' : '0'); } catch {} render(); });
   q('#rules, [data-g="rules"]', () => { ui.showRules = true; ui.showLog = false; render(); });
   q('#notesBtn, [data-g="notes"]', () => { ui.showLog = !ui.showLog; ui.showChat = false; ui.unread = 0; render(); });
   q('#chatBtn, [data-g="chat"]', () => { ui.showChat = !ui.showChat; ui.showLog = false; render(); });
-  q('[data-g="speed"]', () => lobby('speed', { speed: SPEED_ORDER[(SPEED_ORDER.indexOf(S.speed) + 1) % SPEED_ORDER.length] }));
   q('[data-g="mute"]', () => { muted = !muted; try { localStorage.setItem('eg_mute', muted ? '1' : '0'); } catch {} render(); });
   q('[data-g="myrole"]', () => { const el = $app.querySelector('.hand-cap .myrole'); if (el) pinPeek(el); });
   q('[data-g="players"]', () => { ui.showPlayers = true; render(); });

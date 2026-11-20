@@ -35,18 +35,12 @@ const ST = require('./stats.js'); // game records and balance metrics
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, 'public');
-// Bot pacing (milliseconds). The host picks a speed in the lobby or the game's top bar.
-// bot = how long a bot waits before each move; trick = how long a finished trick stays on screen
-// (winning card highlighted) before anyone moves on. BOT_DELAY_MS rescales them all (Normal = that value).
+// Bot pacing (milliseconds), the same at every table: bot = how long a bot waits before each move; trick = how long
+// a finished trick stays on screen (winning card highlighted) before anyone moves on. BOT_DELAY_MS rescales both.
 const BOT_DELAY_MS = +process.env.BOT_DELAY_MS || 3200;
 const { CHAT } = require('./public/data.js');
 const CHAT_COOLDOWN_MS = 2500; // a player can send one chat line every 2.5 seconds
-const SPEEDS = {
-  slow: { label: 'Slow', bot: BOT_DELAY_MS * 1.6, trick: BOT_DELAY_MS * 2.2 },
-  normal: { label: 'Normal', bot: BOT_DELAY_MS, trick: BOT_DELAY_MS * 1.6 },
-  fast: { label: 'Fast', bot: BOT_DELAY_MS * 0.45, trick: BOT_DELAY_MS * 0.9 },
-};
-const pace = room => SPEEDS[room.speed] || SPEEDS.normal;
+const PACE = { bot: BOT_DELAY_MS, trick: BOT_DELAY_MS * 1.6 };
 const DEAL_PAUSE_MS = 5200; // the shuffle-and-deal animation
 // Turn timer: every person gets TURN_MS for each turn (a role pick, a biome choice, a card with its follow-up steps,
 // a Disruption pick or commit). When it runs out a bot plays that turn for them and they get a strike; at
@@ -100,7 +94,7 @@ const rid = () => crypto.randomBytes(12).toString('hex');
 
 function newRoom() {
   const room = { code: code(), members: [], hostPid: null, game: G.newGame(), clients: new Set(), touched: Date.now(), botTimer: null, chatter: [], chatId: 0, pauseUntil: 0, tricksSeen: 0,
-    reactions: [], reactId: 0, evSeen: 0, speed: 'normal',
+    reactions: [], reactId: 0, evSeen: 0,
     public: false, turnTimer: true, strikes: {}, deadline: null, deadlineTimer: null, // see TURN_MS
     buyIn: A.ECON.defaultBuyIn, gameId: null, settlement: null };
   rooms.set(room.code, room);
@@ -158,7 +152,7 @@ function viewFor(room, member) {
     deadline: room.deadline ? { seats: room.deadline.seats, at: room.deadline.at } : null, serverNow: Date.now(),
     mode: room.mode || 'solo', partners: room.mode === 'partners', coop: room.mode === 'coop',
     disruptions: s.phase === 'lobby' ? !!room.disruptions : !!s.disruptions,
-    speed: SPEEDS[room.speed] ? room.speed : 'normal', trickPauseMs: Math.round(pace(room).trick),
+    trickPauseMs: Math.round(PACE.trick),
     buyIn: room.buyIn, buyIns: A.ECON.buyIns,
     lobby: room.members.map(m => {
       const a = memberAccount(m);
@@ -363,11 +357,11 @@ function scheduleBot(room) {
   // a trick just finished: everyone sees the finished trick (winning card highlighted) for a moment.
   // Tracked even when a person moves next, so the pause isn't applied a second time later.
   const done = s.players.reduce((a, p) => a + p.biomesWon.length, 0);
-  if (done !== room.tricksSeen) { room.tricksSeen = done; room.pauseUntil = Math.max(room.pauseUntil, Date.now() + pace(room).trick); }
+  if (done !== room.tricksSeen) { room.tricksSeen = done; room.pauseUntil = Math.max(room.pauseUntil, Date.now() + PACE.trick); }
   if (room.botTimer || room.hold) return;
   const w = G.waitingOn(s);
   if (w < 0 || !s.players[w].bot) return;
-  const B = pace(room).bot;
+  const B = PACE.bot;
   if (s.phase === 'choose') {
     // A bot choosing where to travel: once the finished trick has been seen, everyone gets a moment with the
     // travel row, then the bot's pick lights up (room.botPick), and a moment later it travels there.
@@ -678,11 +672,6 @@ const server = http.createServer(async (req, res) => {
           const t = body.team === null || body.team === undefined ? null : Math.max(0, Math.min(2, +body.team));
           if (t !== null && room.members.filter(x => x !== target && x.team === t).length >= 2) return send(res, 400, { error: 'That team already has 2 players.' });
           target.team = t;
-        } else if (body.cmd === 'speed') {
-          // Bot speed: host only, any time (also mid-game)
-          if (!isHost) return send(res, 403, { error: 'Only the host can change the speed.' });
-          room.speed = SPEEDS[body.speed] ? body.speed : 'normal';
-          if (room.botTimer) { clearTimeout(room.botTimer); room.botTimer = null; room.botPick = null; } // re-time the pending bot move
         } else if (body.cmd === 'confirm' && s.phase === 'lobby') {
           // each person confirms the table's Eco-buck bid (buy-in) before the game can start
           if (body.on) {

@@ -7,7 +7,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'eg-timer-'));
 const B = `http://localhost:${PORT}`;
 // the database settings are blanked inside the process, so .env can't point this server at the live database
 const boot = `process.env.UPSTASH_REDIS_REST_URL='';process.env.UPSTASH_REDIS_REST_TOKEN='';process.env.STRIPE_SECRET_KEY='';` +
-  `process.env.DATA_DIR=${JSON.stringify(DATA)};process.env.PORT='${PORT}';process.env.TURN_MS='1200';require('./server.js')`;
+  `process.env.DATA_DIR=${JSON.stringify(DATA)};process.env.PORT='${PORT}';process.env.TURN_MS='1200';process.env.BOT_DELAY_MS='1440';require('./server.js')`;
 const srv = spawn(process.execPath, ['-e', boot], { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'pipe', 'pipe'] });
 let srvOut = ''; srv.stdout.on('data', d => srvOut += d); srv.stderr.on('data', d => srvOut += d);
 
@@ -76,7 +76,6 @@ const until = async (fn, ms, step = 100) => { const end = Date.now() + ms; while
   await post('lobby', { room: priv.room, token: priv.token, cmd: 'confirm', on: true });
 
   console.log('Timer off (private table)');
-  await post('lobby', { room: priv.room, token: priv.token, cmd: 'speed', speed: 'fast' });
   r = await post('lobby', { room: priv.room, token: priv.token, cmd: 'start' });
   ok(r.status === 200, 'once everyone has confirmed, the game starts');
   await until(() => wPriv.view && wPriv.view.phase !== 'lobby' && wPriv.view.waiting === wPriv.view.you, 15000);
@@ -87,7 +86,6 @@ const until = async (fn, ms, step = 100) => { const end = Date.now() + ms; while
   const soloS = await guest();
   const t = await post('create', { session: soloS });
   const w = watch(t.room, t.token); await until(() => w.view, 3000);
-  await post('lobby', { room: t.room, token: t.token, cmd: 'speed', speed: 'fast' });
   await post('lobby', { room: t.room, token: t.token, cmd: 'confirm', on: true });
   await post('lobby', { room: t.room, token: t.token, cmd: 'start' });
   await until(() => w.view && w.view.deadline && w.view.deadline.seats.includes(w.view.you), 20000);
