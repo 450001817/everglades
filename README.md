@@ -103,7 +103,7 @@ Everyone signs in before they sit down at a table. An account keeps your **gamer
   - **Splash effect:** the account default (the one picked in the Store), no effect, or any owned effect for that character only.
   - **Card treatments:** for each card you own a treatment for, pick Plain or the treatment (only Foil exists so far), with Everything on / All plain buttons. Owned treatments are on by default. New treatments go in `TREATMENTS` in `public/data.js` (owned as `'<treatment id>:<card id>'`, shown with its CSS class) and appear in the profiles automatically.
   - Run `node test/characters.js` to check the loadout rules.
-  - There are 2 skins per character, 12 in all. Each has a unique name that only shows in the shop.
+  - There are 3 skins per character, 18 in all. Each has a unique name that only shows in the shop.
   - The big preview plays every animation. Click a skin's thumbnail to preview it.
   - Buying a skin equips it straight away. **Equip** switches between the skins you own and the **Original**.
   - When you play that character, **everyone at the table sees your skin**, including on the end screen. Bots and other players keep their own looks.
@@ -112,12 +112,12 @@ Everyone signs in before they sit down at a table. An account keeps your **gamer
 
   | Character | Skins |
   |---|---|
-  | Hunter | Rodney, Maribel |
-  | Fisherman | Kenji, Dot |
-  | Conservationist | Tomás, Leona |
-  | Land Developer | Earl, Desmond |
-  | Researcher | Amara, Sven |
-  | Tourist | Gus, Rosa |
+  | Hunter | Rodney, Maribel, Airboat Buck |
+  | Fisherman | Kenji, Dot, Coastguardsman Wade |
+  | Conservationist | Tomás, Leona, Fern |
+  | Land Developer | Earl, Desmond, Vivian Sterling |
+  | Researcher | Amara, Sven, Nadia |
+  | Tourist | Gus, Rosa, Skye |
 
   **Adding a skin:** add a line to `SKINS` in `public/data.js`, then put its 6 animation strips (`idle`, `think`, `signature`, `cheer`, `upset`, `shock`) in `public/assets/characters/<Role>/skins/<id>/`. Each strip is 9 frames of 128×110, the same as the originals. The skins were made with PixelLab: the original portrait was edited into a new person, then each animation was generated from that portrait.
 - **Foil cards (100 EB each):** every Ecology and Disruption card has a foil version in the Store. Whenever that card is dealt to you, it shows with a moving rainbow sheen, in your hand and your Disruption draft only you see it; once you play it (or reveal the Disruption) everyone at the table sees the foil, on the table and in the last-trick strip. The server sends each seat's treatments for its face-up cards as `players[i].finish`.
@@ -235,7 +235,7 @@ Your rulebook (Everglades 2.0), the reference card and the printed cards disagre
 4. **Predatory** hunts **before** the card populates: you remove up to X tokens, choosing **Native or Invasive**, from the region the card is played in. Only then are the card's own tokens added, so a predator never eats its own arrivals. The Great Barracuda (Predatory and Migratory) hunts in the trick's region first, then spreads. The Anaconda follows the same order.
 5. **Fisherman/Hunter swap:** swap **any** card from your hand with **any** Water card (Fisherman) or Land card (Hunter), Native or Invasive, from your scoring pile. There's no Impact restriction, and the role cards now say so: "You may swap a card from your hand with any Water (Land) card from your scoring pile." The text was rebuilt from words cut out of the cards themselves, in the same pixel font; the originals are saved in `_backup_role_cards`.
 6. **"Most / least" goals** still count when you're tied. "Most" goals need at least 1 (trick, or for the Land Developer, Invasive Crisis). The Tourist's "did not win any tricks outside of your objective regions" goal is met by winning no tricks at all, too.
-9. **Role changes (Nov 2026):** the **Land Developer** scores 15 for **2** empty regions (was 3), and 10 for triggering **the most Invasive Crises** (was the most tricks). The **Tourist**'s ability looks at the **top 2** Travel cards and puts 1 of them on the bottom (was the top card, which could stay or go). Their 10-point goal is **at least 1 population in each map objective region** (was all map objectives met), and their 20-point goal is worded "If you did not win any tricks outside of your objective regions". The card art was updated with `tools/update_role_cards.js`, which sets new objective lines from letters cut out of the cards' own printed objectives (`tools/role_card_glyphs.js`) and the ability in the hand-made pixel font.
+9. **Role changes (Nov 2026):** the **Land Developer** scores 15 for **2** empty regions (was 3), and 10 for triggering **the most Invasive Crises** (was the most tricks). The **Conservationist** scores **10** for each map objective (was 15). The **Tourist**'s ability looks at the **top 2** Travel cards and puts 1 of them on the bottom (was the top card, which could stay or go). Their 10-point goal is **at least 1 population in each map objective region** (was all map objectives met), and their 20-point goal is worded "If you did not win any tricks outside of your objective regions". The card art was updated with `tools/update_role_cards.js`, which sets new objective lines from letters cut out of the cards' own printed objectives (`tools/role_card_glyphs.js`) and the ability in the hand-made pixel font.
 7. **Fisherman/Hunter endings** compare Native vs Invasive **Water/Land** cards in their scoring pile.
 8. **Setup:** the Ecology deck is dealt evenly and any leftover cards are discarded. Seating (turn order) is random. Players then **choose their roles in turn order** after seeing their hand, and roles are **public**. Both are changes from the rulebook's secret, randomly dealt roles. The rulebook's "1 impact card" at setup is skipped because no such card exists in the art.
 9. `NGOpenWaterss.png` is treated as a third Northern Gulf biome. It looks like a duplicate file name, so you may want to rename it.

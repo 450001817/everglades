@@ -133,9 +133,9 @@
   const ROLES = {
     Conservationist: {
       name: 'Conservationist', img: 'assets/cards/roles/Conservationist.png', ending: 'assets/cards/roles/ConservationistEND.png',
-      map: { FSP: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 15, majorityPts: 15, noCrisisPts: 15,
+      map: { FSP: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 10, majorityPts: 15, noCrisisPts: 15,
       ability: 'Once each round, you may stop any 1 Invasive card (yours or anyone else’s) from populating.',
-      goals: ['15 pts for each map objective met', '15 pts if the total population majority is Native', '15 pts if you never trigger an Invasive Crisis'],
+      goals: ['10 pts for each map objective met', '15 pts if the total population majority is Native', '15 pts if you never trigger an Invasive Crisis'],
     },
     Fisherman: {
       name: 'Fisherman', img: 'assets/cards/roles/Fisherman.png', ending: 'assets/cards/roles/FishermanENDING.png',
@@ -171,7 +171,7 @@
 
   // Role card art changes now and then (new objective numbers): bump CARD_V whenever a role card image is replaced,
   // so every browser fetches the new card at once instead of showing one it saved earlier.
-  const CARD_V = '20261120';
+  const CARD_V = '20261121';
   for (const r of Object.values(ROLES)) r.img += '?v=' + CARD_V;
 
   // Balance experiments only (test runs): EG_ROLE_TUNE='{"Tourist":{"anyPopPts":20}}' overrides role numbers.
@@ -209,17 +209,22 @@
   const SKINS = [
     { id: 'rodney',  role: 'Hunter',          name: 'Rodney',  blurb: 'Big laugh, bigger heart.' },
     { id: 'maribel', role: 'Hunter',          name: 'Maribel', blurb: 'Tracks hogs through the hammocks before sunrise.' },
+    { id: 'buck',    role: 'Hunter',          name: 'Airboat Buck', blurb: 'Forty years running the sawgrass at full throttle. Still can’t hear you.' },
     { id: 'kenji',   role: 'Fisherman',       name: 'Kenji',   blurb: 'Forty years on Florida Bay. Knows every channel by heart.' },
     { id: 'dot',     role: 'Fisherman',       name: 'Dot',     blurb: 'Out-fishes the whole marina and lets them know it.' },
     { id: 'wade',    role: 'Fisherman',       name: 'Coastguardsman Wade', blurb: 'Semper Paratus. Always ready to haul you out of the mangroves.' },
     { id: 'tomas',   role: 'Conservationist', name: 'Tomás',   blurb: 'A young ranger with a speech for every occasion.' },
     { id: 'leona',   role: 'Conservationist', name: 'Leona',   blurb: 'Speaks for the River of Grass, and people listen.' },
+    { id: 'fern',    role: 'Conservationist', name: 'Fern',    blurb: 'Leads the prescribed burns that keep the River of Grass healthy.' },
     { id: 'earl',    role: 'LandDeveloper',   name: 'Earl',    blurb: 'Sold swampland once. Plans to do it again.' },
     { id: 'desmond', role: 'LandDeveloper',   name: 'Desmond', blurb: 'Gold hard hat, gold watch, golden opportunities.' },
+    { id: 'vivian',  role: 'LandDeveloper',   name: 'Vivian Sterling', blurb: 'Has never met a wetland she couldn’t rezone.' },
     { id: 'amara',   role: 'Researcher',      name: 'Amara',   blurb: 'Her field notes are already a textbook.' },
     { id: 'sven',    role: 'Researcher',      name: 'Sven',    blurb: 'Came for one season of fieldwork. Stayed for twelve.' },
+    { id: 'nadia',   role: 'Researcher',      name: 'Nadia',   blurb: 'Counts seagrass shoots on the bottom of Florida Bay, one breath at a time.' },
     { id: 'gus',     role: 'Tourist',         name: 'Gus',     blurb: 'SPF 4 and a Hawaiian shirt. What could go wrong?' },
     { id: 'rosa',    role: 'Tourist',         name: 'Rosa',    blurb: 'Grandma has 3,000 gator photos and wants 3,001.' },
+    { id: 'skye',    role: 'Tourist',         name: 'Skye',    blurb: 'Live-streaming the Everglades to all 41 of his followers.' },
     // Goblin Ink staff skins: never sold, never shown in anyone else's shop. They are unlocked only on staff
     // accounts (see STAFF_EMAILS in accounts.js). Everyone at the table still sees them in a game.
     { id: 'gob_conservationist', role: 'Conservationist', name: 'Goblin Conservationist', blurb: 'Goblin Ink staff exclusive.', exclusive: true, price: 0 },

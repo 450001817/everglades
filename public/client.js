@@ -2464,9 +2464,9 @@ const COACH = [
     body: () => `This is a short practice game: <b>5 rounds</b> against two friendly bots, with nothing at stake. Each time something new comes up, I'll pause the game and explain it.` },
   { id: 'role', when: () => S.phase !== 'ended', focus: '.rolebox', title: 'You are the Conservationist',
     body: () => `Your role card (${isPhone() ? '"You are the…" above your hand' : 'bottom right'}) shows how you score. ${isPhone() ? 'Tap' : 'Hover'} it to read it${isPhone() ? ', and tap the card to close it' : ''}.<ul>
-      <li><b>10 points</b> for each of Fakahatchee, Big Cypress and Everglades National Park that ends with more ${NAT('Native')} than ${INV('Invasive')} tokens</li>
-      <li><b>15</b> if ${NAT('Natives')} outnumber ${INV('Invasives')} across the whole map</li>
-      <li><b>5</b> if you never win a trick with an Invasive card</li>
+      <li><b>${ROLES.Conservationist.mapPts} points</b> for each of Fakahatchee, Big Cypress and Everglades National Park that ends with more ${NAT('Native')} than ${INV('Invasive')} tokens</li>
+      <li><b>${ROLES.Conservationist.majorityPts}</b> if ${NAT('Natives')} outnumber ${INV('Invasives')} across the whole map</li>
+      <li><b>${ROLES.Conservationist.noCrisisPts}</b> if you never win a trick with an Invasive card</li>
       <li><b>5</b> for every trick you win (this is true for every role)</li></ul>` },
   { id: 'map', when: () => S.phase !== 'ended', focus: '.boardwrap', title: 'The map',
     body: () => `Each region shows how many ${NAT('Native')} and ${INV('Invasive')} tokens live there. Every card you play adds its animals to the map, so each card changes who is ahead in a region.` },

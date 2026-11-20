@@ -20,7 +20,7 @@ const CARDS = {
   Conservationist: {
     pitch: 37,
     objectives: [
-      ['15pts:', 'For each map', 'objective met.'],
+      ['10pts:', 'For each map', 'objective met.'],
       ['15pts:', 'If the total', 'population majority is', 'Native.'],
       ['15pts:', 'If you never trigger', 'an Invasive crisis.'],
     ],
@@ -82,7 +82,21 @@ for (const [role, spec] of Object.entries(CARDS)) {
     rest.forEach((words, k) => {
       const y = base0 + line * spec.pitch, full = k === 0 ? label + ' ' + words : words;
       const same = !(spec.redraw || []).includes(full) && oldLines.find(o => o.text === full);
-      if (same) {
+      // only the red label changed (e.g. "15pts: For each map" -> "10pts: For each map"): set the new label, then
+      // copy the line's original words beside it (some of their letters, like the F, aren't in the library)
+      const relabel = !same && k === 0 && !(spec.redraw || []).includes(full) && oldLines.find(o => /^\d+pts: /.test(o.text) && o.text.replace(/^\S+ /, '') === words);
+      if (relabel) {
+        const isRed = i => orig.data[i] > 180 && orig.data[i + 1] < 120 && orig.data[i + 2] < 120;
+        const isInk = i => orig.data[i] + orig.data[i + 1] + orig.data[i + 2] < 600;
+        let redEnd = 0, start = 0;
+        for (let xx = G.BOX.x0; xx <= 1006; xx++) for (let yy = relabel.a; yy <= relabel.b; yy++) if (isRed((yy * orig.w + xx) * 4)) redEnd = xx;
+        for (let xx = redEnd + 1; xx <= 1006 && !start; xx++) for (let yy = relabel.a; yy <= relabel.b; yy++) if (isInk((yy * orig.w + xx) * 4)) { start = xx; break; }
+        let x = G.draw(img, lib, label, x0, y, RED); x = Math.round(x + lib.metrics.label - lib.metrics.gap);
+        for (let yy = relabel.a - 1; yy <= relabel.b + 1; yy++) for (let xx = start; xx <= 1006 && x + xx - start <= 1006; xx++) {
+          const si = (yy * orig.w + xx) * 4, di = ((yy - relabel.base + y) * img.w + x + xx - start) * 4;
+          for (let c = 0; c < 4; c++) img.data[di + c] = orig.data[si + c];
+        }
+      } else if (same) {
         for (let yy = same.a - 1; yy <= same.b + 1; yy++) for (let xx = G.BOX.x0; xx <= 1006; xx++) {
           const si = (yy * orig.w + xx) * 4, di = ((yy - same.base + y) * img.w + xx) * 4;
           for (let c = 0; c < 4; c++) img.data[di + c] = orig.data[si + c];
