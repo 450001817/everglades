@@ -197,7 +197,7 @@
     },
     // Change `v` whenever any character art is replaced: the new address makes every browser (desktop and phone)
     // fetch the new strips at once instead of showing ones it saved earlier.
-    v: '20261115',
+    v: '20261120',
     // skin = a skin id from SKINS below (null or missing = the character's original look)
     src: (role, anim, skin) => 'assets/characters/' + role + '/' + (skin ? 'skins/' + skin + '/' : '') + anim + '.png?v=' + CHAR_ANIM.v,
   };
