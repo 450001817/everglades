@@ -1,7 +1,7 @@
 // Everglades — music. Original 8-bit tunes, synthesized live with the Web Audio API (no audio files).
 //
 //   TITLE  "Sunset over the Sawgrass"  home page, lobby, results       F major, 92 bpm, lazy swing
-//   MATCH  "Tracking the River of Grass" during a game                 D minor, 100 bpm, light swing, driving
+//   MATCH  "Storm over the Sawgrass"     singles and doubles games      F major / D minor, 96 bpm, swing, uneasy
 //   COOP   "Coils of the Anaconda"       during a co-op game            E Phrygian, 112 bpm, straight, menacing
 //
 // Each song is a list of bars, [chord(s), melody], the melody in eighth notes ("note:eighths", r = rest), plus its
@@ -16,6 +16,7 @@
     F: ['F', 'A', 'C'], Bb: ['Bb', 'D', 'F'], C: ['C', 'E', 'G'], C7: ['C', 'E', 'G', 'Bb'], Bbm: ['Bb', 'Db', 'F'],
     Am: ['A', 'C', 'E'], D7: ['D', 'F#', 'A', 'C'], Gm: ['G', 'Bb', 'D'], Dm: ['D', 'F', 'A'], A7: ['A', 'C#', 'E', 'G'],
     Edim: ['E', 'G', 'Bb'], Em: ['E', 'G', 'B'], B7: ['B', 'D#', 'F#', 'A'], G: ['G', 'B', 'D'], Bdim: ['B', 'D', 'F'],
+    Csus: ['C', 'F', 'G'], Db: ['Db', 'F', 'Ab'], Eb: ['Eb', 'G', 'Bb'], A7b9: ['A', 'C#', 'G', 'Bb'],
   };
 
   // ======================= TITLE: "Sunset over the Sawgrass" =======================
@@ -59,43 +60,58 @@
     },
   };
 
-  // ======================= MATCH: "Tracking the River of Grass" =======================
-  // 24 bars at 100 bpm, D minor. A: the title's rising shape turned minor, over a driving eighth-note bass ·
-  // B: the hunt tightens — repeated notes climbing over Bb-C-Dm-A7, sixteenth hats · A': the motif returns and
-  // hangs on A7, so the loop pulls straight back into the opening.
+  // ======================= MATCH: "Storm over the Sawgrass" =======================
+  // The title theme's world with weather coming in. 32 bars at 96 bpm, swung like the title.
+  // A: the title's opening motif (C-F-A-G over F), but every other phrase sinks to B-flat minor instead of
+  // resolving, over a restless eighth-note bass · B: D minor, repeated notes pulse upward over a b9 dominant,
+  // sixteenth hats ticking like a clock, a low rumble of thunder · C: the eye of the storm, the title's bluesy turn
+  // drifting through D-flat and E-flat, a heartbeat kick and long held notes · A': the motif again, ending hung on a
+  // suspended dominant so the loop is pulled straight back to the start. No snare.
   const MATCH = {
-    name: 'Tracking the River of Grass', bpm: 100, swing: 0.56, vol: 0.68,
+    name: 'Storm over the Sawgrass', bpm: 96, swing: 0.6, vol: 0.68,
     bars: [
-      // A
-      ['Dm', 'D5:1 r:1 A4:1 D5:1 E5:1 F5:2 E5:1'], ['Dm', 'D5:2 A4:2 F5:2 E5:2'], ['Bb', 'D5:1 r:1 Bb4:1 D5:1 F5:1 G5:2 F5:1'], ['C', 'E5:2 C5:2 G5:3 r:1'],
-      ['Dm', 'A5:2 G5:1 F5:1 E5:2 F5:2'], ['Gm', 'G5:2 F5:1 E5:1 D5:2 Bb4:2'], ['A7', 'C#5:2 E5:2 G5:2 E5:2'], ['A7', 'A5:4 G5:1 F5:1 E5:2'],
-      // B — tightening
-      ['Bb', 'F5:1 F5:1 r:1 F5:1 G5:2 F5:2'], ['C', 'E5:1 E5:1 r:1 E5:1 G5:2 E5:2'], ['Dm', 'F5:1 F5:1 r:1 F5:1 A5:2 F5:2'], ['A7', 'E5:2 G5:2 C#6:2 A5:2'],
-      ['Bb', 'D6:3 C6:1 Bb5:2 A5:2'], ['Gm', 'G5:3 F5:1 E5:2 D5:2'], ['Edim|A7', 'E5:2 G5:2 Bb5:2 C#6:2'], ['A7', 'E6:4 r:4'],
-      // A'
-      ['Dm', 'D5:1 r:1 A4:1 D5:1 E5:1 F5:2 E5:1'], ['Dm', 'D5:2 A4:2 F5:2 E5:2'], ['Bb', 'D5:1 r:1 Bb4:1 D5:1 F5:1 G5:2 F5:1'], ['C', 'E5:2 C5:2 G5:3 r:1'],
-      ['Dm', 'A5:2 G5:1 F5:1 E5:2 F5:2'], ['Gm', 'Bb5:2 A5:1 G5:1 F5:2 E5:2'], ['Gm|A7', 'Bb5:2 A5:2 G5:2 E5:2'], ['A7', 'C#5:2 E5:2 A5:3 r:1'],
+      // A — the title's motif, uneasy
+      ['F',   'C5:2 F5:2 A5:3 G5:1'], ['Dm',  'F5:2 D5:1 E5:1 F5:2 r:2'], ['Bb', 'D5:2 F5:2 Bb5:3 A5:1'], ['Bbm', 'Ab5:2 F5:1 Db5:1 C5:4'],
+      ['F',   'C5:2 F5:2 A5:3 G5:1'], ['Dm',  'A5:2 C6:2 D6:3 C6:1'],     ['Gm|C7', 'Bb5:2 A5:1 G5:1 E5:2 C5:2'], ['Csus|C7', 'F5:4 E5:4'],
+      // B — the storm gathers
+      ['Dm',  'D5:1 D5:1 r:1 D5:1 F5:2 E5:2'], ['Bb', 'D5:1 D5:1 r:1 D5:1 F5:2 G5:2'], ['Gm', 'G5:1 G5:1 r:1 G5:1 Bb5:2 A5:2'], ['A7b9', 'C#5:2 E5:2 G5:2 Bb5:2'],
+      ['Dm',  'A5:3 G5:1 F5:2 E5:2'], ['Bb',  'F5:3 E5:1 D5:2 Bb4:2'],    ['Edim', 'E5:2 G5:2 Bb5:2 G5:2'], ['A7', 'A5:4 C#5:2 E5:2'],
+      // C — the eye of the storm
+      ['Bb',  'D6:3 C6:1 Bb5:2 A5:2'], ['Bbm', 'Db6:3 C6:1 Bb5:2 Ab5:2'], ['F', 'A5:2 C6:2 F5:4'],          ['Db', 'Ab5:2 F5:2 Db5:4'],
+      ['Dm',  'F5:2 A5:2 D6:3 C6:1'], ['Eb',  'Bb5:2 G5:2 Eb5:3 F5:1'],   ['Gm', 'G5:3 A5:1 Bb5:2 D6:2'],    ['C7', 'E6:4 r:2 C6:2'],
+      // A' — the motif returns, and never quite lands
+      ['F',   'C5:2 F5:2 A5:3 G5:1'], ['Dm',  'F5:2 D5:1 E5:1 F5:2 A5:2'], ['Bb', 'D5:2 F5:2 Bb5:3 A5:1'], ['Bbm', 'Ab5:2 F5:1 Db5:1 C5:4'],
+      ['Dm',  'D6:2 C6:1 A5:1 F5:2 A5:2'], ['Gm', 'Bb5:2 A5:2 G5:2 F5:2'], ['C7', 'E5:2 G5:2 Bb5:2 C6:2'],   ['Csus|C7', 'F5:3 E5:1 r:2 A4:1 Bb4:1'],
     ],
     scheduleBar(v, i, t) {
-      const build = i >= 8 && i < 16;
+      const storm = i >= 8 && i < 16, eye = i >= 16 && i < 24;
       const { chordAt } = v.bar(this.bars[i]);
-      v.lead(this.bars[i][1], t, { vol: 0.034 });
-      // driving bass: eighth notes on the root, jumping an octave on the offbeats. Kept a little soft, with gentle
-      // attacks and no overlap between notes: hard-attacked loud bass eighths crackled on phone speakers.
-      for (let e = 0; e < 8; e++) {
-        const ch = chordAt(e), n = (e === 6 && ch[2]) ? ch[2] : ch[0], len = (e % 2 ? 1 - this.swing : this.swing) * v.BEAT;
-        v.tone('triangle', freq(n, e % 2 ? 3 : 2), t + v.at(e), len * 0.7, e % 2 ? 0.07 : 0.095, { attack: 0.012, release: 0.05 });
+      v.lead(this.bars[i][1], t, { vol: eye ? 0.03 : 0.034 });
+      if (eye) { // the eye: long low roots and a quiet held chord tone, a heartbeat instead of a beat
+        v.tone('triangle', freq(chordAt(0)[0], 2), t, v.BAR * 0.95, 0.07, { attack: 0.05, release: 0.2 });
+        v.tone('square', freq(chordAt(0)[1], 3), t, v.BAR * 0.9, 0.006, { attack: 0.3, release: 0.3 });
+        v.arp(chordAt, t, 4, 0.009);
+        for (const b of [0, 2]) { v.kick(t + b * v.BEAT, 0.12); v.kick(t + b * v.BEAT + v.BEAT * 0.3, 0.07); }
+        return;
       }
-      v.arp(chordAt, t, 4, build ? 0.013 : 0.01);
-      // drums: kick on 1 and 3 (and a pickup on the "and" of 4 every other bar) and offbeat hats (sixteenths while
-      // building). No snare: its backbeat got wearing over a whole game.
+      // restless bass: soft eighths on the root, lifting to the fifth on the last two (gentle attacks, no overlap:
+      // hard bass eighths crackle on phone speakers)
+      for (let e = 0; e < 8; e++) {
+        const ch = chordAt(e), n = e >= 6 && ch[2] ? ch[2] : ch[0], len = (e % 2 ? 1 - this.swing : this.swing) * v.BEAT;
+        v.tone('triangle', freq(n, storm && e % 2 ? 3 : 2), t + v.at(e), len * 0.7, e % 2 ? 0.065 : 0.09, { attack: 0.012, release: 0.05 });
+      }
+      v.arp(chordAt, t, storm ? 3 : 4, storm ? 0.013 : 0.011);
+      // drums: kick on 1 and 3 with a pickup before the next bar, swung hats; ticking sixteenths in the storm
       for (let b = 0; b < 4; b++) {
         const tb = t + b * v.BEAT;
-        if (b % 2 === 0) v.kick(tb, 0.15);
+        if (b % 2 === 0) v.kick(tb, 0.14);
         v.hit(tb + v.BEAT * this.swing, { vol: 0.013, dur: 0.03 });
-        if (build) { v.hit(tb + v.BEAT * 0.25, { vol: 0.008, dur: 0.02 }); v.hit(tb + v.BEAT * 0.78, { vol: 0.008, dur: 0.02 }); }
+        if (storm) for (const s of [0.25, 0.75]) v.hit(tb + v.BEAT * s, { vol: 0.007, dur: 0.02, hp: 8000 });
       }
       if (i % 2 === 1) v.kick(t + 3 * v.BEAT + v.BEAT * this.swing, 0.08);
+      if (i === 8 || i === 12) v.hit(t, { vol: 0.03, dur: 1.6, hp: 120 }); // distant thunder
+      // the end of each section: three falling low toms
+      if (i % 8 === 7) [0, 1, 2].forEach(k => v.tone('sine', [196, 165, 131][k], t + 3 * v.BEAT + k * v.BEAT / 3, 0.16, 0.1, { attack: 0.003, release: 0.06, slideTo: [150, 125, 98][k] }));
     },
   };
 
