@@ -502,6 +502,11 @@ function endTurn(s) {
 }
 
 function resolveTrick(s) {
+  // The last card's hunt or tokens can change the Native tokens in the region within this same action, so bring the
+  // Keystone Risk up to date before judging the trick (applyAction only refreshes it once the action is over).
+  const was = s.trick.risk;
+  refreshRisk(s);
+  if (s.trick.risk !== was) log(s, `The Invasive Risk is now ${s.trick.risk} (Keystone: ${s.board[trickRegion(s)].n} Native token${s.board[trickRegion(s)].n === 1 ? '' : 's'} in ${REGIONS[trickRegion(s)].name}).`);
   const { idx, matched } = trickWinner(s);
   const play = s.trick.plays[idx];
   const w = s.players[play.p];

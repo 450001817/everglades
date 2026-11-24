@@ -71,5 +71,29 @@ const id = name => Object.values(CARDS).find(c => c.name === name).id;
   ok(s.step && s.step.type === 'place' && s.step.left === c.pop, 'then it spreads its Migratory tokens');
 }
 
+// Keystone is static for the whole trick: when the LAST card's hunt removes Native tokens, the trick is judged with
+// the Risk those tokens leave behind (a bug judged it with the Risk from before that hunt).
+// The trick from a real game: Tropical Resort (Florida Keys, Land, Risk 18).
+{
+  const { s } = setup('GreenAnaconda', {});
+  const T = s.trick, [a, b, c, d] = T.seq;
+  Object.assign(T, { biome: 'FKTropicalResort', suit: 'Land', baseRisk: 18, risk: 18, keystones: 0 });
+  s.board.FK = { n: 0, i: 0 };
+  s.players.forEach(pl => { pl.role = 'Tourist'; }); // (no Conservationist pausing play)
+  const play = (p, card) => { s.players[p].hand.push(card); G.applyAction(s, p, { type: 'play', card }); };
+  play(a, 'GreenAnaconda');                                        // nothing to hunt; adds 1 Invasive
+  play(b, 'FloridaPanther');                                       // Keystone: hunts the Invasive, adds 1 Native
+  G.applyAction(s, b, { type: 'predate', region: 'FK', kind: 'i' });
+  ok(s.trick.risk === 17, `with 1 Native token in the Keys the Keystone Risk is 17 (${s.trick.risk})`);
+  play(c, 'WildBoar'); G.applyAction(s, c, { type: 'predateDone' });
+  const wonBefore = s.players[a].biomesWon.length;
+  play(d, 'AsianSwampEel');                                        // last card: eats the only Native token
+  G.applyAction(s, d, { type: 'predate', region: 'FK', kind: 'n' });
+  ok(s.board.FK.n === 0, 'the last card ate the only Native token');
+  ok(s.players[a].biomesWon.length === wonBefore + 1 && s.players[d].biomesWon.slice(-1)[0] !== 'FKTropicalResort',
+    'the Risk is back to 18, so Green Anaconda (Impact 18) matches and wins over Asian Swamp Eel (14)');
+  ok(s.log.some(l => /Invasive Risk is now 18/.test(l)), 'the log says the Risk changed before the trick was judged');
+}
+
 console.log(fails ? `\n${fails} check(s) failed.` : '\nAll predatory checks passed.');
 process.exit(fails ? 1 : 0);
