@@ -6,6 +6,7 @@ const ENDINGS = require('./endings.js'); // story endings shown on the end scree
 
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 6; // one per competitive role
+const TRAVEL_ROW = 3; // biome cards face up in the travel row
 const TRICK_POINTS = 5;
 const REGION_IDS = Object.keys(REGIONS);
 
@@ -86,7 +87,7 @@ function startGame(s, opts = {}) {
   });
   s.discard = [...deck.slice(0, burned), ...deck.slice(burned + n * per)]; // burned and leftover cards: unseen by everyone
   s.biomeDeck = shuffle(Object.keys(BIOMES));
-  s.travel = s.biomeDeck.splice(0, 3);
+  s.travel = s.biomeDeck.splice(0, TRAVEL_ROW);
   s.board = emptyBoard();
   s.leader = 0; s.turn = 0; s.round = 1;
   s.phase = 'draft'; s.draftTurn = 0; s.trick = null; s.step = null; s.lastTrick = null;
@@ -168,7 +169,7 @@ function startCoop(s) {
     hand: invasives, pile: [], biomesWon: [], triggeredCrisis: false, stats: newStats() });
   s.bossIdx = n; s.coopStart = 0;
   s.biomeDeck = shuffle(Object.keys(BIOMES));
-  s.travel = s.biomeDeck.splice(0, 3);
+  s.travel = s.biomeDeck.splice(0, TRAVEL_ROW);
   s.board = emptyBoard();
   s.leader = 0; s.turn = 0; s.round = 1;
   s.phase = 'draft'; s.draftTurn = 0; s.trick = null; s.step = null; s.lastTrick = null;
@@ -540,7 +541,9 @@ function resolveTrick(s) {
     s.guide = { p: g, options: s.biomeDeck.slice(0, 5) };
     log(s, `${pname(s, g)} opens the Traveler's Guidebook and leads the next round.`);
   }
-  if (s.biomeDeck.length) s.travel.push(s.biomeDeck.shift()); // refill the travel row
+  // Refill the travel row back up to 3, never past it: a biome taken with the Traveler's Guidebook comes from the
+  // deck, not the row, so the row can still hold 3.
+  while (s.travel.length < TRAVEL_ROW && s.biomeDeck.length) s.travel.push(s.biomeDeck.shift());
   s.phase = 'choose'; s.abilityUsed = false; s.tourPeek = null;
 }
 

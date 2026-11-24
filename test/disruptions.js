@@ -152,6 +152,10 @@ const reveal = (id, suit, board, region) => { const s = trickAt(biomeOf(suit, re
   const pick = s.guide.options[4], before = s.biomeDeck.length;
   G.applyAction(s, 0, { type: 'chooseBiome', biome: pick });
   ok(s.trick.biome === pick && s.biomeDeck.length === before - 1 && !s.guide, '...and can travel to one of them');
+  ok(s.travel.length === 3, 'the travel row still holds 3 (the Guidebook biome came from the deck)');
+  guard = 0;
+  while (s.phase !== 'choose' && s.phase !== 'ended' && guard++ < 80) { const w = G.waitingOn(s); if (w < 0) G.autoBots(s); else G.applyAction(s, w, G.botAction(s, w)); }
+  ok(s.phase === 'choose' && s.travel.length === 3, `after that round the row is refilled to 3, never 4 (${s.travel.length})`);
 }
 {
   const s = trickAt(biomeOf('Land'), { dis: 'NatureDocumentary' });
