@@ -68,6 +68,7 @@ function partnerSeating(players) {
 
 function startGame(s, opts = {}) {
   s.disruptions = !!opts.disruptions; // the Disruptions match modifier
+  s.burn = !!opts.burn; // the Burn match modifier: 1 card per player is burned (face down, unseen) before the deal
   if (opts.tutorial) return startTutorial(s);
   if (opts.coop) return startCoop(s);
   const n = s.players.length;
@@ -77,20 +78,20 @@ function startGame(s, opts = {}) {
   s.players = s.partners ? partnerSeating(s.players) : shuffle(s.players); // seating = turn order
   if (!s.partners) s.players.forEach(p => { p.team = null; });
   const deck = shuffle(Object.keys(CARDS));
-  const per = Math.floor(deck.length / n);
+  const { per, burned } = dealFrom(s, deck, n);
   s.players.forEach((pl, i) => {
     pl.role = null; // chosen in the role draft
-    pl.hand = deck.slice(i * per, (i + 1) * per);
+    pl.hand = deck.slice(burned + i * per, burned + (i + 1) * per);
     pl.pile = []; pl.biomesWon = []; pl.triggeredCrisis = false; pl.stats = newStats();
   });
-  s.discard = deck.slice(n * per); // leftover cards are discarded
+  s.discard = [...deck.slice(0, burned), ...deck.slice(burned + n * per)]; // burned and leftover cards: unseen by everyone
   s.biomeDeck = shuffle(Object.keys(BIOMES));
   s.travel = s.biomeDeck.splice(0, 3);
   s.board = emptyBoard();
   s.leader = 0; s.turn = 0; s.round = 1;
   s.phase = 'draft'; s.draftTurn = 0; s.trick = null; s.step = null; s.lastTrick = null;
   s.abilityUsed = false; s.tourPeek = null; s.results = null;
-  log(s, `Game started. Each player holds ${per} cards. Choose roles in turn order — ${pname(s, 0)} picks first.`);
+  log(s, `Game started.${burned ? ` ${burned} cards were burned face down.` : ''} Each player holds ${per} cards. Choose roles in turn order — ${pname(s, 0)} picks first.`);
 }
 
 // ---------- TUTORIAL: a short guided game (5 rounds) against two gentle bots ----------
@@ -110,7 +111,7 @@ const TUTORIAL = {
 };
 function startTutorial(s) {
   if (s.players.length !== TUTORIAL.roles.length) err('The tutorial is for 1 player and 2 bots.');
-  s.coop = false; s.partners = false; s.disruptions = false; s.tutorial = true; s.np = s.players.length;
+  s.coop = false; s.partners = false; s.disruptions = false; s.burn = false; s.tutorial = true; s.np = s.players.length;
   const dealt = new Set(TUTORIAL.hands.flat());
   s.players.forEach((pl, i) => {
     pl.team = null; pl.role = TUTORIAL.roles[i]; pl.hand = TUTORIAL.hands[i].slice(); nameAfterRole(pl);
@@ -142,6 +143,13 @@ const BOSS = 'Anaconda';
 // Bot-vs-Anaconda win rates with these values (logic-engine bots, test/coopsim.js 150, 2026-11-17): 1p 72%, 2p 66%, 3p 67%, 4p 71%, 5p 81%, 6p 55%.
 const COOP = { unmetMap: 9, trick: 8, infestedRegion: 5 };
 
+// How a shuffled deck is dealt to n players: with the Burn modifier, the top n cards (1 per player) are burned first,
+// so each hand is 1 card smaller than usual. Burned cards join the discard, which nobody sees (the bots treat it as
+// unknown, like the other players' hands).
+function dealFrom(s, deck, n) {
+  const burned = s.burn ? n : 0;
+  return { burned, per: Math.floor((deck.length - burned) / n) };
+}
 function startCoop(s) {
   const n = s.players.length;
   if (n < 1) err('You need at least 1 player.');
@@ -149,13 +157,13 @@ function startCoop(s) {
   s.players = shuffle(s.players);
   const natives = shuffle(Object.keys(CARDS).filter(c => CARDS[c].kind === 'Native'));
   const invasives = shuffle(Object.keys(CARDS).filter(c => CARDS[c].kind === 'Invasive'));
-  const per = Math.floor(natives.length / n);
+  const { per, burned } = dealFrom(s, natives, n);
   s.players.forEach((pl, i) => {
     pl.team = null; pl.role = null;
-    pl.hand = natives.slice(i * per, (i + 1) * per);
+    pl.hand = natives.slice(burned + i * per, burned + (i + 1) * per);
     pl.pile = []; pl.biomesWon = []; pl.triggeredCrisis = false; pl.stats = newStats();
   });
-  s.discard = natives.slice(n * per);
+  s.discard = [...natives.slice(0, burned), ...natives.slice(burned + n * per)]; // burned and leftover cards: unseen
   s.players.push({ id: 'anaconda', name: 'The Anaconda', bot: true, boss: true, team: null, role: BOSS,
     hand: invasives, pile: [], biomesWon: [], triggeredCrisis: false, stats: newStats() });
   s.bossIdx = n; s.coopStart = 0;
@@ -166,7 +174,7 @@ function startCoop(s) {
   s.phase = 'draft'; s.draftTurn = 0; s.trick = null; s.step = null; s.lastTrick = null;
   s.abilityUsed = false; s.tourPeek = null; s.results = null;
   const rounds = Math.ceil(invasives.length / n);
-  log(s, `Co-op vs The Anaconda! Each player holds ${per} Native cards. The Anaconda has ${invasives.length} Invasive cards — about ${rounds} rounds. Choose roles in turn order — ${pname(s, 0)} picks first.`);
+  log(s, `Co-op vs The Anaconda!${burned ? ` ${burned} Native cards were burned face down.` : ''} Each player holds ${per} Native cards. The Anaconda has ${invasives.length} Invasive cards — about ${rounds} rounds. Choose roles in turn order — ${pname(s, 0)} picks first.`);
 }
 const isBoss = (s, p) => !!(s.players[p] && s.players[p].boss);
 
@@ -540,7 +548,9 @@ function useAbility(s, p, a) {
   if (role === 'Fisherman' || role === 'Hunter' || role === 'Researcher') {
     const { handCard, pileCard } = a;
     if (!pl.hand.includes(handCard) || !pl.pile.includes(pileCard)) err('Pick one card from your hand and one from your scoring pile.');
-    if (role !== 'Researcher') {
+    if (role === 'Researcher') {
+      if (CARDS[pileCard].impact >= CARDS[handCard].impact) err('The scoring-pile card must have a lower Impact than the card from your hand.');
+    } else {
       const need = role === 'Fisherman' ? 'Water' : 'Land';
       if (CARDS[pileCard].habitat !== need) err(`The scoring-pile card must be a ${need} card.`);
     }
@@ -935,7 +945,8 @@ function computeResults(s) {
     } else if (role === 'Researcher') {
       const tax = new Set(pl.pile.map(c => CARDS[c].taxon));
       lines.push({ label: `6 unique taxonomies in scoring pile (${tax.size})`, pts: tax.size >= 6 ? 15 : 0 });
-      lines.push({ label: `Fewest tricks (${tricks[p]})`, pts: tricks[p] === minOf(tricks) ? 10 : 0 });
+      const crises = people.map(x => x.stats.crises), mine = crises[p];
+      lines.push({ label: `Triggered the fewest Invasive Crises (${mine})`, pts: mine === minOf(crises) ? R.fewestCrisisPts : 0 });
     } else if (role === 'Tourist') {
       const bare = objRegions.filter(r => b[r].n + b[r].i === 0).length;
       lines.push({ label: `At least 1 population in each objective region${bare ? ` (${bare} empty)` : ''}`, pts: bare === 0 ? R.anyPopPts : 0 });
@@ -1126,9 +1137,10 @@ function simpleBot(s, p) {
   const byImpact = (a, b) => CARDS[a].impact - CARDS[b].impact || (CARDS[a].kind === 'Invasive') - (CARDS[b].kind === 'Invasive');
   const winners = legal.filter(winsNow).sort(byImpact);
   const nativeWin = winners.find(c => CARDS[c].kind === 'Native');
-  const wantsFew = pl.role === 'Researcher' || partnerWinning(s, p);
+  const wantsFew = partnerWinning(s, p);
+  const avoidsCrisis = pl.role === 'Conservationist' || pl.role === 'Researcher'; // both score for (fewest / no) Crises
   let card;
-  if (!wantsFew && (nativeWin || (winners.length && pl.role !== 'Conservationist'))) card = nativeWin || winners[0];
+  if (!wantsFew && (nativeWin || (winners.length && !avoidsCrisis))) card = nativeWin || winners[0];
   else card = legal.slice().sort(byImpact)[0];
   const populate = pl.role === 'Conservationist' && CARDS[card].kind === 'Invasive' && canProtect(s) ? false : undefined;
   return { type: 'play', card, populate };
@@ -1244,9 +1256,10 @@ function botAbility(s, p, role, wantKind) {
   if (!pl.pile.length || Math.random() < 0.4) return null;
   const byImpact = (a, b) => CARDS[a].impact - CARDS[b].impact;
   if (r === 'Researcher') {
-    // Wants the fewest tricks: bank its strongest hand card, take back the weakest pile card.
-    const hi = pl.hand.slice().sort(byImpact).pop(), lo = pl.pile.slice().sort(byImpact)[0];
-    return CARDS[hi].impact > CARDS[lo].impact ? { type: 'ability', handCard: hi, pileCard: lo } : null;
+    // Wants the fewest Invasive Crises: bank its strongest Invasive hand card (a likely Crisis), taking back the
+    // weakest pile card (the swap must bring back a lower Impact card).
+    const hi = pl.hand.filter(c => CARDS[c].kind === 'Invasive').sort(byImpact).pop(), lo = pl.pile.slice().sort(byImpact)[0];
+    return hi && CARDS[hi].impact > CARDS[lo].impact ? { type: 'ability', handCard: hi, pileCard: lo } : null;
   }
   if (r === 'Fisherman' || r === 'Hunter') {
     // Trade its weakest off-suit card for the strongest Native card of its favourite suit in the pile,
@@ -1425,7 +1438,7 @@ const REACT = {
     },
     keystone: x => ['signature', ['Keystone effect observed: {from} → {to}.']],
     spread: x => ['signature', ['Migration route logged.', 'Tracking the {c} to {place}.']],
-    win: () => ['upset', ['Another trick? I wanted the fewest…', 'Too much attention. Bad for the data.']],
+    win: () => ['cheer', ['More specimens for the study!', 'A fine sample. Into the notebook.']],
     crisis: () => ['shock', ['The data… it’s collapsing!', 'Population crash! Write this down!']],
   },
   Tourist: {

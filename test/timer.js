@@ -58,20 +58,22 @@ const until = async (fn, ms, step = 100) => { const end = Date.now() + ms; while
   await post('lobby', { room: priv.room, token: priv.token, cmd: 'visibility', public: false });
   await post('lobby', { room: priv.room, token: priv.token, cmd: 'timer', on: false });
 
-  console.log('Confirming the bid');
+  console.log('Confirming the bet');
   r = await post('lobby', { room: priv.room, token: priv.token, cmd: 'start' });
-  ok(r.status === 400 && /confirm/.test(r.error), "the game can't start until everyone confirms the bid");
+  ok(r.status === 400 && /confirm/.test(r.error), "the game can't start until everyone confirms the bet");
   await post('lobby', { room: priv.room, token: priv.token, cmd: 'confirm', on: true }); await sleep(200);
   ok(wPriv.view.lobby.find(x => x.pid === wPriv.view.yourPid).confirmed, 'confirming shows on my seat');
-  await post('lobby', { room: priv.room, token: priv.token, cmd: 'buyin', amount: 50 }); await sleep(200);
-  ok(!wPriv.view.lobby.find(x => x.pid === wPriv.view.yourPid).confirmed, 'changing the bid clears confirmations');
-  await post('lobby', { room: priv.room, token: priv.token, cmd: 'buyin', amount: 150 });
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'mult', mult: 0.5 }); await sleep(200);
+  ok(!wPriv.view.lobby.find(x => x.pid === wPriv.view.yourPid).confirmed, 'changing the multiplier clears confirmations');
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'mult', mult: 5 });
   r = await post('lobby', { room: priv.room, token: priv.token, cmd: 'confirm', on: true });
-  ok(r.status === 400 && /need 150 EB/.test(r.error), "can't confirm a bid you can't cover (a new guest has 50 EB, the bid is 150)");
-  await post('lobby', { room: priv.room, token: priv.token, cmd: 'buyin', amount: 5 });
+  ok(r.status === 400 && /need 125 EB/.test(r.error), "can't confirm a bet you can't cover (a new guest has 50 EB; a 5x table needs 125)");
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'mult', mult: 1 });
   await post('lobby', { room: priv.room, token: priv.token, cmd: 'confirm', on: true });
-  await post('lobby', { room: priv.room, token: priv.token, cmd: 'mode', mode: 'coop' }); await sleep(200);
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'mode', mode: 'partners' }); await sleep(200);
   ok(!wPriv.view.lobby.find(x => x.pid === wPriv.view.yourPid).confirmed, 'changing the game mode clears confirmations too');
+  await post('lobby', { room: priv.room, token: priv.token, cmd: 'mode', mode: 'coop' }); await sleep(200);
+  ok(wPriv.view.mult === 0 && wPriv.view.lobby.find(x => x.pid === wPriv.view.yourPid).confirmed, 'co-op tables are always free: nothing to confirm');
   await post('lobby', { room: priv.room, token: priv.token, cmd: 'mode', mode: 'solo' });
   await post('lobby', { room: priv.room, token: priv.token, cmd: 'confirm', on: true });
 

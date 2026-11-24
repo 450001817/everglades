@@ -63,8 +63,8 @@ function handFit(handIds, np = 4) {
   // Fisherman / Hunter: strong Natives of their habitat win its tricks and fill its regions
   fit.Fisherman = mapPts('Fisherman') + 15 * L((suitWins('Water') - 0.9) * 2.5) + 10 * L((suitPop('Water') - 9) / 3);
   fit.Hunter = mapPts('Hunter') + 15 * L((suitWins('Land') - 0.9) * 2.5) + 15 * L((suitPop('Land') - 9) / 3);
-  // Researcher: a weak hand wins the fewest tricks; many taxonomies in hand feed the pile (and its swap ability)
-  fit.Researcher = mapPts('Researcher') + 10 * L((fairTricks * 0.7 - tricks) * 1.5)
+  // Researcher: few Invasives that would win means few Crises; many taxonomies in hand feed the pile (and its swap ability)
+  fit.Researcher = mapPts('Researcher') + R.Researcher.fewestCrisisPts * inv.reduce((a, c) => a * (1 - 0.2 * winChance(c)), 1)
     + 15 * clamp01(0.15 + 0.12 * (new Set(hand.map(c => c.taxon)).size - 3));
   // Tourist: any trick won outside its objective regions costs the 20, so a hand that seldom wins suits it
   const objShare = BIOME_LIST.filter(b => R.Tourist.map[b.region]).length / BIOME_LIST.length;
@@ -220,8 +220,9 @@ module.exports = function makeAI(G) {
           const tax = new Set(pl.pile.map(c => CARDS[c].taxon)).size;
           const gain = R > 0 ? Math.min(2.5, 1.2 * fut[k].all + 0.6) : 0; // winning a trick brings new taxa
           v += 15 * L((tax + gain - 5.5) / 0.6);
-          const mine = totalTricks(k), least = Math.min(...others.map(totalTricks));
-          v += 10 * L((least - mine + 0.25) / tsig);
+          // the fewest Invasive Crises triggered (ties count)
+          const crises = q => s.players[q].stats.crises, mine = crises(k), least = Math.min(...others.map(crises));
+          v += Rl.fewestCrisisPts * L((least - mine + 0.5) / (0.5 + 0.15 * R));
           break;
         }
         case 'Tourist': {
@@ -334,7 +335,7 @@ module.exports = function makeAI(G) {
     const S = strengths(s, p, false), people = s.players.filter(x => !x.boss).length;
     const good = id => {
       const suit = BIOMES[id].suit, share = S[p][suit] / (S.reduce((t, o) => t + o[suit], 0) || 1);
-      return (Rl.map[BIOMES[id].region] ? 1 : 0) + (share > 1 / people ? 1 : 0) - (pl.role === 'Researcher' ? 1 : 0);
+      return (Rl.map[BIOMES[id].region] ? 1 : 0) + (share > 1 / people ? 1 : 0);
     };
     return { type: 'tourDecide', bottom: good(a) < good(b) ? a : b }; // (a tie: the second goes, the first stays on top)
   }
@@ -350,7 +351,7 @@ module.exports = function makeAI(G) {
       const need = role === 'Fisherman' ? 'Water' : role === 'Hunter' ? 'Land' : null;
       const pile = [...new Set(pl.pile)].filter(c => !need || CARDS[c].habitat === need);
       const hand = [...new Set(pl.hand)];
-      for (const pc of pile) for (const hc of hand) cands.push({ type: 'ability', handCard: hc, pileCard: pc });
+      for (const pc of pile) for (const hc of hand) if (role !== 'Researcher' || CARDS[pc].impact < CARDS[hc].impact) cands.push({ type: 'ability', handCard: hc, pileCard: pc });
     }
     if (!cands.length) return null;
     const base = value(s, p, false);

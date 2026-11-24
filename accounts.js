@@ -12,16 +12,21 @@ const { CARDS, ROLES, SKINS, CHAT, DISRUPTIONS, FOIL_PRICE, SPLASHES, TREATMENTS
 const ECON = {
   startingBalance: 50,         // EB every new account starts with
   dailyBonus: 50,              // EB for the first sign-in or visit of each day (UTC calendar day)
-  buyIns: [0, 5, 50, 150, 500], // lobby buy-in options (0 = a free table, just for fun: no bid, no payouts)
-  defaultBuyIn: 5,             // a new table's buy-in
+  // Table payout multipliers (0 = a free table, just for fun: no bet, no payouts). At the end of a game every losing
+  // player pays the winner (top score − their score) × the multiplier; see settle below.
+  multipliers: [0, 0.5, 1, 5, 10, 20, 50],
+  defaultMultiplier: 1,        // a new table's multiplier
+  confirmPer: 25,              // to confirm a bet you need confirmPer × multiplier EB (held while the game runs)
   unlockWins: 5,               // tricks won with an animal card to unlock its profile picture
 };
 
 // ---------- new players: easy bots (server.js easyTable, game.js easyBot) ----------
 // A new player's first games are played against gentler bots, behind the scenes. "New" is the first 3 games, or the
 // first 5 if they've lost 2 or more of those (a loss: anything but 1st place; in co-op, the Anaconda winning).
-// Any table with a new player and a buy-in of at most maxBuyIn gets the easy bots, whoever else is sitting there.
-const NEWBIE = { games: 3, extendedGames: 5, extendLosses: 2, maxBuyIn: 50 };
+// Any table with a new player and a multiplier of at most maxMult gets the easy bots, whoever else is sitting there.
+const NEWBIE = { games: 3, extendedGames: 5, extendLosses: 2, maxMult: 1 };
+// EB a player needs to confirm a bet at a table with this multiplier
+const confirmCost = mult => Math.ceil(ECON.confirmPer * mult);
 function isNewPlayer(a) {
   if (!a || !a.stats) return false;
   const games = a.stats.games || 0, losses = games - (a.stats.firsts || 0);
@@ -464,15 +469,17 @@ function buy(a, itemId) {
 const titleName = id => (STORE.find(i => i.id === id) || {}).name || null;
 const titleStyle = id => (STORE.find(i => i.id === id) || {}).style || 'sparkle'; // the look of the title under a player's name
 
-// ---------- buy-ins (escrow) and payouts ----------
-// The buy-in is taken from every player when the game starts and held in escrow until it is settled.
+// ---------- the bet (escrow) and payouts ----------
+// When the game starts, each player's confirm deposit (confirmCost(mult)) is taken and held in escrow, so it can't be
+// spent during the game. At the end it goes back to its owner just before the payouts are taken.
 // If the server restarts mid-game, unsettled escrows are refunded on the next start.
-function takeBuyIns(gameId, accountIds, amount) {
+function takeStakes(gameId, accountIds, mult) {
+  const amount = confirmCost(mult);
   const accts = accountIds.map(id => db.accounts[id]);
   const short = accts.filter(a => !a || a.balance < amount);
-  if (short.length) throw userErr(`${short.map(a => a ? a.gamertag : 'A player').join(', ')} can't cover the ${amount} EB buy-in.`);
+  if (short.length) throw userErr(`${short.map(a => a ? a.gamertag : 'A player').join(', ')} can't cover the ${amount} EB needed for a ${mult}x table.`);
   for (const a of accts) a.balance -= amount;
-  db.escrows[gameId] = { amount, accounts: accountIds.slice(), at: Date.now() };
+  db.escrows[gameId] = { mult, amount, accounts: accountIds.slice(), at: Date.now() };
   saveNow();
 }
 function refundEscrow(gameId) {
@@ -486,45 +493,59 @@ function refundAllEscrows() {
   if (ids.length) console.log(`  Refunded ${ids.length} unfinished game buy-in(s).`);
 }
 
-// Pay out a finished game. ranked: [{ seat, accountId|null, score, team }] for every seat (bots included).
-// Rule: last place(s) lose their bet, 3rd gets half back, 2nd gets it all back, 1st takes the rest of the pot.
-// Every seat antes (the house covers bots, and keeps whatever a bot would win). Tied players share their places.
-function payouts(n, bet) {
-  const half = Math.floor(bet / 2);
-  const p = new Array(n).fill(0);
-  p[1] = bet; if (n >= 4) p[2] = half; // with 3 or fewer seats there is no "half back" place
-  p[0] = bet * n - p.slice(1).reduce((x, y) => x + y, 0);
-  return p;
-}
+// What one losing seat owes the winner(s): the score gap times the multiplier (whole EB, rounded down).
+const owes = (topScore, score, mult) => Math.floor(Math.max(0, topScore - score) * mult);
+
+// Pay out a finished game. ranked: [{ seat, accountId|null, score, collects? }] for every seat (bots included).
+// Rule: every seat below the top score pays (top − its score) × multiplier into the pot; the top score takes the pot
+// (seats tied for the top split it evenly). A player who can't cover the full amount pays everything they have.
+// Bots are the house: the house pays a losing bot's share in full and keeps a winning bot's share.
+// collects: false = this seat pays when it loses but takes nothing when it wins (a player who was removed mid-game).
+// Co-op tables (opts.coop) and free tables (multiplier 0) change no Eco-bucks.
 function settle(gameId, ranked, opts = {}) {
   const e = db.escrows[gameId];
   if (!e) return null;
-  const bet = e.amount, n = ranked.length;
-  const out = ranked.map(r => ({ seat: r.seat, accountId: r.accountId, place: 0, payout: 0 }));
-  if (opts.coop) {
-    // co-op: everyone wins or loses together. A win pays each player double their bet.
-    for (const o of out) { o.place = opts.playersWin ? 1 : 2; o.payout = opts.playersWin ? bet * 2 : 0; }
-  } else {
-    const P = payouts(n, bet);
-    const order = ranked.map((r, i) => i).sort((x, y) => ranked[y].score - ranked[x].score);
-    for (let k = 0; k < n;) { // groups of tied scores share the payouts of the places they occupy
-      let m = k; while (m + 1 < n && ranked[order[m + 1]].score === ranked[order[k]].score) m++;
-      const share = P.slice(k, m + 1).reduce((x, y) => x + y, 0) / (m - k + 1);
-      for (let j = k; j <= m; j++) { out[order[j]].place = k + 1; out[order[j]].payout = Math.floor(share); }
-      k = m + 1;
+  const mult = opts.coop ? 0 : (e.mult ?? 0);
+  const n = ranked.length, top = n ? Math.max(...ranked.map(r => r.score)) : 0;
+  const acct = r => (r.accountId && e.accounts.includes(r.accountId) && db.accounts[r.accountId]) || null; // null: the house
+  for (const id of e.accounts) if (db.accounts[id]) db.accounts[id].balance += e.amount; // the held deposit comes back first
+  const out = ranked.map(r => ({ seat: r.seat, accountId: r.accountId, score: r.score, place: 1 + ranked.filter(x => x.score > r.score).length,
+    owed: 0, paid: 0, received: 0, net: 0, short: false }));
+  if (opts.coop) for (const o of out) o.place = opts.playersWin ? 1 : 2; // everyone wins or loses together
+  else {
+    // losers pay in
+    let pot = 0;
+    ranked.forEach((r, i) => {
+      if (r.score === top) return;
+      const o = out[i], a = acct(r);
+      o.owed = owes(top, r.score, mult);
+      o.paid = a ? Math.min(o.owed, Math.max(0, a.balance)) : o.owed;
+      o.short = o.paid < o.owed;
+      if (a) a.balance -= o.paid;
+      pot += o.paid;
+    });
+    // the top score(s) split the pot (any EB left over by the split goes, one each, to the first winners by seat)
+    const winners = ranked.map((r, i) => i).filter(i => ranked[i].score === top);
+    const share = Math.floor(pot / winners.length);
+    let extra = pot - share * winners.length;
+    for (const i of winners) {
+      const o = out[i];
+      o.received = share + (extra > 0 ? 1 : 0); if (extra > 0) extra--;
+      const a = acct(ranked[i]);
+      if (a && ranked[i].collects !== false) a.balance += o.received;
+      else if (a) o.received = 0; // removed mid-game: the house keeps it
     }
   }
   for (const o of out) {
-    const a = o.accountId && db.accounts[o.accountId];
-    o.net = o.payout - bet;
-    if (!a || !e.accounts.includes(a.id)) continue; // bots: the house
-    a.balance += o.payout;
+    o.net = o.received - o.paid;
+    const a = acct(o);
+    if (!a) continue; // bots: the house
     a.stats.games++; if (o.place === 1) a.stats.firsts++;
     if (o.net > 0) { a.stats.ebWon += o.net; addEarned(a, o.net); } else a.stats.ebLost -= o.net;
     o.balance = a.balance;
   }
   delete db.escrows[gameId]; saveNow();
-  return { bet, pot: bet * n, results: out };
+  return { mult, top, pot: out.reduce((t, o) => t + o.paid, 0), results: out };
 }
 
 // ---------- leaderboards: Eco-bucks earned from games, all time / this month / today (UTC) ----------
@@ -660,7 +681,7 @@ function adjustPurchase(paymentIntent, change) {
 
 module.exports = {
   ECON, NEWBIE, isNewPlayer, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
-  setProfile, dailyBonus, buy, takeBuyIns, refundEscrow, refundAllEscrows, settle, payouts, recordCardWin,
+  setProfile, dailyBonus, buy, takeStakes, refundEscrow, refundAllEscrows, settle, owes, confirmCost, recordCardWin,
   publicProfile, privateProfile, config, recordGame, playerStats, serverStats, canSeeServerStats, leaderboard, avatarSrc, titleName, skinFor, splashFor, ownsChat, chatFor, chatAllowed, treatmentFor, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
   friendRequest, friendRespond, friendRemove, friendsOf, isFriend,
 };

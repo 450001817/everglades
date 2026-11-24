@@ -84,7 +84,7 @@ const until = async (fn, ms, step = 100) => { const end = Date.now() + ms; while
   ok(fAlice.online && fAlice.where === 'lobby' && fAlice.room === null, "Alice shows as at a table (a private table's code isn't shared)");
   r = await post('join', { session: bS, room: fb.invites[0].room });
   ok(r.status === 200, 'Bob joins with the invite');
-  const wB = watch(t.room, r.token);
+  const bTok = r.token, wB = watch(t.room, r.token);
   ok((await post('friends', { session: bS })).invites.length === 0, 'the invite is used up');
   ok(await until(() => wA.view && wA.view.lobby.length === 2, 3000), 'Bob is at the table');
   r = await post('friends/invite', { session: aS, id: bob.id, room: t.room });
@@ -92,13 +92,18 @@ const until = async (fn, ms, step = 100) => { const end = Date.now() + ms; while
 
   console.log('Free table');
   const before = [(await post('me', { session: aS })).me.balance, (await post('me', { session: bS })).me.balance];
-  r = await post('lobby', { room: t.room, token: t.token, cmd: 'buyin', amount: 0 });
-  ok(r.status === 200, 'the host can pick a 0 EB (free) buy-in');
-  await until(() => wA.view && wA.view.buyIn === 0, 3000);
-  ok(wA.view.lobby.every(m => m.confirmed), 'nobody has a bid to confirm at a free table');
+  r = await post('lobby', { room: t.room, token: t.token, cmd: 'mult', mult: 0 });
+  ok(r.status === 200, 'the host can pick a free table (no multiplier)');
+  await until(() => wA.view && wA.view.mult === 0, 3000);
+  ok(wA.view.lobby.every(m => m.confirmed), 'nobody has a bet to confirm at a free table');
+  r = await post('lobby', { room: t.room, token: bTok, cmd: 'burn', on: true });
+  ok(r.status === 403, 'only the host can turn on Burn');
+  await post('lobby', { room: t.room, token: t.token, cmd: 'burn', on: true });
+  ok(await until(() => wA.view && wA.view.burn === true, 3000), 'the host turns on the Burn modifier');
   r = await post('lobby', { room: t.room, token: t.token, cmd: 'start' });
   ok(r.status === 200, 'the game starts without anyone confirming');
   await until(() => wA.view && wA.view.phase !== 'lobby', 3000);
+  ok(wA.view.burn === true && wA.view.hand.length === 10, `Burn: 4 players hold 10 cards, not 11 (${wA.view.hand.length})`);
   const after = [(await post('me', { session: aS })).me.balance, (await post('me', { session: bS })).me.balance];
   ok(after[0] === before[0] && after[1] === before[1], `nobody pays anything (${before.join('/')} → ${after.join('/')})`);
   fb = await post('friends', { session: bS });

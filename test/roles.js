@@ -75,5 +75,47 @@ console.log('Tourist: the ability (top 2 Travel cards, 1 to the bottom)');
   throws(() => G.applyAction(s, 0, { type: 'ability' }), 'once per turn');
 }
 
+console.log('Conservationist and Researcher (Nov 23, 2026)');
+{
+  const s = game(['Conservationist', 'Researcher', 'Fisherman']);
+  ok(line(G.computeResults(s), 0, /Never triggered/).pts === 5, 'Conservationist: never triggering a Crisis is worth 5');
+  s.players[1].stats.crises = 0; s.players[2].stats.crises = 0;
+  ok(line(G.computeResults(s), 1, /fewest Invasive Crises/).pts === 10, 'Researcher: tied for the fewest Crises (0): 10 points');
+  s.players[1].stats.crises = 1;
+  ok(line(G.computeResults(s), 1, /fewest Invasive Crises/).pts === 0, 'Researcher: more Crises than someone: no points');
+  ok(!G.computeResults(s)[1].lines.some(l => /Fewest tricks/.test(l.label)), 'Researcher: no "fewest tricks" goal any more');
+  // the swap: the pile card must have a lower Impact than the hand card
+  const { CARDS } = require('../public/data.js');
+  const ids = Object.keys(CARDS).sort((a, b) => CARDS[a].impact - CARDS[b].impact);
+  const lo = ids[0], hi = ids[ids.length - 1];
+  const pl = s.players[1];
+  s.phase = 'play'; s.step = null; s.turn = 1; s.abilityUsed = false;
+  pl.hand = [lo]; pl.pile = [hi];
+  throws(() => G.applyAction(s, 1, { type: 'ability', handCard: lo, pileCard: hi }), 'Researcher: taking back a higher-Impact card is refused');
+  pl.hand = [hi]; pl.pile = [lo];
+  G.applyAction(s, 1, { type: 'ability', handCard: hi, pileCard: lo });
+  ok(pl.hand[0] === lo && pl.pile[0] === hi, 'Researcher: taking back a lower-Impact card works');
+}
+
+console.log('Burn modifier: 1 card per player burned before the deal');
+{
+  const table = (n, opts) => { const s = G.newGame(); for (let i = 0; i < n; i++) G.addPlayer(s, { id: 'p' + i, name: 'P' + i, bot: true, simple: true }); G.startGame(s, opts); return s; };
+  for (const n of [3, 4, 5, 6]) {
+    const std = table(n, {}), burn = table(n, { burn: true });
+    const h0 = std.players[0].hand.length, h1 = burn.players[0].hand.length;
+    const all = burn.players.flatMap(p => p.hand).concat(burn.discard);
+    ok(h1 === h0 - 1 && burn.players.every(p => p.hand.length === h1) && burn.burn && !std.burn,
+      `${n} players: hands of ${h1} instead of ${h0}`);
+    ok(all.length === new Set(all).size && burn.discard.length >= n, `${n} players: the ${n} burned cards are set aside unseen, no card dealt twice`);
+  }
+  const co = table(4, { coop: true }), cob = table(4, { coop: true, burn: true });
+  ok(cob.players[0].hand.length === co.players[0].hand.length - 1 && cob.players[cob.bossIdx].hand.length === co.players[co.bossIdx].hand.length,
+    'co-op: players hold 1 Native card fewer; the Anaconda\'s deck is unchanged');
+  // a burned game plays to the end
+  const s = table(4, { burn: true }); let guard = 0;
+  while (s.phase !== 'ended' && guard++ < 5000) { const p = G.waitingOn(s); if (p < 0) G.autoBots(s); else G.applyAction(s, p, G.botAction(s, p)); }
+  ok(s.phase === 'ended', 'a game with burned cards plays through to the end');
+}
+
 console.log(fails ? `\n${fails} check(s) FAILED` : '\nAll role checks passed.');
 process.exit(fails ? 1 : 0);

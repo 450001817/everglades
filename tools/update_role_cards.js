@@ -1,4 +1,4 @@
-// Rewrites the rules text on role cards for new objectives / abilities (Nov 2026: Land Developer and Tourist).
+// Rewrites the rules text on role cards for new objectives / abilities (Nov 2026: Land Developer, Tourist, Conservationist, Researcher).
 //  * Right page (objectives): the old text is cleared and new lines are set in the cards' own lettering, cut letter
 //    by letter from the objectives printed on all six role cards (tools/role_card_glyphs.js). "15pts:" style labels
 //    in red, the rest in black.
@@ -22,9 +22,18 @@ const CARDS = {
     objectives: [
       ['10pts:', 'For each map', 'objective met.'],
       ['15pts:', 'If the total', 'population majority is', 'Native.'],
-      ['15pts:', 'If you never trigger', 'an Invasive crisis.'],
+      ['5pts:', 'If you never trigger', 'an Invasive crisis.'],
     ],
-    redraw: ['15pts: If you never trigger'], // the printed "trigger" had a broken r and i
+    redraw: ['5pts: If you never trigger'], // the printed "trigger" had a broken r and i
+  },
+  Researcher: {
+    pitch: 37,
+    objectives: [
+      ['5pts:', 'For each map', 'objective met.'],
+      ['15pts:', 'Have 6 unique', 'taxonomies in your scoring', 'pile.'],
+      ['10pts:', 'If you trigger the', 'fewest Invasive crises.'],
+    ],
+    ability: ['You may swap a card', 'from your hand with', 'a lower Impact card', 'in your scoring pile.'],
   },
   LandDeveloper: {
     pitch: 37,

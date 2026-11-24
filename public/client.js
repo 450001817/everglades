@@ -1760,6 +1760,11 @@ function renderLobby() {
         ${S.isHost ? `<div class="modepick"><button class="btn small ${S.disruptions ? 'brass' : ''}" data-dis="1">On</button><button class="btn small ${S.disruptions ? '' : 'brass'}" data-dis="0">Off</button></div>` : ''}
       </div>
       <div class="row" style="justify-content:space-between">
+        <div><span style="font-size:18px">Burn: <b>${S.burn ? 'On' : 'Off'}</b></span>
+          <span class="hint">— 1 card per player is burned face down before the deal. Nobody sees them, so the game is harder to read, and every hand is 1 card smaller</span></div>
+        ${S.isHost ? `<div class="modepick"><button class="btn small ${S.burn ? 'brass' : ''}" data-burn="1">On</button><button class="btn small ${S.burn ? '' : 'brass'}" data-burn="0">Off</button></div>` : ''}
+      </div>
+      <div class="row" style="justify-content:space-between">
         <div><div class="panel-title" style="margin:0">Table</div>
           <span style="font-size:18px">${S.public ? 'Public' : 'Private'}</span> <span class="hint">${S.public ? '— anyone can join with “Join a random public table”' : '— only people with the code or link can join'}</span></div>
         ${S.isHost ? `<div class="modepick"><button class="btn small ${S.public ? '' : 'brass'}" data-public="0">Private</button><button class="btn small ${S.public ? 'brass' : ''}" data-public="1">Public</button></div>` : ''}
@@ -1771,19 +1776,19 @@ function renderLobby() {
       </div>
       <div class="buyin">
         <div class="row" style="justify-content:space-between">
-          <div><div class="panel-title" style="margin:0">Buy-in</div>
-            ${S.buyIn === 0 ? '<span style="font-size:18px"><b>Free table</b></span> <span class="hint">· just for fun: no risk, no reward</span>'
-              : `<span style="font-size:18px">${fmtEB(S.buyIn)} per player</span> <span class="hint">· pot ${fmtEB(S.buyIn * tableSize)} with ${tableSize} seats</span>`}</div>
-          ${S.isHost ? `<div class="modepick bidpick">${S.buyIns.map(b => `<button class="btn small ${S.buyIn === b ? 'brass' : ''}" data-buyin="${b}" ${b === 0 ? 'title="Play just for fun: no Eco-bucks are bet or won"' : ''}>${b === 0 ? 'Free' : b + ' EB'}</button>`).join('')}</div>` : ''}
+          <div><div class="panel-title" style="margin:0">Payout multiplier</div>
+            ${S.mult === 0 ? `<span style="font-size:18px"><b>Free table</b></span> <span class="hint">· ${S.coop ? 'co-op tables are always free' : 'just for fun: no risk, no reward'}</span>`
+              : `<span style="font-size:18px"><b>${S.mult}x</b> payouts</span> <span class="hint">· ${fmtEB(S.need)} needed to confirm</span>`}</div>
+          ${S.isHost && !S.coop ? `<div class="modepick bidpick">${S.mults.map(x => `<button class="btn small ${S.multSet === x ? 'brass' : ''}" data-mult="${x}" title="${x === 0 ? 'Play just for fun: no Eco-bucks are bet or won' : `Losers pay the winner their score gap × ${x}. Needs ${Math.ceil(25 * x)} EB to confirm.`}">${x === 0 ? 'Free' : x + 'x'}</button>`).join('')}</div>` : ''}
         </div>
-        ${S.buyIn === 0 ? '<p class="hint" style="margin:2px 0 0">Nobody pays in and nobody gets paid out. Your Eco-bucks stay exactly where they are.</p>' : `<p class="hint" style="margin:2px 0 0">${S.mode === 'coop'
-          ? 'Co-op: beat the Anaconda and everyone gets double their bet back. Lose, and everyone loses it.'
-          : `1st takes the rest of the pot · 2nd gets their bet back · 3rd gets half back · ${tableSize >= 5 ? 'everyone below loses' : '4th loses'} their bet. The house covers the bots.`}</p>`}
-        ${S.myAccount ? `<p class="hint" style="margin:2px 0 0">Your balance: ${fmtEB(S.myAccount.balance)}${S.myAccount.balance < S.buyIn ? ' — <b style="color:var(--red)">not enough for this buy-in</b>' : ''}</p>` : ''}
-        ${(() => { const mine = S.lobby.find(x => x.pid === S.yourPid); if (!mine || S.buyIn === 0) return '';
+        <p class="hint" style="margin:2px 0 0">${S.coop ? 'Co-op tables are always free: nobody pays in and nobody gets paid out.'
+          : S.mult === 0 ? 'Nobody pays in and nobody gets paid out. Your Eco-bucks stay exactly where they are.'
+          : `Every losing player pays the winner the gap between the winner's score and theirs, × ${S.mult}. For example, win 50 to 15 and that player pays you (50 − 15) × ${S.mult} = ${Math.floor(35 * S.mult).toLocaleString()} EB. Players tied for the top score split the pot. Can't cover what you owe? You pay everything you have. The house plays for the bots.`}</p>
+        ${S.myAccount ? `<p class="hint" style="margin:2px 0 0">Your balance: ${fmtEB(S.myAccount.balance)}${S.myAccount.balance < S.need ? ` — <b style="color:var(--red)">you need ${S.need.toLocaleString()} EB to confirm this bet</b>` : ''}</p>` : ''}
+        ${(() => { const mine = S.lobby.find(x => x.pid === S.yourPid); if (!mine || S.mult === 0) return '';
           return mine.confirmed
-            ? `<div class="row bidrow"><span class="bidok">✓ You confirmed your ${S.buyIn} EB bid.</span><button class="btn small" data-confirm="0">Cancel</button></div>`
-            : `<div class="row bidrow"><button class="btn primary" data-confirm="1" ${S.myAccount && S.myAccount.balance < S.buyIn ? 'disabled' : ''}>Confirm my ${S.buyIn} EB bid</button><span class="hint">Everyone confirms before the game can start. A new bid or game mode needs confirming again.</span></div>`; })()}
+            ? `<div class="row bidrow"><span class="bidok">✓ You confirmed the ${S.mult}x bet.</span><button class="btn small" data-confirm="0">Cancel</button></div>`
+            : `<div class="row bidrow"><button class="btn primary" data-confirm="1" ${S.myAccount && S.myAccount.balance < S.need ? 'disabled' : ''}>Confirm the ${S.mult}x bet</button><span class="hint">Needs ${S.need.toLocaleString()} EB, held until the game ends. Everyone confirms before the game can start; a new multiplier or game mode needs confirming again.</span></div>`; })()}
       </div>
       ${S.mode === 'partners' ? `<p class="hint" style="margin:-4px 0 0">Pick a team for yourself${S.isHost ? ' (as host you can also place others and bots)' : ''}. Anyone without a team gets a random partner. Teammates never take turns back to back.</p>` : ''}
       ${S.mode === 'coop' ? `<div class="row" style="flex-wrap:nowrap;gap:12px;align-items:flex-start;margin-top:-4px">
@@ -1796,8 +1801,8 @@ function renderLobby() {
             <span class="dot ${m.online ? '' : 'off'}"></span>
             <div style="flex:1;min-width:0">${bannerHtml(m.profile || { gamertag: m.name, avatarSrc: botAvatar(m.name) }, { you: m.pid === S.yourPid, size: 'small' })}</div>
             ${teamPicker(m)}
-            ${!m.bot && !m.canAfford ? `<span class="tag" style="background:var(--red);color:#fff" title="Can't cover the ${S.buyIn} EB buy-in">SHORT</span>` : ''}
-            ${m.bot ? '' : m.confirmed ? `<span class="tag confirmed" title="Confirmed the ${S.buyIn} EB bid">✓ BID</span>` : `<span class="tag unconfirmed" title="Hasn't confirmed the ${S.buyIn} EB bid yet">WAITING</span>`}
+            ${!m.bot && !m.canAfford ? `<span class="tag" style="background:var(--red);color:#fff" title="Needs ${S.need} EB to confirm the ${S.mult}x bet">SHORT</span>` : ''}
+            ${m.bot ? '' : m.confirmed ? `<span class="tag confirmed" title="Confirmed the ${S.mult}x bet">✓ BET</span>` : `<span class="tag unconfirmed" title="Hasn't confirmed the ${S.mult}x bet yet">WAITING</span>`}
             ${m.host ? '<span class="tag host">HOST</span>' : ''}${m.bot ? '<span class="tag bot">BOT</span>' : ''}
             ${S.isHost && m.pid !== S.yourPid ? `<button class="btn small" data-remove="${m.pid}">✕</button>` : ''}
           </div>`).join('')}
@@ -1808,8 +1813,8 @@ function renderLobby() {
           <span class="hint">${bots ? `${bots} bot${bots > 1 ? 's' : ''} will join when you start, to make ${tableSize} players.` : 'Ready when you are.'}</span>
         </div>
         ${(() => { const waiting = S.lobby.filter(m => !m.bot && !m.confirmed);
-          return waiting.length ? `<button id="start" class="btn primary" disabled>Waiting for ${waiting.length === 1 ? esc(waiting[0].name) : waiting.length + ' players'} to confirm the bid</button>`
-            : `<button id="start" class="btn primary" ${S.lobby.some(m => !m.bot && !m.canAfford) ? 'disabled title="Everyone needs enough Eco-bucks for the buy-in"' : ''}>Start game · ${S.buyIn === 0 ? 'free table' : S.buyIn + ' EB buy-in'}</button>`; })()}`
+          return waiting.length ? `<button id="start" class="btn primary" disabled>Waiting for ${waiting.length === 1 ? esc(waiting[0].name) : waiting.length + ' players'} to confirm the bet</button>`
+            : `<button id="start" class="btn primary" ${S.lobby.some(m => !m.bot && !m.canAfford) ? 'disabled title="Everyone needs enough Eco-bucks to confirm the bet"' : ''}>Start game · ${S.mult === 0 ? 'free table' : S.mult + 'x payouts'}</button>`; })()}`
       : `<p class="hint">Waiting for the host to start… ${humans} player${humans > 1 ? 's' : ''} here, ${S.lobby.filter(m => !m.bot && m.confirmed).length} confirmed.</p>`}
       <div class="row"><button id="leave" class="btn small">Leave table</button>${acct.me ? '<button class="btn small" data-profile>Profile</button><button class="btn small brass" data-store>Store</button>' : ''}</div>
     </div>
@@ -1826,7 +1831,8 @@ function renderLobby() {
   if (S.isHost) {
     $app.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => lobby('mode', { mode: b.dataset.mode }));
     $app.querySelectorAll('[data-dis]').forEach(b => b.onclick = () => lobby('disruptions', { on: b.dataset.dis === '1' }));
-    $app.querySelectorAll('[data-buyin]').forEach(b => b.onclick = () => lobby('buyin', { amount: +b.dataset.buyin }));
+    $app.querySelectorAll('[data-burn]').forEach(b => b.onclick = () => lobby('burn', { on: b.dataset.burn === '1' }));
+    $app.querySelectorAll('[data-mult]').forEach(b => b.onclick = () => lobby('mult', { mult: +b.dataset.mult }));
     $app.querySelectorAll('[data-public]').forEach(b => b.onclick = () => lobby('visibility', { public: b.dataset.public === '1' }));
     $app.querySelectorAll('[data-timer]').forEach(b => b.onclick = () => lobby('timer', { on: b.dataset.timer === '1' }));
     document.getElementById('addbot').onclick = () => lobby('addBot');
@@ -2422,11 +2428,11 @@ function swapModal() {
   const role = S.role;
   const okPile = id => {
     if (!ui.swapHand) return false;
-    if (role === 'Researcher') return true;
+    if (role === 'Researcher') return CARDS[id].impact < CARDS[ui.swapHand].impact;
     const need = role === 'Fisherman' ? 'Water' : 'Land';
     return CARDS[id].habitat === need;
   };
-  const rule = role === 'Researcher' ? 'any card in your scoring pile'
+  const rule = role === 'Researcher' ? 'a card in your scoring pile with a lower Impact than it'
     : `any ${role === 'Fisherman' ? 'Water' : 'Land'} card in your scoring pile`;
   return `<div class="modal"><div class="paper spiral">
     <div class="panel-title">Swap a card</div>
@@ -2533,21 +2539,23 @@ function rulesModal() {
     </div></div></div>`;
 }
 
-// Eco-buck payouts for a finished game (accounts.js settle)
+// Eco-buck payouts for a finished game (accounts.js settle): each loser paid (top score − theirs) × the multiplier
 function settlementHtml() {
   const st = S.settlement; if (!st) return '';
-  if (!st.bet) return '<div class="ebresult"><div class="panel-title" style="margin:0">Free table</div><p class="hint" style="margin:4px 0">Just for fun: no Eco-bucks were won or lost.</p></div>';
-  const rows = st.results.slice().sort((a, b) => a.place - b.place || b.payout - a.payout).map(r => {
+  if (!st.mult) return `<div class="ebresult"><div class="panel-title" style="margin:0">Free table</div><p class="hint" style="margin:4px 0">${S.coop ? 'Co-op tables are always free: no' : 'Just for fun: no'} Eco-bucks were won or lost.</p></div>`;
+  const rows = st.results.slice().sort((a, b) => a.place - b.place || b.net - a.net).map(r => {
     const p = S.players[r.seat];
+    const money = r.received ? `won ${fmtEB(r.received)}` : r.paid || r.owed ? `paid ${fmtEB(r.paid)}${r.short ? ` <span class="hint" title="Owed ${r.owed.toLocaleString()} EB but could only cover ${r.paid.toLocaleString()}">(owed ${r.owed.toLocaleString()})</span>` : ''}` : '—';
     return `<tr class="${r.seat === S.you ? 'winner' : ''}"><td class="total" style="font-size:20px">${r.place}</td>
       <td>${p.profile ? `<img class="pavatar tiny" src="${esc(p.profile.avatarSrc)}" alt="">` : ''}<b>${esc(p.name)}</b>${p.bot ? ' <span class="hint">(bot · house)</span>' : ''}</td>
-      <td>${fmtEB(r.payout)}</td><td class="${r.net >= 0 ? 'ebup' : 'ebdown'}">${r.net >= 0 ? '+' : '−'}${Math.abs(r.net).toLocaleString()} EB</td></tr>`;
+      <td>${r.score}</td><td>${money}</td><td class="${r.net >= 0 ? 'ebup' : 'ebdown'}">${r.net >= 0 ? '+' : '−'}${Math.abs(r.net).toLocaleString()} EB</td></tr>`;
   }).join('');
   const mine = st.results.find(r => r.seat === S.you);
   return `<div class="ebresult">
-    <div class="panel-title" style="margin:0">Eco-bucks · ${st.bet} EB buy-in · pot ${Number(st.pot).toLocaleString()} EB</div>
+    <div class="panel-title" style="margin:0">Eco-bucks · ${st.mult}x payouts · pot ${Number(st.pot).toLocaleString()} EB</div>
+    <p class="hint" style="margin:2px 0">Each player below the top score (${st.top}) paid the gap × ${st.mult}.</p>
     ${mine && mine.balance !== undefined ? `<p style="margin:4px 0;font-size:18px">You ${mine.net >= 0 ? 'won' : 'lost'} <b class="${mine.net >= 0 ? 'ebup' : 'ebdown'}">${Math.abs(mine.net).toLocaleString()} EB</b>. Your balance is now ${fmtEB(mine.balance)}.</p>` : ''}
-    <table class="scores ebtable"><tr><th>Place</th><th>Player</th><th>Paid out</th><th>Net</th></tr>${rows}</table>
+    <table class="scores ebtable"><tr><th>Place</th><th>Player</th><th>Score</th><th>Eco-bucks</th><th>Net</th></tr>${rows}</table>
   </div>`;
 }
 
@@ -2664,7 +2672,7 @@ function abilityStillUseful() {
   if (!S.role || !ACTIVE_ABILITY[S.role] || S.abilityUsed) return false;
   if (S.role === 'Tourist') return S.deckCount > 0;
   if (S.role === 'LandDeveloper') return boardTotal(S.board) > 0;
-  if (S.role === 'Researcher') return S.pile.length > 0 && S.hand.length > 0;
+  if (S.role === 'Researcher') { const lo = Math.min(...S.pile.map(pc => CARDS[pc].impact)); return S.hand.some(hc => CARDS[hc].impact > lo); }
   const need = S.role === 'Fisherman' ? 'Water' : 'Land';
   return S.hand.length > 0 && S.pile.some(pc => CARDS[pc].habitat === need);
 }

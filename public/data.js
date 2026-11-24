@@ -133,9 +133,9 @@
   const ROLES = {
     Conservationist: {
       name: 'Conservationist', img: 'assets/cards/roles/Conservationist.png', ending: 'assets/cards/roles/ConservationistEND.png',
-      map: { FSP: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 10, majorityPts: 15, noCrisisPts: 15,
+      map: { FSP: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 10, majorityPts: 15, noCrisisPts: 5,
       ability: 'Once each round, you may stop any 1 Invasive card (yours or anyone else’s) from populating.',
-      goals: ['10 pts for each map objective met', '15 pts if the total population majority is Native', '15 pts if you never trigger an Invasive Crisis'],
+      goals: ['10 pts for each map objective met', '15 pts if the total population majority is Native', '5 pts if you never trigger an Invasive Crisis'],
     },
     Fisherman: {
       name: 'Fisherman', img: 'assets/cards/roles/Fisherman.png', ending: 'assets/cards/roles/FishermanENDING.png',
@@ -157,9 +157,9 @@
     },
     Researcher: {
       name: 'Researcher', img: 'assets/cards/roles/Researcher.png', ending: 'assets/cards/roles/ResearcherENDING.png',
-      map: { LO: 'N', BCNP: 'N', ENP: 'N', FK: 'N', M: 'I' }, mapPts: 5,
-      ability: 'Start of turn: you may swap a card from your hand with any card in your scoring pile.',
-      goals: ['5 pts for each map objective met', '15 pts if you have 6 unique taxonomies in your scoring pile', '10 pts if you win the least tricks'],
+      map: { LO: 'N', BCNP: 'N', ENP: 'N', FK: 'N', M: 'I' }, mapPts: 5, fewestCrisisPts: 10,
+      ability: 'Start of turn: you may swap a card from your hand with a lower-Impact card in your scoring pile.',
+      goals: ['5 pts for each map objective met', '15 pts if you have 6 unique taxonomies in your scoring pile', '10 pts if you trigger the fewest Invasive Crises'],
     },
     Tourist: {
       name: 'Tourist', img: 'assets/cards/roles/Tourist.png', ending: 'assets/cards/roles/TouristENDING.png',
@@ -171,7 +171,7 @@
 
   // Role card art changes now and then (new objective numbers): bump CARD_V whenever a role card image is replaced,
   // so every browser fetches the new card at once instead of showing one it saved earlier.
-  const CARD_V = '20261121';
+  const CARD_V = '20261123';
   for (const r of Object.values(ROLES)) r.img += '?v=' + CARD_V;
 
   // Balance experiments only (test runs): EG_ROLE_TUNE='{"Tourist":{"anyPopPts":20}}' overrides role numbers.

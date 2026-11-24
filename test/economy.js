@@ -1,4 +1,4 @@
-// Checks the Eco-buck economy: buy-ins, payouts, ties, co-op, refunds, store and unlocks.
+// Checks the Eco-buck economy: multiplier bets, payouts, ties, co-op, refunds, store and unlocks.
 // Uses a throwaway data folder, so your real accounts are never touched.  Run: node test/economy.js
 const os = require('os'), fs = require('fs'), path = require('path');
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'eg-econ-'));
@@ -8,12 +8,11 @@ let fails = 0;
 const ok = (cond, msg) => { console.log((cond ? '  ok   ' : '  FAIL ') + msg); if (!cond) fails++; };
 const throws = (fn, msg) => { try { fn(); ok(false, msg); } catch (e) { ok(!!e.userError, msg + ' (' + e.message + ')'); } };
 
-// payout table always adds up to the pot
-for (const n of [4, 5, 6]) for (const b of A.ECON.buyIns) {
-  const p = A.payouts(n, b);
-  ok(p.reduce((x, y) => x + y, 0) === n * b && p[1] === b && p[2] === Math.floor(b / 2) && p.slice(3).every(x => x === 0),
-    `${n} seats, ${b} EB: payouts ${p.join('/')} add up to the ${n * b} EB pot`);
-}
+// what a loser owes: (top score − theirs) × multiplier, whole EB
+ok(A.owes(50, 15, 10) === 350, 'the example: a 10x table, 50 vs 15 → 350 EB');
+ok(A.owes(50, 15, 0.5) === 17 && A.owes(50, 50, 20) === 0 && A.owes(50, 15, 0) === 0, '0.5x rounds down; ties and free tables owe nothing');
+ok(A.ECON.multipliers.join() === '0,0.5,1,5,10,20,50', 'tables offer Free, 0.5x, 1x, 5x, 10x, 20x and 50x');
+ok(A.ECON.multipliers.map(A.confirmCost).join() === '0,13,25,125,250,500,1250', 'confirming needs 25 EB × the multiplier (0.5x rounds up to 13)');
 
 const mk = () => A.guestLogin(require('crypto').randomBytes(24).toString('hex')).account;
 const [a, b, c] = [mk(), mk(), mk()];
@@ -50,33 +49,59 @@ a.lastBonusDay = '2000-01-01'; A.dailyBonus(a); a.lastBonusDay = '2000-01-02'; A
 { const r = A.openMail(a, 'all'); ok(r.opened === 2 && r.amount === 100 && a.balance === 200, 'Open all collects every letter'); a.balance = 100; }
 for (const x of [a, b, c]) x.balance = 500; // give the test players some money to bet
 
-// 3 people + 1 bot at a 50 EB table; scores decide places
-A.takeBuyIns('g1', [a.id, b.id, c.id], 50);
-ok(a.balance === 450 && b.balance === 450, 'buy-in is taken when the game starts');
+// 3 people + 1 bot at a 1x table: every seat below the top pays (top − its score) × 1 to the top score
+A.takeStakes('g1', [a.id, b.id, c.id], 1);
+ok(a.balance === 475 && b.balance === 475, 'the 25 EB confirm deposit is held when the game starts');
 let r = A.settle('g1', [
   { seat: 0, accountId: a.id, score: 80 }, { seat: 1, accountId: b.id, score: 60 },
   { seat: 2, accountId: c.id, score: 40 }, { seat: 3, accountId: null, score: 20 }]);
-ok(a.balance === 450 + 125 && b.balance === 500 && c.balance === 450 + 25, `1st +75 net (got ${a.balance}), 2nd even (${b.balance}), 3rd half back (${c.balance})`);
-ok(r.results[3].payout === 0, 'last place (the bot) loses its bet');
+ok(b.balance === 500 - 20 && c.balance === 500 - 40, `2nd pays 20 (${b.balance}), 3rd pays 40 (${c.balance})`);
+ok(a.balance === 500 + 20 + 40 + 60 && r.results[0].received === 120 && r.results[0].net === 120, `the winner takes everyone's gap, the house paying the bot's 60 (${a.balance})`);
+ok(r.results[3].paid === 60 && r.pot === 120 && r.mult === 1 && r.top === 80, 'the pot is the sum of what the losers paid');
+ok(r.results.map(x => x.place).join() === '1,2,3,4', 'places follow the scores');
 ok(A.settle('g1', []) === null, 'a game can only be paid out once');
 
-// ties share their places: two tied for 1st split 1st+2nd payouts
-const before = [a.balance, b.balance];
-A.takeBuyIns('g2', [a.id, b.id], 50);
-A.settle('g2', [{ seat: 0, accountId: a.id, score: 70 }, { seat: 1, accountId: b.id, score: 70 }, { seat: 2, accountId: null, score: 10 }, { seat: 3, accountId: null, score: 5 }]);
-ok(a.balance - before[0] === b.balance - before[1] && a.balance - before[0] === Math.floor((125 + 50) / 2) - 50, `tied 1st places split evenly (+${a.balance - before[0]} each)`);
+// the example from the rules: a 10x table, winner 50, loser 15 → 350 EB
+for (const x of [a, b]) x.balance = 1000;
+A.takeStakes('gx', [a.id, b.id], 10);
+ok(a.balance === 750, 'a 10x table holds 250 EB from each player');
+A.settle('gx', [{ seat: 0, accountId: a.id, score: 50 }, { seat: 1, accountId: b.id, score: 15 }]);
+ok(a.balance === 1350 && b.balance === 650, `the loser pays 350 EB (${b.balance}), the winner gets it (${a.balance})`);
 
-// co-op: win doubles, loss loses
+// ties at the top split the pot; the losers pay the same gap as for a single winner
+for (const x of [a, b, c]) x.balance = 1000;
+A.takeStakes('g2', [a.id, b.id, c.id], 5);
+r = A.settle('g2', [{ seat: 0, accountId: a.id, score: 70 }, { seat: 1, accountId: b.id, score: 70 }, { seat: 2, accountId: c.id, score: 61 }, { seat: 3, accountId: null, score: 60 }]);
+ok(c.balance === 1000 - 45 && r.results[3].paid === 50, 'each loser pays (70 − their score) × 5');
+ok(a.balance === 1000 + 48 && b.balance === 1000 + 47 && r.results[0].place === 1 && r.results[1].place === 1, `tied winners split the 95 EB pot (${a.balance - 1000} / ${b.balance - 1000}, the odd EB to the first seat)`);
+
+// a winning bot: the house keeps its share
+for (const x of [a, b]) x.balance = 1000;
+A.takeStakes('gb', [a.id, b.id], 1);
+r = A.settle('gb', [{ seat: 0, accountId: null, score: 90 }, { seat: 1, accountId: a.id, score: 80 }, { seat: 2, accountId: b.id, score: 90 }]);
+ok(a.balance === 990 && b.balance === 1005 && r.results[0].received === 5, 'a bot tied for the top takes its half of the pot for the house');
+
+// can't cover the payout: pay everything you have and go to 0
+a.balance = 600; b.balance = 1000;
+A.takeStakes('g3', [a.id, b.id], 20); // (500 EB held from each)
+r = A.settle('g3', [{ seat: 0, accountId: b.id, score: 90 }, { seat: 1, accountId: a.id, score: 40 }]);
+ok(a.balance === 0 && r.results[1].owed === 1000 && r.results[1].paid === 600 && r.results[1].short, 'owing 1,000 EB with only 600: pays all 600 and goes to 0');
+ok(b.balance === 1600, 'the winner gets what the loser could pay');
+
+// co-op tables are always free
 const cb = c.balance;
-A.takeBuyIns('g3', [c.id], 150); A.settle('g3', [{ seat: 0, accountId: c.id, score: 1 }], { coop: true, playersWin: true });
-ok(c.balance === cb + 150, 'co-op win: bet back doubled');
-A.takeBuyIns('g4', [c.id], 150); A.settle('g4', [{ seat: 0, accountId: c.id, score: 1 }], { coop: true, playersWin: false });
-ok(c.balance === cb, 'co-op loss: bet lost');
+A.takeStakes('g4', [c.id], 0); A.settle('g4', [{ seat: 0, accountId: c.id, score: 1 }], { coop: true, playersWin: true });
+ok(c.balance === cb, 'co-op win: no Eco-bucks change hands');
+c.balance = 1000; A.takeStakes('g4b', [c.id], 20);
+r = A.settle('g4b', [{ seat: 0, accountId: c.id, score: 1 }, { seat: 1, accountId: null, score: 99 }], { coop: true, playersWin: false });
+ok(c.balance === 1000 && r.mult === 0, 'co-op loss: nothing paid, even if a multiplier was set (the deposit comes back)');
 
-// can't sit at a table you can't afford; unfinished games are refunded
-throws(() => A.takeBuyIns('g5', [a.id], 1e9), 'buy-in larger than the balance is refused');
-const ab = a.balance; A.takeBuyIns('g6', [a.id], 500 > ab ? 5 : 500); A.refundAllEscrows();
-ok(a.balance === ab, 'buy-ins of unfinished games are refunded on restart');
+// can't confirm what you can't cover; unfinished games are refunded
+a.balance = 100;
+throws(() => A.takeStakes('g5', [a.id], 5), 'a 5x table (125 EB) is refused with 100 EB');
+const ab = a.balance; A.takeStakes('g6', [a.id], 1); ok(a.balance === ab - 25, 'held'); A.refundAllEscrows();
+ok(a.balance === ab, 'deposits held for unfinished games are refunded on restart');
+
 
 // store
 throws(() => A.buy(a, 'title_savior'), 'cannot buy the 10,000 EB title without the Eco-bucks');

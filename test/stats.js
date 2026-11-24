@@ -23,7 +23,7 @@ function play(n, opts, humans) {
   // the "people": seats whose player id is in `humans` (they're still bots in the engine, which is fine here)
   const seatAccount = seat => humans[s.players[seat].id] || null;
   for (const pl of s.players) if (humans[pl.id]) pl.bot = false;
-  const g = ST.summarize(s, tally, seatAccount, { buyIn: 5 });
+  const g = ST.summarize(s, tally, seatAccount, { mult: 1 });
   ST.record(db, g);
   return { s, g };
 }

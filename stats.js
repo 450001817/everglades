@@ -42,7 +42,7 @@ function summarize(s, tally, seatAccount, extra = {}) {
   const totals = seats.map(x => x.score).sort((a, b) => b - a);
   return {
     at: Date.now(), ms: Date.now() - t.start, mode, n: seats.length, rounds: s.round || 0,
-    disruptions: !!s.disruptions, buyIn: extra.buyIn || 0, easy: !!s.easyBots,
+    disruptions: !!s.disruptions, burn: !!s.burn, mult: extra.mult || 0, easy: !!s.easyBots,
     playersWin: mode === 'coop' ? !!R.playersWin : undefined, anaconda: mode === 'coop' && R.anaconda ? R.anaconda.total : undefined,
     margin: mode === 'classic' && totals.length > 1 ? totals[0] - totals[1] : undefined,
     seats, cards: t.cards, dis: t.dis.map(d => ({ card: d.card, win: R.winners.includes(d.p) })),
@@ -88,7 +88,7 @@ function record(db, g) {
   }
   if (!g.easy) for (const [id, c] of Object.entries(g.cards || {})) bump(S.cards, id, { played: c.played, won: c.won });
   if (!g.easy) for (const d of g.dis || []) bump(S.dis, d.card, { played: 1, wins: d.win ? 1 : 0, fair: g.mode === 'coop' ? 0 : fair, coop: g.mode === 'coop' ? 1 : 0 });
-  S.recent.unshift({ at: g.at, ms: g.ms, mode: g.mode, n: g.n, rounds: g.rounds, dis: g.disruptions, buyIn: g.buyIn, easy: g.easy || undefined, playersWin: g.playersWin, anaconda: g.anaconda,
+  S.recent.unshift({ at: g.at, ms: g.ms, mode: g.mode, n: g.n, rounds: g.rounds, dis: g.disruptions, mult: g.mult, easy: g.easy || undefined, playersWin: g.playersWin, anaconda: g.anaconda,
     seats: g.seats.map(x => ({ role: x.role, bot: x.bot, score: x.score, win: x.win })) });
   S.recent.length = Math.min(S.recent.length, RECENT_MAX);
 

@@ -652,6 +652,11 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .pilegrid > p { grid-column: 1 / -1; margin: 0; }
 .pilebtn { flex-shrink: 0; font: inherit; font-family: var(--font-small); font-size: 14px; line-height: 1.1; padding: 2px 6px; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); cursor: pointer; white-space: nowrap; }
 .pilebtn b { font-family: 'EGDigits', monospace; }
+/* Liberation: pick a card from another player's scoring pile (stealModal) */
+.swapgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; padding: 2px 4px 6px 2px; }
+.swapgrid .card { width: 100%; cursor: pointer; }
+.swapgrid > .hint { grid-column: 1 / -1; }
+@media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) { .swapgrid { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; } }
 @media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) { .pilegrid { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; } }
 .playersmodal .pthumb { width: 48px; }
 .playersmodal .pmname { width: 100%; overflow-wrap: anywhere; }

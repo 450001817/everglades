@@ -32,7 +32,7 @@ console.log('Who is a new player (accounts.js isNewPlayer)');
   ok(A.isNewPlayer(acct(3, 1)) && A.isNewPlayer(acct(4, 2)), 'lost 2 or more: easy bots stay on...');
   ok(!A.isNewPlayer(acct(5, 0)), '...up to 5 games');
   ok(!A.isNewPlayer(null), 'no account (a bot): not new');
-  ok(A.NEWBIE.maxBuyIn === 50, 'tables up to a 50 EB buy-in');
+ok(A.NEWBIE.maxMult === 1, 'tables up to a 1x multiplier');
 }
 
 console.log('Which bots go easy (game.js easyBotsFor)');

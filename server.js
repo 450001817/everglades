@@ -96,14 +96,18 @@ function newRoom() {
   const room = { code: code(), members: [], hostPid: null, game: G.newGame(), clients: new Set(), touched: Date.now(), botTimer: null, chatter: [], chatId: 0, pauseUntil: 0, tricksSeen: 0,
     reactions: [], reactId: 0, evSeen: 0,
     public: false, turnTimer: true, strikes: {}, deadline: null, deadlineTimer: null, // see TURN_MS
-    buyIn: A.ECON.defaultBuyIn, gameId: null, settlement: null };
+    multiplier: A.ECON.defaultMultiplier, gameId: null, settlement: null, seatAccounts: null };
   rooms.set(room.code, room);
   return room;
 }
 
 // People join with their account (gamertag + profile picture); bots have none.
-// Bid confirmations (see the 'confirm' lobby command): cleared whenever the bid or payout rules change.
+// Bet confirmations (see the 'confirm' lobby command): cleared whenever the multiplier or payout rules change.
 function unconfirmAll(room) { for (const x of room.members) x.confirmed = false; }
+// The payout multiplier that applies at this table (accounts.js settle): co-op and the tutorial are always free.
+const tableMult = room => (room.tutorial || room.mode === 'coop' ? 0 : room.multiplier);
+// EB each player needs to confirm the bet (held while the game runs)
+const tableNeed = room => A.confirmCost(tableMult(room));
 function addMember(room, name, bot = false, account = null) {
   if (room.game.phase !== 'lobby') throw Object.assign(new Error('That game has already started.'), { userError: true });
   if (room.members.length >= G.MAX_PLAYERS) throw Object.assign(new Error('That table is full.'), { userError: true });
@@ -114,8 +118,8 @@ function addMember(room, name, bot = false, account = null) {
 }
 const memberAccount = m => (m && m.accountId ? A.get(m.accountId) : null);
 
-// New players' tables (accounts.js isNewPlayer): when a new player sits at a table with a buy-in of at most
-// A.NEWBIE.maxBuyIn, the bots go easy on everyone there (game.js easyBot). Nobody is told; it just plays gentler.
+// New players' tables (accounts.js isNewPlayer): when a new player sits at a table with a multiplier of at most
+// A.NEWBIE.maxMult, the bots go easy on everyone there (game.js easyBot). Nobody is told; it just plays gentler.
 // Bots on a new player's side stay standard (a weak partner or co-op teammate would make the game harder):
 //   solo      every bot is easy
 //   partners  the bots on the other teams are easy; a new player's partner isn't
@@ -123,7 +127,7 @@ const memberAccount = m => (m && m.accountId ? A.get(m.accountId) : null);
 // Returns whether the table got easy bots (also kept on the game as s.easyBots, for the stats).
 function easyTable(room) {
   room.game.easyBots = false;
-  if (room.tutorial || room.buyIn > A.NEWBIE.maxBuyIn) return false;
+  if (room.tutorial || tableMult(room) > A.NEWBIE.maxMult) return false;
   const newbies = room.members.filter(x => !x.bot && A.isNewPlayer(memberAccount(x))).map(x => x.pid);
   return G.easyBotsFor(room.game, newbies);
 }
@@ -152,12 +156,13 @@ function viewFor(room, member) {
     deadline: room.deadline ? { seats: room.deadline.seats, at: room.deadline.at } : null, serverNow: Date.now(),
     mode: room.mode || 'solo', partners: room.mode === 'partners', coop: room.mode === 'coop',
     disruptions: s.phase === 'lobby' ? !!room.disruptions : !!s.disruptions,
+    burn: s.phase === 'lobby' ? !!room.burn : !!s.burn, // the Burn match modifier (game.js dealFrom)
     trickPauseMs: Math.round(PACE.trick),
-    buyIn: room.buyIn, buyIns: A.ECON.buyIns,
+    mult: tableMult(room), multSet: room.multiplier, mults: A.ECON.multipliers, need: tableNeed(room), // the bet (see accounts.js settle)
     lobby: room.members.map(m => {
       const a = memberAccount(m);
-      return { pid: m.pid, name: a ? a.gamertag : m.name, bot: m.bot, team: m.team ?? null, host: m.pid === room.hostPid, online: m.bot || connected.has(m.pid), confirmed: m.bot || !!m.confirmed || room.buyIn === 0,
-        profile: a ? A.publicProfile(a) : null, canAfford: m.bot || (a ? a.balance >= room.buyIn : false) };
+      return { pid: m.pid, name: a ? a.gamertag : m.name, bot: m.bot, team: m.team ?? null, host: m.pid === room.hostPid, online: m.bot || connected.has(m.pid), confirmed: m.bot || !!m.confirmed || tableMult(room) === 0,
+        profile: a ? A.publicProfile(a) : null, canAfford: m.bot || (a ? a.balance >= tableNeed(room) : false) };
     }),
     myAccount: memberAccount(member) ? A.privateProfile(memberAccount(member)) : null,
     unlocks: member ? member.unlocks : [], // animal profile pictures this player unlocked during the game
@@ -248,13 +253,16 @@ function settleRoom(room) {
   const ranked = people.map(({ p, seat }) => {
     const sc = R.scores.find(r => r.p === seat);
     const m = room.members.find(x => x.pid === p.id);
-    return { seat, accountId: m ? m.accountId : null, score: R.teams ? teamTotal(p.team) : sc.total };
+    // the account that sat down in this seat: a player removed mid-game (kickToBot) still pays if the seat loses,
+    // but collects nothing if it wins
+    const accountId = (room.seatAccounts && room.seatAccounts[seat]) || (m ? m.accountId : null);
+    return { seat, accountId, collects: !!(m && m.accountId), score: R.teams ? teamTotal(p.team) : sc.total };
   });
   room.settlement = A.settle(room.gameId, ranked, { coop: !!R.coop, playersWin: !!R.playersWin });
   // game records: each player's win/loss per character, and the server-wide balance stats
   try {
     const seatAccount = seat => { const m = room.members.find(x => x.pid === s.players[seat].id); return m && !m.bot ? m.accountId : null; };
-    A.recordGame(ST.summarize(s, room.tally, seatAccount, { buyIn: room.buyIn }));
+    A.recordGame(ST.summarize(s, room.tally, seatAccount, { mult: room.settlement ? room.settlement.mult : 0 }));
   } catch (e) { console.error('Could not record game stats:', e.message); }
   room.tally = null;
   room.gameId = null;
@@ -333,8 +341,8 @@ function autoPlay(room, p) {
     for (let g = 0; g < 60 && G.waitingOn(s) === p && !pl.bot; g++) G.applyAction(s, p, G.botAction(s, p));
   } catch (e) { pl.bot = false; console.error('auto-play error', e); }
 }
-// Third strike: the player is removed and a bot takes their seat for the rest of the game. Their buy-in stays in the
-// pot and they get no payout (the house keeps the bot's winnings, as for every bot).
+// Third strike: the player is removed and a bot takes their seat for the rest of the game. They still pay if the seat
+// loses, but get no payout if it wins (the house keeps the bot's winnings, as for every bot). See settleRoom.
 function kickToBot(room, p) {
   const s = room.game, pl = s.players[p];
   const oldPid = pl.id, name = pl.name;
@@ -620,10 +628,10 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { room: room.code, token: m.token });
       }
       if (op === 'tutorial') {
-        // A private practice table: you and two gentle bots, no buy-in or payouts, the coach runs in the browser.
+        // A private practice table: you and two gentle bots, no bet or payouts, the coach runs in the browser.
         const account = A.requireAccount(body.session);
         const room = newRoom();
-        room.tutorial = true; room.buyIn = 0;
+        room.tutorial = true; room.multiplier = 0;
         const m = addMember(room, null, false, account);
         addMember(room, 'Heron Bot', true); addMember(room, 'Otter Bot', true);
         room.game = G.newGame();
@@ -633,11 +641,11 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { room: room.code, token: m.token });
       }
       if (op === 'quickjoin') {
-        // Join a random public table that's still in its lobby, has room, has someone there, and whose buy-in you can
+        // Join a random public table that's still in its lobby, has room, has someone there, and whose bet you can
         // cover. If there isn't one, start a new public table with you as host.
         const account = A.requireAccount(body.session);
         const open = [...rooms.values()].filter(r => r.public && !r.tutorial && r.game.phase === 'lobby' && r.members.length < G.MAX_PLAYERS
-          && r.clients.size > 0 && account.balance >= r.buyIn && !r.members.some(x => x.accountId === account.id));
+          && r.clients.size > 0 && account.balance >= tableNeed(r) && !r.members.some(x => x.accountId === account.id));
         if (open.length) {
           const room = open[Math.floor(Math.random() * open.length)];
           const m = addMember(room, null, false, account);
@@ -655,7 +663,7 @@ const server = http.createServer(async (req, res) => {
         if (!room) return send(res, 400, { error: 'No room with that code.' });
         const already = room.members.find(x => x.accountId === account.id);
         if (already) return send(res, 200, { room: room.code, token: already.token }); // e.g. a second tab
-        if (account.balance < room.buyIn) return send(res, 400, { error: `This table's buy-in is ${room.buyIn} EB, and you have ${account.balance} EB.` });
+        if (account.balance < tableNeed(room)) return send(res, 400, { error: `This is a ${tableMult(room)}x table: you need ${tableNeed(room)} EB to play, and you have ${account.balance} EB.` });
         const m = addMember(room, null, false, account);
         if (invites.has(account.id)) invites.set(account.id, invitesFor(account.id).filter(v => v.room !== room.code)); // invite used
         broadcast(room);
@@ -673,10 +681,10 @@ const server = http.createServer(async (req, res) => {
           if (t !== null && room.members.filter(x => x !== target && x.team === t).length >= 2) return send(res, 400, { error: 'That team already has 2 players.' });
           target.team = t;
         } else if (body.cmd === 'confirm' && s.phase === 'lobby') {
-          // each person confirms the table's Eco-buck bid (buy-in) before the game can start
+          // each person confirms the table's Eco-buck bet (its multiplier) before the game can start
           if (body.on) {
             const a = memberAccount(m);
-            if (!a || a.balance < room.buyIn) return send(res, 400, { error: `You need ${room.buyIn} EB to confirm this bid.` });
+            if (!a || a.balance < tableNeed(room)) return send(res, 400, { error: `You need ${tableNeed(room)} EB to confirm a ${tableMult(room)}x bet.` });
           }
           m.confirmed = !!body.on;
         } else if (body.cmd === 'visibility' && s.phase === 'lobby') {
@@ -701,15 +709,19 @@ const server = http.createServer(async (req, res) => {
             addMember(room, BOT_NAMES.find(n => !used.has(n)) || 'Bot', true);
           } else if (body.cmd === 'remove' && s.phase === 'lobby') {
             room.members = room.members.filter(x => x.pid !== body.pid || x.pid === room.hostPid);
-          } else if (body.cmd === 'buyin' && s.phase === 'lobby') {
-            // Eco-buck buy-in for this table (every player pays it when the game starts)
-            if (!A.ECON.buyIns.includes(+body.amount)) return send(res, 400, { error: 'Pick one of the buy-in amounts.' });
-            if (room.buyIn !== +body.amount) unconfirmAll(room); // a new bid has to be confirmed again
-            room.buyIn = +body.amount;
+          } else if (body.cmd === 'mult' && s.phase === 'lobby') {
+            // this table's payout multiplier (accounts.js settle)
+            if (!A.ECON.multipliers.includes(+body.mult)) return send(res, 400, { error: 'Pick one of the multipliers.' });
+            if (room.multiplier !== +body.mult) unconfirmAll(room); // a new bet has to be confirmed again
+            room.multiplier = +body.mult;
           } else if (body.cmd === 'disruptions' && s.phase === 'lobby') {
             // the Disruptions match modifier (host only)
             if (!isHost) return send(res, 403, { error: 'Only the host can change match modifiers.' });
             room.disruptions = !!body.on;
+          } else if (body.cmd === 'burn' && s.phase === 'lobby') {
+            // the Burn match modifier (host only): 1 card per player is burned before the deal
+            if (!isHost) return send(res, 403, { error: 'Only the host can change match modifiers.' });
+            room.burn = !!body.on;
           } else if (body.cmd === 'mode' && s.phase === 'lobby') {
             // 'solo' = everyone for themselves, 'partners' = teams of 2, 'coop' = everyone vs The Anaconda
             const mode = ['solo', 'partners', 'coop'].includes(body.mode) ? body.mode : 'solo';
@@ -717,8 +729,8 @@ const server = http.createServer(async (req, res) => {
             room.mode = mode;
           } else if (body.cmd === 'start') {
             if (s.phase !== 'lobby') return send(res, 400, { error: 'Already started.' });
-            const unconfirmed = room.buyIn === 0 ? [] : room.members.filter(x => !x.bot && !x.confirmed); // a free table has no bid to confirm
-            if (unconfirmed.length) return send(res, 400, { error: `Waiting for ${unconfirmed.map(x => x.name).join(', ')} to confirm the ${room.buyIn} EB bid.` });
+            const unconfirmed = tableMult(room) === 0 ? [] : room.members.filter(x => !x.bot && !x.confirmed); // a free table has no bet to confirm
+            if (unconfirmed.length) return send(res, 400, { error: `Waiting for ${unconfirmed.map(x => x.name).join(', ')} to confirm the ${tableMult(room)}x bet.` });
             // Always play with at least 4: fill empty seats with bots.
             while (room.members.length < MIN_TABLE) {
               const used = new Set(room.members.map(x => x.name));
@@ -739,16 +751,18 @@ const server = http.createServer(async (req, res) => {
                 .sort((a, b) => (a.bot - b.bot) || (Math.random() - 0.5));
               for (const x of loose) { const o = open(); x.team = o[Math.floor(Math.random() * o.length)]; }
             }
-            // Take everyone's buy-in (held until the game is settled). Fails if anyone can't cover it.
+            // Hold everyone's confirm deposit until the game is settled. Fails if anyone can't cover it.
             const people = room.members.filter(x => !x.bot && x.accountId);
             const gameId = room.code + ':' + Date.now();
-            A.takeBuyIns(gameId, people.map(x => x.accountId), room.buyIn);
+            A.takeStakes(gameId, people.map(x => x.accountId), tableMult(room));
             room.gameId = gameId; room.settlement = null;
             for (const x of people) x.name = cleanName(memberAccount(x).gamertag);
             room.game = G.newGame();
             for (const x of room.members) G.addPlayer(room.game, { id: x.pid, name: x.name, bot: x.bot, team: room.mode === 'partners' ? x.team : null });
-            G.startGame(room.game, { partners: room.mode === 'partners', coop: room.mode === 'coop', disruptions: !!room.disruptions });
+            G.startGame(room.game, { partners: room.mode === 'partners', coop: room.mode === 'coop', disruptions: !!room.disruptions, burn: !!room.burn });
             easyTable(room);
+            // who sat in each seat (settleRoom: a player removed mid-game still owes for their seat)
+            room.seatAccounts = room.game.players.map(p => { const x = room.members.find(y => y.pid === p.id); return x && !x.bot ? x.accountId : null; });
             room.tally = ST.newTally();
             room.chatter = []; room.tricksSeen = 0; resetReactions(room); room.strikes = {}; clearDeadline(room);
             room.pauseUntil = Date.now() + DEAL_PAUSE_MS; // let the shuffle-and-deal animation play first
@@ -799,7 +813,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// Forget rooms nobody has touched for 6 hours (refunding any buy-ins of a game that never finished).
+// Forget rooms nobody has touched for 6 hours (returning any deposits held for a game that never finished).
 setInterval(() => {
   for (const [c, r] of rooms) if (Date.now() - r.touched > 6 * 3600e3 && r.clients.size === 0) {
     if (r.gameId) A.refundEscrow(r.gameId);
@@ -814,7 +828,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => {
 
 // Load the accounts first (from Upstash or the local file), then open the doors.
 A.ready.then(() => {
-  A.refundAllEscrows(); // buy-ins of games cut short by a restart go back to their players
+  A.refundAllEscrows(); // deposits held for games cut short by a restart go back to their players
   server.listen(PORT, listening);
 }).catch(e => {
   console.error('\n  Could not load player accounts:', e.message, '\n  Check the UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN settings.\n');
