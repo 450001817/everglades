@@ -97,6 +97,30 @@ console.log('Conservationist and Researcher (Nov 23, 2026)');
   ok(pl.hand[0] === lo && pl.pile[0] === hi, 'Researcher: taking back a lower-Impact card works');
 }
 
+console.log('Fisherman (Nov 24, 2026): 15 for 25+ population in objective regions, 10 for the most Water tricks');
+{
+  const s = game(['Fisherman', 'Hunter', 'Researcher']);
+  const objs = Object.keys(ROLES.Fisherman.map);
+  for (const r of Object.keys(s.board)) s.board[r] = { n: 0, i: 0 };
+  objs.forEach((r, k) => { s.board[r] = { n: k === 0 ? 5 : 4, i: 0 }; }); // 21 in the objective regions
+  let res = G.computeResults(s);
+  ok(line(res, 0, /25\+ population/).pts === 0, 'under 25 population: no points');
+  s.board[objs[0]].i = 4; // 25
+  res = G.computeResults(s);
+  ok(line(res, 0, /25\+ population/).pts === 15, '25 population (Native or Invasive): 15 points');
+  ok(line(res, 1, /25\+ population/).pts === 0 && ROLES.Hunter.popPts === 15, "the Hunter's own goal is unchanged");
+  const water = Object.keys(BIOMES).filter(id => BIOMES[id].suit === 'Water'), land = Object.keys(BIOMES).filter(id => BIOMES[id].suit === 'Land');
+  ok(line(res, 0, /Most tricks from Water/).pts === 0, 'no Water tricks: no points');
+  s.players[0].biomesWon = [water[0], water[1]]; s.players[2].biomesWon = [water[2]];
+  ok(line(G.computeResults(s), 0, /Most tricks from Water/).pts === 10, 'the most Water tricks: 10 points');
+  s.players[2].biomesWon = [water[2], water[3]];
+  ok(line(G.computeResults(s), 0, /Most tricks from Water/).pts === 10, 'tied for the most: still 10');
+  s.players[2].biomesWon = [water[2], water[3], water[4]];
+  ok(line(G.computeResults(s), 0, /Most tricks from Water/).pts === 0, 'someone won more Water tricks: no points');
+  s.players[1].biomesWon = [land[0]];
+  ok(line(G.computeResults(s), 1, /Most tricks from Land/).pts === 15, "the Hunter's most-Land-tricks goal is still 15");
+}
+
 console.log('Burn modifier: 1 card per player burned before the deal');
 {
   const table = (n, opts) => { const s = G.newGame(); for (let i = 0; i < n; i++) G.addPlayer(s, { id: 'p' + i, name: 'P' + i, bot: true, simple: true }); G.startGame(s, opts); return s; };

@@ -940,11 +940,11 @@ function computeResults(s) {
       lines.push({ label: `Native majority overall (${totalN} vs ${totalI})`, pts: totalN > totalI ? R.majorityPts : 0 });
       lines.push({ label: 'Never triggered an Invasive Crisis', pts: pl.triggeredCrisis ? 0 : R.noCrisisPts });
     } else if (role === 'Fisherman' || role === 'Hunter') {
-      lines.push({ label: `25+ population in objective regions (${objPop})`, pts: objPop >= 25 ? (role === 'Fisherman' ? 10 : 15) : 0 });
+      lines.push({ label: `25+ population in objective regions (${objPop})`, pts: objPop >= 25 ? R.popPts : 0 });
       const suit = role === 'Fisherman' ? 'Water' : 'Land';
       const mine = suitTricks(pl, suit);
       const best = maxOf(people.map(x => suitTricks(x, suit)));
-      lines.push({ label: `Most tricks from ${suit} regions (${mine})`, pts: mine > 0 && mine === best ? 15 : 0 });
+      lines.push({ label: `Most tricks from ${suit} regions (${mine})`, pts: mine > 0 && mine === best ? R.tricksPts : 0 });
     } else if (role === 'LandDeveloper') {
       const empty = REGION_IDS.filter(r => b[r].n + b[r].i === 0).length;
       lines.push({ label: `No population in ${R.emptyNeed}+ regions (${empty} empty)`, pts: empty >= R.emptyNeed ? R.emptyPts : 0 });

@@ -43,6 +43,15 @@ const CARDS = {
       ['10pts:', 'If you trigger the', 'most Invasive crises.'],
     ],
   },
+  // (Fisherman: run with the current card in the source folder, which already has the newer ability text)
+  Fisherman: {
+    pitch: 37,
+    objectives: [
+      ['5pts:', 'For each map', 'objective met.'],
+      ['15pts:', 'If there are at least', '25 population in your', 'objective regions.'],
+      ['10pts:', 'Win the most tricks', 'from Water regions.'],
+    ],
+  },
   Tourist: {
     pitch: 33, top: -4, // 8 lines instead of 7: a little tighter, and starting 4 px higher, to stay clear of the map
     objectives: [

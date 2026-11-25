@@ -61,8 +61,8 @@ function handFit(handIds, np = 4) {
     // (an Invasive can usually be dumped where it doesn't follow, so each one is only a modest Crisis risk)
     + R.Conservationist.noCrisisPts * inv.reduce((a, c) => a * (1 - 0.3 * winChance(c)), 1);
   // Fisherman / Hunter: strong Natives of their habitat win its tricks and fill its regions
-  fit.Fisherman = mapPts('Fisherman') + 15 * L((suitWins('Water') - 0.9) * 2.5) + 10 * L((suitPop('Water') - 9) / 3);
-  fit.Hunter = mapPts('Hunter') + 15 * L((suitWins('Land') - 0.9) * 2.5) + 15 * L((suitPop('Land') - 9) / 3);
+  fit.Fisherman = mapPts('Fisherman') + R.Fisherman.tricksPts * L((suitWins('Water') - 0.9) * 2.5) + R.Fisherman.popPts * L((suitPop('Water') - 9) / 3);
+  fit.Hunter = mapPts('Hunter') + R.Hunter.tricksPts * L((suitWins('Land') - 0.9) * 2.5) + R.Hunter.popPts * L((suitPop('Land') - 9) / 3);
   // Researcher: few Invasives that would win means few Crises; many taxonomies in hand feed the pile (and its swap ability)
   fit.Researcher = mapPts('Researcher') + R.Researcher.fewestCrisisPts * inv.reduce((a, c) => a * (1 - 0.2 * winChance(c)), 1)
     + 15 * clamp01(0.15 + 0.12 * (new Set(hand.map(c => c.taxon)).size - 3));
@@ -203,9 +203,9 @@ module.exports = function makeAI(G) {
         case 'Fisherman': case 'Hunter': {
           const suit = pl.role === 'Fisherman' ? 'Water' : 'Land';
           const pop = objs.reduce((a, r) => a + b[r].n + b[r].i, 0);
-          v += (pl.role === 'Fisherman' ? 10 : 15) * L((pop - 24.5) / (1 + sig));
+          v += Rl.popPts * L((pop - 24.5) / (1 + sig));
           const mine = suitTricks(k, suit), best = Math.max(0, ...others.map(q => suitTricks(q, suit)));
-          if (mine > 0.05) v += 15 * L((mine - best + 0.25) / tsig);
+          if (mine > 0.05) v += Rl.tricksPts * L((mine - best + 0.25) / tsig);
           break;
         }
         case 'LandDeveloper': {

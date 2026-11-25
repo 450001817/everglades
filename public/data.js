@@ -139,13 +139,13 @@
     },
     Fisherman: {
       name: 'Fisherman', img: 'assets/cards/roles/Fisherman.png', ending: 'assets/cards/roles/FishermanENDING.png',
-      map: { NG: 'N', SG: 'N', KW: 'N', FK: 'N', KL: 'N' }, mapPts: 5,
+      map: { NG: 'N', SG: 'N', KW: 'N', FK: 'N', KL: 'N' }, mapPts: 5, popPts: 15, tricksPts: 10,
       ability: 'Start of turn: you may swap any card from your hand with any Water card from your scoring pile.',
-      goals: ['5 pts for each map objective met', '10 pts if there are at least 25 population in your objective regions', '15 pts if you win the most tricks from Water regions'],
+      goals: ['5 pts for each map objective met', '15 pts if there are at least 25 population in your objective regions', '10 pts if you win the most tricks from Water regions'],
     },
     Hunter: {
       name: 'Game Hunter', img: 'assets/cards/roles/Hunter.png', ending: 'assets/cards/roles/HunterENDING.png',
-      map: { FSP: 'N', LO: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 5,
+      map: { FSP: 'N', LO: 'N', BCNP: 'N', ENP: 'N' }, mapPts: 5, popPts: 15, tricksPts: 15,
       ability: 'Start of turn: you may swap any card from your hand with any Land card from your scoring pile.',
       goals: ['5 pts for each map objective met', '15 pts if there are at least 25 population in your objective regions', '15 pts if you win the most tricks from Land regions'],
     },
@@ -171,7 +171,7 @@
 
   // Role card art changes now and then (new objective numbers): bump CARD_V whenever a role card image is replaced,
   // so every browser fetches the new card at once instead of showing one it saved earlier.
-  const CARD_V = '20261123';
+  const CARD_V = '20261124';
   for (const r of Object.values(ROLES)) r.img += '?v=' + CARD_V;
 
   // Balance experiments only (test runs): EG_ROLE_TUNE='{"Tourist":{"anyPopPts":20}}' overrides role numbers.
