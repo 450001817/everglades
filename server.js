@@ -39,6 +39,7 @@ const PUBLIC = path.join(__dirname, 'public');
 // a finished trick stays on screen (winning card highlighted) before anyone moves on. BOT_DELAY_MS rescales both.
 const BOT_DELAY_MS = +process.env.BOT_DELAY_MS || 3200;
 const { CHAT } = require('./public/data.js');
+const TALK = require('./chat.js'); // free-text chat: filter and send limits
 const CHAT_COOLDOWN_MS = 2500; // a player can send one chat line every 2.5 seconds
 const PACE = { bot: BOT_DELAY_MS, trick: BOT_DELAY_MS * 1.6 };
 const DEAL_PAUSE_MS = 5200; // the shuffle-and-deal animation
@@ -81,7 +82,8 @@ function friendsView(a) {
   const f = A.friendsOf(a);
   f.friends = f.friends.map(x => Object.assign(x, presence(x.id)))
     .sort((x, y) => (y.online - x.online) || x.username.localeCompare(y.username, undefined, { sensitivity: 'base' }));
-  return Object.assign(f, { invites: invitesFor(a.id).map(v => ({ id: v.id, from: v.from, room: v.room, at: v.at })) });
+  return Object.assign(f, { invites: invitesFor(a.id).map(v => ({ id: v.id, from: v.from, room: v.room, at: v.at })),
+    unread: A.dmUnread(a) }); // DMs not read yet: { friendId: count }
 }
 
 function code() {
@@ -96,7 +98,8 @@ function newRoom() {
   const room = { code: code(), members: [], hostPid: null, game: G.newGame(), clients: new Set(), touched: Date.now(), botTimer: null, chatter: [], chatId: 0, pauseUntil: 0, tricksSeen: 0,
     reactions: [], reactId: 0, evSeen: 0,
     public: false, turnTimer: true, strikes: {}, deadline: null, deadlineTimer: null, // see TURN_MS
-    multiplier: A.ECON.defaultMultiplier, gameId: null, settlement: null, seatAccounts: null };
+    multiplier: A.ECON.defaultMultiplier, gameId: null, settlement: null, seatAccounts: null,
+    talk: [], talkId: 0 }; // table and team chat (see sendTalk)
   rooms.set(room.code, room);
   return room;
 }
@@ -214,6 +217,49 @@ function viewFor(room, member) {
     tourPeek: myTurn ? s.tourPeek : null,
     results: ended ? s.results : null,
   });
+}
+
+// ---------- table and team chat (free text: chat.js filters it) ----------
+// room.talk keeps the latest TALK_KEEP messages: { id, at, pid, accountId, name, text, team }. team: null for the
+// whole table, or a team number (Partners) that only that team's players see. Messages go out as their own
+// 'talk' events on each player's event stream, not inside the game view, so the view stays small.
+const TALK_KEEP = 60;
+// Your team at this table, or null: Partners only (a team picked in the lobby, then your seat's team in the game).
+function teamOf(room, m) {
+  if (!m) return null;
+  const s = room.game;
+  if (s.phase === 'lobby') return room.mode === 'partners' && m.team !== null && m.team !== undefined ? m.team : null;
+  if (!s.partners) return null;
+  const i = seatOf(room, m.pid);
+  return i >= 0 && s.players[i].team !== null && s.players[i].team !== undefined ? s.players[i].team : null;
+}
+// Can this member see this message? (team messages: their team only; never anyone they've muted)
+function seesTalk(room, m, msg) {
+  if (!m) return false;
+  if (msg.team !== null && msg.team !== teamOf(room, m) && msg.pid !== m.pid) return false;
+  return !(msg.accountId && A.mutedBy(memberAccount(m), msg.accountId));
+}
+const talkOut = msg => ({ id: msg.id, at: msg.at, pid: msg.pid, accountId: msg.accountId, name: msg.name, text: msg.text, team: msg.team });
+function sendTalkTo(client, list) { if (list.length) client.write(`event: talk\ndata: ${JSON.stringify(list.map(talkOut))}\n\n`); }
+function sendTalk(room, m, text, toTeam) {
+  if (room.tutorial) throw Object.assign(new Error('There is nobody to chat with in the tutorial.'), { userError: true });
+  const a = memberAccount(m);
+  if (!a || m.bot) throw Object.assign(new Error('Only players can chat.'), { userError: true });
+  const team = toTeam ? teamOf(room, m) : null;
+  if (toTeam && team === null) throw Object.assign(new Error('Team chat is for Partners games, once you have a team.'), { userError: true });
+  const clean = TALK.clean(text);
+  TALK.rateCheck(m.talkRate = m.talkRate || {});
+  const msg = { id: ++room.talkId, at: Date.now(), pid: m.pid, accountId: a.id, name: a.gamertag, text: clean, team };
+  room.talk.push(msg); if (room.talk.length > TALK_KEEP) room.talk.shift();
+  for (const c of room.clients) { const viewer = room.members.find(x => x.pid === c.pid); if (seesTalk(room, viewer, msg)) sendTalkTo(c, [msg]); }
+  room.touched = Date.now();
+}
+// Tell a player's open game connections that a DM arrived (players on the home page see it on their next poll).
+function nudgeDM(toId, fromId) {
+  for (const room of rooms.values()) for (const c of room.clients) {
+    const m = room.members.find(x => x.pid === c.pid);
+    if (m && m.accountId === toId) c.write(`event: dm\ndata: ${JSON.stringify({ from: fromId })}\n\n`);
+  }
 }
 
 // ---------- character reactions ----------
@@ -513,6 +559,7 @@ const server = http.createServer(async (req, res) => {
       const ping = setInterval(() => client.write(': ping\n\n'), 20000);
       req.on('close', () => { clearInterval(ping); room.clients.delete(client); broadcast(room); });
       broadcast(room);
+      sendTalkTo(client, room.talk.filter(msg => seesTalk(room, m, msg))); // the chat so far (after the view: the page knows the table by then)
       return;
     }
     if (req.method === 'POST' && url.pathname === '/auth/google') return googleRedirect(req, res);
@@ -599,6 +646,23 @@ const server = http.createServer(async (req, res) => {
         const a = A.requireAccount(body.session);
         invites.set(a.id, invitesFor(a.id).filter(v => v.id !== body.id));
         return send(res, 200, friendsView(a));
+      }
+      // ---------- direct messages between friends, and muting players in chat ----------
+      if (op === 'dm/list') {
+        const a = A.requireAccount(body.session); seen(a);
+        return send(res, 200, { msgs: A.dmList(a, String(body.id || '')), unread: A.dmUnread(a) });
+      }
+      if (op === 'dm/send') {
+        const a = A.requireAccount(body.session); seen(a);
+        const to = String(body.id || '');
+        A.dmSend(a, to, body.text);
+        nudgeDM(to, a.id);
+        return send(res, 200, { msgs: A.dmList(a, to), unread: A.dmUnread(a) });
+      }
+      if (op === 'chat/mute') {
+        const a = A.requireAccount(body.session);
+        A.setMute(a, String(body.id || ''), !!body.on);
+        return send(res, 200, { me: A.privateProfile(a) });
       }
       if (op === 'mail/open') { // open a letter (or 'all') and collect its Eco-bucks
         const a = A.requireAccount(body.session);
@@ -777,6 +841,10 @@ const server = http.createServer(async (req, res) => {
           } else return send(res, 400, { error: 'Unknown command.' });
         }
         broadcast(room);
+        return send(res, 200, { ok: true });
+      }
+      if (op === 'talk') { // a free-text message to the table (or, with team: true, to your Partners team)
+        sendTalk(room, m, body.text, !!body.team);
         return send(res, 200, { ok: true });
       }
       if (op === 'chat') {

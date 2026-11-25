@@ -141,6 +141,15 @@ Everyone signs in before they sit down at a table. An account keeps your **gamer
 
 **Stats:** every finished game (not the tutorial) is recorded (`stats.js`). Signed-in players get a **📊 Stats** dropdown beside 👥 Friends showing their overall win rate and their win rate with each character. Admin accounts also get a **Server summary** tab covering the whole server: win rate per character (against the fair share for the table sizes played, overall and for seats played by people), average score, tricks, good endings, crises, role-draft pick order, turn-order win rates, table sizes, co-op win rates, how often each Disruption's owner wins, how often each Ecology card wins its trick, and the last 40 games. Admins are Goblin Ink staff accounts (`STAFF_EMAILS`) plus any Google account whose email is listed in the `ADMIN_EMAILS` setting (comma-separated). `ADMIN_EMAILS` is checked at each Google sign-in and never saved, so after adding an email there, that player signs out and back in with Google. Run `node test/stats.js` to check the records.
 
+**Chat:** the round 💬 button in the bottom-right corner opens the chat window (signed-in players only). It has up to three tabs:
+- **Table:** everyone at your table, in the lobby and during the game. Reconnecting brings back the chat so far (the latest 60 messages).
+- **Team:** Partners only, once you have a team. Only your partner sees it. (In co-op everyone is on one team, so the table chat covers it.)
+- **Friends:** direct messages with your friends. They're saved to the account database (the `dms` table, the latest 50 per pair of friends), so you can read what a friend sent while you were away. Unfriending deletes the conversation. A friend at a table gets new DMs straight away; on the home page they arrive with the friends check every 20 seconds (every 4 seconds while the conversation is open).
+- **Safety** (`chat.js`; players can be 13+): messages are cut to 200 characters, links are refused, and profanity and slurs are masked with asterisks, even when disguised (`5h1t`, `fuuuck`, `f.u.c.k`). Each sender can send at most 5 messages per 8 seconds. Click a name in the chat to **mute** that player: you stop seeing their table, team and direct messages. Unmute from 🔇 in the chat window. Run `node test/chat.js` to check it all.
+- The 🗨 **Quick lines** button during a game is separate: it sends one of your purchased chat lines as a speech bubble over your seat.
+
+**"?" icons:** explanations live behind small square "?" icons beside what they explain (the store and profile tabs, lobby settings, panels). Hover one, tap it (phones) or focus it with the keyboard to read it. In code, `qtip(text)` in `public/client.js` makes one; only the game's own text goes in it, never anything a player typed.
+
 **Leaderboards:** the **🏆 Leaders** dropdown (beside 📊 Stats) ranks players by the Eco-bucks they've won from games, with tabs for **Today**, **This month** and **All time**. Only winnings count: what a player wins (net) in a game they come out ahead in. Purchased Eco-bucks, daily bonuses and gifts never count, and free tables earn nothing. Today and This month start again at midnight UTC (on the 1st for the month). It shows the top 50, ties share a rank, and your own place is shown even when you're further down. All time uses each account's lifetime winnings, so it includes games played before the leaderboard existed. Run `node test/leaderboard.js` to check it.
 
 **Profile pictures:** every character picture is a centered close-up taken from the character's animation art. Each character skin you own adds its own picture next to that character (`assets/avatars/skin_<id>.png`).
@@ -253,7 +262,8 @@ Every rule is in **game.js**, and all card stats are in **public/data.js**. Both
 | File | What it does |
 |---|---|
 | `start.bat` | Double-click to run the game on Windows |
-| `server.js` | The multiplayer server: rooms, live updates, bots taking turns |
+| `server.js` | The multiplayer server: rooms, live updates, bots taking turns, table and team chat, DMs |
+| `chat.js` | Chat message cleaning: length, link blocking, the profanity filter and send limits |
 | `game.js` | All the rules: tricks, populating, abilities, Invasive Crisis, scoring, the bots' quick policy |
 | `ai.js` | The bots' logic engine: position evaluation and look-ahead search |
 | `accounts.js` | Player accounts: Google and guest sign-in, gamertags, profile pictures, Eco-bucks, table bets and payouts, the store |

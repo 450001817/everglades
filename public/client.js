@@ -208,7 +208,7 @@ function menuHtml(game = false) {
   const val = v => `<span class="mi-v">${v}</span>`;
   let main = '', more = '';
   if (game) {
-    if (S.you >= 0) main += item('data-g="chat"', '💬', 'Chat lines');
+    if (S.you >= 0) main += item('data-g="chat"', '🗨', 'Quick lines');
     if (S.role) main += item('data-g="myrole"', '🃏', 'My role card', `<span class="mi-v">${esc(roleInfo(S.role).name)}</span>`);
     main += item('data-g="players"', '📋', 'Players &amp; tricks won');
     if (S.you >= 0) main += item('data-g="pile"', '🗂', 'My scoring pile', `<span class="mi-v">${(S.pile || []).length}</span>`);
@@ -247,6 +247,10 @@ document.addEventListener('click', e => { if (e.target.closest('.btn')) SFX.clic
 
 // ---------- utilities ----------
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+// A "?" icon beside something that needs explaining. Hovering it (or tapping it, or focusing it with the keyboard)
+// shows the explainer in a pop-up (see "?" pop-ups near the end of this file). html: the game's own text only (it is
+// shown as markup), never anything a player typed.
+const qtip = (html, label = 'What is this?') => `<button type="button" class="qtip" data-tip="${esc(html)}" aria-label="${esc(label)}">?</button>`;
 function loadSess() { try { return JSON.parse(localStorage.getItem('eg_sess')) || null; } catch { return null; } }
 function saveSess(v) { sess = v; try { v ? localStorage.setItem('eg_sess', JSON.stringify(v)) : localStorage.removeItem('eg_sess'); } catch {} }
 function savedName() { try { return localStorage.getItem('eg_name') || ''; } catch { return ''; } }
@@ -417,13 +421,12 @@ function profileModal() {
       <button class="btn brass" id="saveTag">Save username</button>
     </div>
     <p class="hint" style="margin:0">Games ${me.stats.games} · First places ${me.stats.firsts} · Won ${Number(me.stats.ebWon).toLocaleString()} EB · Lost ${Number(me.stats.ebLost).toLocaleString()} EB${me.guest ? ' · Guest account (this browser only)' : ''}</p>
-    <div class="panel-title" style="margin:6px 0 0">Characters <span class="hint" style="text-transform:none;letter-spacing:0">${skinNote}</span></div>
+    <div class="panel-title" style="margin:6px 0 0">Characters${skinNote ? ' ' + qtip('Skins you buy appear here too.') : ''}</div>
     <div class="avgrid">${chars}</div>
-    <div class="panel-title" style="margin:6px 0 0">Wildlife <span class="hint" style="text-transform:none;letter-spacing:0">— ${unlockedN}/${C.avatars.animals.length} unlocked. Win ${need} tricks with an animal card to unlock its picture.</span></div>
+    <div class="panel-title" style="margin:6px 0 0">Wildlife <span class="hint" style="text-transform:none;letter-spacing:0">— ${unlockedN}/${C.avatars.animals.length} unlocked</span> ${qtip(`Win ${need} tricks with an animal card to unlock its picture.`)}</div>
     <div class="avgrid">${animals}</div>
     ${me.staff ? `<div class="giftbox">
-      <div class="panel-title" style="margin:0">Gift Eco-bucks <span class="hint" style="text-transform:none;letter-spacing:0">— Goblin Ink staff only</span></div>
-      <p class="hint" style="margin:0">The Eco-bucks arrive as a letter in that player's mailbox straight away.</p>
+      <div class="panel-title" style="margin:0">Gift Eco-bucks ${qtip("Goblin Ink staff only. The Eco-bucks arrive as a letter in that player's mailbox straight away.")}</div>
       <div class="row" style="flex-wrap:nowrap">
         <input id="giftTag" class="field" maxlength="16" placeholder="player's username" autocomplete="off" spellcheck="false" style="flex:2">
         <input id="giftAmount" class="field" type="number" min="1" max="100000" value="500" style="flex:1;min-width:90px">
@@ -465,13 +468,21 @@ function storeModal() {
   if (tab === 'chat') page = chatStoreHtml(me);
   if (tab === 'foil') page = foilStoreHtml(me);
   return `<div class="modal"><div class="paper spiral acctmodal storemodal">
-    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Eco-buck store</div><div class="row">Balance ${fmtEB(me.balance)}${payOn && tab !== 'eb' ? '<button class="btn small brass" data-storetab="eb">+ Get EB</button>' : ''}<button class="btn small" data-close>Close</button></div></div>
-    <div class="storetabs">${tabs}</div>
+    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Eco-buck store ${qtip('Earn Eco-bucks by winning games at tables with a payout multiplier, and from your daily log-in bonus.')}</div><div class="row">Balance ${fmtEB(me.balance)}${payOn && tab !== 'eb' ? '<button class="btn small brass" data-storetab="eb">+ Get EB</button>' : ''}<button class="btn small" data-close>Close</button></div></div>
+    <div class="storetabs">${tabs}${qtip(STORE_INTRO[tab](), 'About this tab')}</div>
     <div class="storepage">${page}</div>
     <div class="error">${esc(acct.msg)}</div>
-    <p class="hint" style="margin:0">Earn Eco-bucks by finishing in the top spots at a table.</p>
   </div></div>`;
 }
+// What each store tab is about (its "?" at the end of the tab bar)
+const STORE_INTRO = {
+  eb: () => 'Top up your Eco-bucks. Payment is handled securely by Stripe, and the Eco-bucks are added as soon as it goes through.',
+  skins: () => `${SKINS[0].price} EB each. Everyone at the table sees your skin when you play that character. Click a portrait for the animated preview.`,
+  chat: () => `${CHAT[0].price} EB each: everything the bots say. Equip up to ${CHAT_SLOTS} per character in its profile (click a character on the home page), then send them from the 🗨 Quick lines button during a game.`,
+  foil: () => `${FOIL_PRICE} EB each. Whenever the card is dealt to you, it shines as foil (in your hand only you see it; once you play it, everyone does). Switch foils on or off per character in its profile. Hover a card to read it.`,
+  splash: () => "Your splash effect bursts from every card you play, and everyone at the table sees it. The one you use here is your default; each character's profile can pick a different one.",
+  titles: () => 'Titles sparkle under your name on your player banner.',
+};
 const STORE_TABS = {
   eb: { label: 'Buy Eco-bucks', type: null },
   skins: { label: 'Character skins', type: 'skin' },
@@ -495,7 +506,7 @@ function ebStoreHtml(me, C) {
       <div class="hint ebper">${p.eb / p.cents >= 1.1 ? `${Math.round((p.eb / p.cents - 1) * 100)}% more per dollar` : '&nbsp;'}</div>
       <button class="btn primary" data-buypack="${p.id}" ${guestBlocked || acct.paying ? 'disabled' : ''}>${acct.paying === p.id ? 'Opening checkout…' : '$' + (p.cents / 100).toFixed(2)}</button>
     </div>`).join('');
-  return `<p class="hint" style="margin:0 0 8px">Top up your Eco-bucks. Payment is handled securely by Stripe, and the Eco-bucks are added as soon as it goes through.</p>
+  return `
     ${P.testMode ? '<p class="hint" style="margin:0 0 8px;color:var(--red)"><b>Test mode:</b> no real money is charged. Use Stripe\'s test card 4242 4242 4242 4242.</p>' : ''}
     ${guestBlocked ? '<p class="hint" style="margin:0 0 8px;color:var(--red)">Sign in with Google to buy Eco-bucks, so your purchase is safe on every device. (Sign out, then use the Google button.)</p>' : ''}
     <div class="ebpacks">${packs}</div>
@@ -538,7 +549,7 @@ function splashStoreHtml(me, C) {
         <span>${it.exclusive ? '<span class="staffex">Goblin Ink staff exclusive</span>' : fmtEB(it.price)}${owned ? ` · <span style="color:var(--native)">${using ? 'In use' : 'Owned'}</span>` : me.balance < it.price ? ` · <span class="hint">you need ${(it.price - me.balance).toLocaleString()} more</span>` : ''}</span></div>
       <div>${action}</div></div>`;
   }).join('');
-  return `<p class="hint" style="margin:0 0 8px">Your splash effect bursts from every card you play, and everyone at the table sees it. The one you use here is your default; each character's profile can pick a different one.</p><div class="storelist">${items}</div>`;
+  return `<div class="storelist">${items}</div>`;
 }
 document.addEventListener('click', async e => {
   const pv = e.target.closest('[data-splashpreview]');
@@ -695,7 +706,7 @@ function titleStoreHtml(me, C) {
         <span>${it.exclusive ? '<span class="staffex">Goblin Ink staff exclusive</span>' : fmtEB(it.price)}${owned ? ' · <span style="color:var(--native)">Owned</span>' : me.balance < it.price ? ` · <span class="hint">you need ${(it.price - me.balance).toLocaleString()} more</span>` : ''}</span></div>
       <div>${action}</div></div>`;
   }).join('');
-  return `<p class="hint" style="margin:0 0 8px">Titles sparkle under your name on your player banner.</p><div class="storelist">${items}</div>`;
+  return `<div class="storelist">${items}</div>`;
 }
 // Every skin at once, grouped by character: buy, equip, or open the character's shop for the animated preview.
 const ownsSkinOk = s => !s.exclusive || !!(acct.me && acct.me.owned.includes('skin:' + s.id)); // staff skins only for their owner
@@ -713,7 +724,7 @@ function skinStoreHtml(me) {
     return `<div class="skingroup"><div class="skingroup-title">${esc(ROLES[role].name)}</div>
       <div class="skingrid">${tile(null)}${SKINS.filter(s => s.role === role && ownsSkinOk(s)).map(tile).join('')}</div></div>`;
   }).join('');
-  return `<p class="hint" style="margin:0 0 8px">${fmtEB(SKINS[0].price)} each. Everyone at the table sees your skin when you play that character. Click a portrait for the animated preview.</p>${groups}`;
+  return groups;
 }
 // ---------- chat lines (bought in the store, sent during a game) ----------
 const chatGroupName = g => CHAT_GROUP_NAMES[g] || (ROLES[g] ? ROLES[g].name : g);
@@ -725,9 +736,9 @@ function chatDropHtml() {
   const L = myLoadout(S.role);
   const equipped = new Set(L ? L.chat : Object.values(me.chars || {}).flatMap(c => c.chat));
   const mine = CHAT.filter(c => owned.has(c.id) && equipped.has(c.id));
-  if (!owned.size) return `<div class="paper spiral chat-drop"><div class="panel-title">Chat</div>
+  if (!owned.size) return `<div class="paper spiral chat-drop"><div class="panel-title">Quick lines</div>
     <p class="hint" style="margin:0">You don't own any chat lines yet. Buy them in the <b>Store</b> on the home page or in the lobby: every line the bots say, ${CHAT[0].price} EB each.</p></div>`;
-  if (!mine.length) return `<div class="paper spiral chat-drop"><div class="panel-title">Chat</div>
+  if (!mine.length) return `<div class="paper spiral chat-drop"><div class="panel-title">Quick lines</div>
     <p class="hint" style="margin:0">No chat lines are equipped for this character. Click the character on the home page to open its profile and equip up to ${CHAT_SLOTS}.</p></div>`;
   // your own character's lines first
   const order = CHAT_GROUP_ORDER.slice().sort((a, b) => (b === S.role) - (a === S.role));
@@ -755,7 +766,7 @@ function chatStoreHtml(me) {
       : `<button class="btn small brass" data-chatarm="${c.id}" ${me.balance < c.price ? 'disabled' : ''}>Buy · ${c.price} EB</button>`;
     return `<div class="chatitem ${owned ? 'owned' : ''}"><span class="chat-quote">“${esc(c.text)}”</span>${btn}</div>`;
   }).join('');
-  return `<div class="panel-title" style="margin:6px 0 0">Chat lines <span class="hint" style="text-transform:none;letter-spacing:0">— ${CHAT[0].price} EB each. Everything the bots say. Equip up to ${CHAT_SLOTS} per character in its profile (click a character on the home page), then send them from the 💬 Chat button during a game.</span></div>
+  return `<div class="panel-title" style="margin:6px 0 0">Chat lines</div>
     <div class="skintabs">${tabs}</div><div class="chatlist">${rows}</div>`;
 }
 // Store section: foil versions of every Ecology and Disruption card (the owner sees them in hand; everyone sees them once played)
@@ -773,7 +784,7 @@ function foilStoreHtml(me) {
       : `<button class="btn small brass" data-foilarm="${id}" ${me.balance < FOIL_PRICE ? 'disabled' : ''}>Buy · ${FOIL_PRICE} EB</button>`;
     return `<div class="foilitem">${card}${btn}</div>`;
   }).join('');
-  return `<div class="panel-title" style="margin:6px 0 0">Foil cards <span class="hint" style="text-transform:none;letter-spacing:0">— ${FOIL_PRICE} EB each. Whenever the card is dealt to you, it shines as foil (in your hand only you see it; once you play it, everyone does). Switch foils on or off per character in its profile. Hover a card to read it.</span></div>
+  return `<div class="panel-title" style="margin:6px 0 0">Foil cards</div>
     <div class="skintabs">${tabs}</div><div class="foilgrid">${items}</div>`;
 }
 document.addEventListener('click', async e => {
@@ -810,6 +821,14 @@ function mySkin(role) {
 // ---------- character profiles: skin, chat lines, splash effect and card treatments, per character ----------
 // acct.modal = { skins: role, view: skin id being previewed, tab: 'skin' | 'chat' | 'splash' | 'cards' }
 const CHAR_TABS = { skin: 'Skin', chat: 'Chat lines', splash: 'Splash effect', cards: 'Card treatments' };
+// What each character profile tab is about (its "?" at the end of the tab bar)
+function charIntro(tab, R, L) {
+  const n = esc(R.name);
+  if (tab === 'skin') return `Your skin shows in every game where you play the ${n}, for everyone at the table. It's only a new look; the role plays the same.`;
+  if (tab === 'chat') return `Equip up to ${CHAT_SLOTS} of your chat lines for the ${n}. They're the lines in your 🗨 Quick lines menu whenever you play this character.${L && L.chatCustom ? '' : " (Until you change them, your first owned lines are equipped, this character's own lines first.)"}`;
+  if (tab === 'splash') return `The burst that plays over every card you play as the ${n}. Everyone at the table sees it.`;
+  return `Choose, card by card, how your cards look when they're dealt to you as the ${n} (everyone at the table sees them once you play the card). New treatments will show up here as they arrive.`;
+}
 function skinShopModal() {
   const role = acct.modal.skins, R = ROLES[role]; if (!R) return '';
   const me = acct.me;
@@ -830,7 +849,7 @@ function skinShopModal() {
         <div><div class="panel-title" style="margin:0">${esc(R.name)}</div><span class="hint">Character profile${me ? '' : ' · sign in to customise'}</span></div></div>
       <div class="row">${me ? `Balance ${fmtEB(me.balance)}` : ''}<button class="btn small" data-close>Close</button></div></div>
     <div class="skintabs">${roleTabs}</div>
-    <div class="storetabs">${secTabs}</div>
+    <div class="storetabs">${secTabs}${tab === 'skin' || (me && L) ? qtip(charIntro(tab, R, L), 'About this tab') : ''}</div>
     <div class="storepage">${page}</div>
     <div class="error">${esc(acct.msg)}</div>
   </div></div>`;
@@ -841,7 +860,7 @@ async function saveCharacter(role, change) {
   catch (err) { acct.msg = err.message; SFX.error(); }
   render();
 }
-// Chat lines: up to CHAT_SLOTS equipped per character; they're the ones in the 💬 Chat menu during a game.
+// Chat lines: up to CHAT_SLOTS equipped per character; they're the ones in the 🗨 Quick lines menu during a game.
 function charChatHtml(role, L) {
   const me = acct.me, R = ROLES[role];
   const owned = CHAT.filter(c => me.owned.includes('chat:' + c.id));
@@ -860,7 +879,7 @@ function charChatHtml(role, L) {
       : `<button class="btn small brass" data-chatequip="${c.id}" ${full ? `disabled title="All ${CHAT_SLOTS} slots are full: unequip a line first"` : ''}>Equip</button>`;
     return `<div class="chatitem ${on ? 'owned' : ''}"><span class="chat-quote">“${esc(c.text)}”</span>${btn}</div>`;
   }).join('');
-  return `<p class="hint" style="margin:0 0 8px">Equip up to ${CHAT_SLOTS} of your chat lines for the ${esc(R.name)}. They're the lines in your 💬 Chat menu whenever you play this character.${L.chatCustom ? '' : ' (Until you change them, your first owned lines are equipped, this character\'s own lines first.)'}</p>
+  return `
     <div class="chatlist chatslots">${slots}</div>
     <div class="panel-title" style="margin:12px 0 4px">Your chat lines <span class="hint" style="text-transform:none;letter-spacing:0">— ${owned.length} owned · <button class="linkbtn" data-gostore="chat">buy more in the store</button></span></div>
     ${owned.length ? `<div class="skintabs">${gtabs}</div><div class="chatlist" style="margin-top:8px">${rows}</div>` : '<p class="hint">You don\'t own any chat lines yet.</p>'}`;
@@ -876,7 +895,7 @@ function charSplashHtml(role, L) {
       <div class="storeprev splashprev">${fx ? `<button class="splashdemo" data-splashpreview="${fx}" title="Preview">${cardEl(demoCard(fx))}<span>▶ Preview</span></button>` : `<div class="splashdemo">${cardEl('Flamingo')}<span>No effect</span></div>`}</div>
       <div class="storeinfo"><b>${esc(title)}</b><span class="hint">${esc(blurb)}</span></div>
       <div>${pick === val ? '<span class="tag equipped">In use</span>' : `<button class="btn brass" data-charsplash="${val}">Use</button>`}</div></div>`;
-  return `<p class="hint" style="margin:0 0 8px">The burst that plays over every card you play as the ${esc(R.name)}. Everyone at the table sees it.</p>
+  return `
     <div class="storelist">
       ${opt('default', `Account default${globalFx ? ` (${globalFx.name})` : ' (none)'}`, 'Follows the effect you pick in the store\'s Splash effects tab.', globalFx && globalFx.id)}
       ${opt('none', 'No effect', `The ${R.name}'s cards land without a splash.`, null)}
@@ -900,7 +919,7 @@ function charCardsHtml(role, L) {
     const opts = [{ id: 'none', name: 'Plain' }, ...ownedTs(id)].map(t => `<button class="seg ${cur === t.id ? 'on' : ''}" data-charfinish="${id}:${t.id}">${esc(t.name)}</button>`).join('');
     return `<div class="foilitem">${deck === 'Disruption' ? disEl(id, cls) : cardEl(id, cls)}<div class="segs">${opts}</div></div>`;
   }).join('');
-  return `<p class="hint" style="margin:0 0 8px">Choose, card by card, how your cards look when they're dealt to you as the ${esc(R.name)} (everyone at the table sees them once you play the card). New treatments will show up here as they arrive.</p>
+  return `
     <div class="row" style="justify-content:space-between"><div class="skintabs">${tabs}</div>
       <div class="row"><button class="btn small brass" data-charfinishall="default">Everything on</button><button class="btn small" data-charfinishall="none">All plain</button></div></div>
     <div class="foilgrid" style="margin-top:8px">${items}</div>
@@ -949,7 +968,6 @@ function charSkinHtml(role) {
       <div class="skininfo">
         <h3>${esc(viewing ? viewing.name : 'The original')}</h3>
         <p>${esc(viewing ? viewing.blurb : `The ${R.name} from the role card.`)}</p>
-        <p class="hint">Your skin shows in every game where you play the ${esc(R.name)}, for everyone at the table. It's only a new look; the role plays the same.</p>
         <span class="btn small" ${peekAttrs(role, view)}>Hover here to read the role card</span>
       </div>
     </div>
@@ -1050,6 +1068,7 @@ function applyFriends(d) {
   fr.first = false;
   refreshFriendsBtns();
   if (fr.open) renderFriends();
+  cwOnFriends(); // unread DMs (chat window)
 }
 setInterval(pollFriends, 20000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) pollFriends(); });
@@ -1085,11 +1104,10 @@ function renderFriends() {
     body += `<div class="fsec">Offline · ${offline.length}</div>` + (offline.length ? offline.map(friendRow).join('') : `<p class="hint fempty">${d.friends.length ? 'Everyone is online!' : 'Add friends by their username above.'}</p>`);
     if (d.outgoing.length) body += `<div class="fsec">Requests you sent</div>` + d.outgoing.map(f => `<div class="frow">${who(f, 'waiting for them to accept')}<button class="btn small" data-unfriend="${f.id}" data-sure="1">Cancel</button></div>`).join('');
   }
-  $friends.innerHTML = `<div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Friends</div><button class="btn small" data-friends-close>Close</button></div>
+  $friends.innerHTML = `<div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Friends ${qtip(`Add friends by their username. ${atLobbyTable() ? 'Online friends can be invited to your table.' : 'Sit down at a table to invite online friends to it.'} Message them from the 💬 chat window.`)}</div><button class="btn small" data-friends-close>Close</button></div>
     <div class="row" style="flex-wrap:nowrap;gap:6px"><input id="friendName" class="field" maxlength="16" placeholder="Friend's username" autocomplete="off" spellcheck="false" style="flex:1;min-width:0">
       <button class="btn small brass" id="addFriend" ${fr.busy ? 'disabled' : ''}>Add friend</button></div>
     ${fr.msg ? `<div class="fmsg ${fr.msgErr ? 'error' : ''}">${esc(fr.msg)}</div>` : ''}
-    ${atLobbyTable() ? '' : '<p class="hint" style="margin:2px 0 0;font-size:14px">Sit down at a table to invite online friends to it.</p>'}
     <div class="flist">${body}</div>`;
   $friends.classList.remove('hidden');
   const ni = document.getElementById('friendName');
@@ -1145,6 +1163,190 @@ document.addEventListener('click', async e => {
   else if (t.matches('[data-joinroom]')) joinTable(t.dataset.joinroom);
 });
 
+var chatReady = false; // set once the chat window below is ready (render() checks it)
+// ---------- chat window: table chat, team chat (Partners) and direct messages with friends ----------
+// Free text, cleaned and filtered on the server (chat.js). Like the friends dropdown it lives outside #app, so game
+// re-renders never wipe what you're typing. Table and team messages arrive as 'talk' events on the game's event
+// stream (see connect()); DMs are fetched (dm/list) while a conversation is open, a 'dm' event on the game's stream
+// says one arrived, and the friends poll (every 20 s) carries the unread counts everywhere else.
+const cw = { open: false, tab: 'table', dmWith: null, talk: [], room: null, since: 0, dms: {}, unread: { table: 0, team: 0 },
+  drafts: {}, msg: '', busy: false, muteAsk: null, showMuted: false };
+const $cw = document.createElement('div'); $cw.id = 'chatWindow'; $cw.className = 'paper friendspanel chatwin hidden';
+const $cwFab = document.createElement('button'); $cwFab.id = 'chatFab'; $cwFab.type = 'button'; $cwFab.className = 'btn chatfab hidden';
+$cwFab.title = 'Chat'; $cwFab.setAttribute('aria-label', 'Chat');
+document.body.appendChild($cw); document.body.appendChild($cwFab);
+const cwInRoom = () => !!(sess && S && !S.tutorial);
+function cwMyTeam() { // your Partners team at this table, or null
+  if (!cwInRoom()) return null;
+  if (S.phase === 'lobby') { const me = S.lobby.find(x => x.pid === S.yourPid); return S.mode === 'partners' && me && me.team !== null && me.team !== undefined ? me.team : null; }
+  const p = S.partners && S.players && S.players[S.you];
+  return p && p.team !== null && p.team !== undefined ? p.team : null;
+}
+const cwMuted = () => new Set(((acct.me && acct.me.muted) || []).map(x => x.id));
+const cwDmUnread = () => (fr.data && fr.data.unread ? Object.values(fr.data.unread).reduce((a, n) => a + n, 0) : 0);
+function cwTabs() {
+  const t = [];
+  if (cwInRoom()) { t.push(['table', 'Table']); if (cwMyTeam() !== null) t.push(['team', 'Team']); }
+  t.push(['dm', 'Friends']);
+  return t;
+}
+function cwFixTab() { if (!cwTabs().some(([k]) => k === cw.tab)) cw.tab = cwTabs()[0][0]; }
+const cwTime = at => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+// the round button in the corner, with everything unread on it
+function refreshChatFab() {
+  if (!acct.me) { $cwFab.classList.add('hidden'); if (cw.open) { cw.open = false; renderChat(); } return; }
+  if (cwInRoom() && cw.room !== S.room) { cw.room = S.room; cw.talk = []; cw.unread = { table: 0, team: 0 }; } // a new table
+  if (!cwInRoom() && cw.room) { cw.room = null; cw.talk = []; cw.unread = { table: 0, team: 0 }; }
+  const n = cw.unread.table + (cwMyTeam() !== null ? cw.unread.team : 0) + cwDmUnread();
+  $cwFab.innerHTML = `💬${n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : ''}`;
+  $cwFab.classList.toggle('brass', cw.open);
+  $cwFab.classList.remove('hidden');
+}
+
+// table and team messages from the game's event stream (on connecting, the history comes first)
+function cwTalkIn(list) {
+  if (sess && !S) { (cw.early = cw.early || []).push(...list); return; } // before the first game view: hold them
+  if (cw.early) { list = cw.early.concat(list); cw.early = null; }
+  if (!cwInRoom()) return;
+  if (cw.room !== S.room) { cw.room = S.room; cw.talk = []; cw.unread = { table: 0, team: 0 }; }
+  const have = new Set(cw.talk.map(m => m.id)), muted = cwMuted();
+  let ping = false;
+  for (const m of list) {
+    if (have.has(m.id)) continue;
+    cw.talk.push(m);
+    const fresh = m.at >= cw.since, ch = m.team === null ? 'table' : 'team';
+    if (!fresh || m.pid === S.yourPid || muted.has(m.accountId)) continue;
+    if (!(cw.open && cw.tab === ch)) cw.unread[ch]++;
+    ping = true;
+  }
+  cw.talk.sort((a, b) => a.id - b.id); if (cw.talk.length > 120) cw.talk.splice(0, cw.talk.length - 120);
+  if (ping) SFX.chat();
+  refreshChatFab(); if (cw.open) renderChat();
+}
+// a DM arrived (the server nudges open game connections; the friends poll catches the rest)
+async function cwDmIn(from) {
+  if (cw.open && cw.tab === 'dm' && cw.dmWith === from) await cwLoadDm(from);
+  else {
+    await pollFriends();
+    const f = fr.data && fr.data.friends.find(x => x.id === from);
+    SFX.chat();
+    if (!cw.open) showToast(`New message from <b>${esc(f ? f.username : 'a friend')}</b><small>Open 💬 to read it.</small>`, false, 4000);
+  }
+}
+async function cwLoadDm(id) {
+  try { const r = await acctApi('dm/list', { id }); cw.dms[id] = r.msgs; if (fr.data) fr.data.unread = r.unread; }
+  catch (e) { cw.msg = e.message; }
+  refreshChatFab(); renderChat();
+}
+// unread DMs going up on the friends poll: a soft ping
+let cwLastDmUnread = 0;
+function cwOnFriends() {
+  const n = cwDmUnread();
+  if (n > cwLastDmUnread && !(cw.open && cw.tab === 'dm')) SFX.chat();
+  cwLastDmUnread = n;
+  refreshChatFab(); if (cw.open && cw.tab === 'dm' && !cw.dmWith) renderChat();
+}
+
+function renderChat() {
+  if (!cw.open || !acct.me) { $cw.classList.add('hidden'); return; }
+  cwFixTab();
+  const key = cw.tab === 'dm' ? 'dm:' + (cw.dmWith || '') : cw.tab;
+  // keep what's being typed, focus and scroll position across re-renders
+  const input = document.getElementById('cwInput');
+  if (input) cw.drafts[input.dataset.key] = input.value;
+  const focused = document.activeElement === input;
+  const list = $cw.querySelector('.cwlist');
+  const atBottom = !list || list.scrollHeight - list.scrollTop - list.clientHeight < 24, oldTop = list ? list.scrollTop : 0;
+  if (cw.tab !== 'dm') cw.unread[cw.tab] = 0;
+  const muted = cwMuted();
+  const tabs = cwTabs().map(([k, l]) => {
+    const n = k === 'dm' ? cwDmUnread() : cw.unread[k];
+    return `<button class="btn small cwtab ${cw.tab === k ? 'brass' : ''}" data-cwtab="${k}">${l}${n ? ` <span class="badge">${n > 9 ? '9+' : n}</span>` : ''}</button>`;
+  }).join('');
+  const line = (name, accountId, mine, at, text) => `<div class="cwmsg ${mine ? 'mine' : ''}"><div class="cwmeta">${mine ? '<b>You</b>'
+    : `<button class="cwname" data-cwname="${esc(accountId || '')}" data-n="${esc(name)}" title="Mute ${esc(name)}">${esc(name)}</button>`}<span class="cwtime">${cwTime(at)}</span></div><div class="cwtext">${esc(text)}</div></div>`;
+  let body = '', canSend = true, place = '';
+  if (cw.showMuted) {
+    const ms = (acct.me.muted || []);
+    body = `<div class="cwsec">Muted players · ${ms.length}</div>` + (ms.length ? ms.map(x => `<div class="frow"><div class="fname"><b>${esc(x.username)}</b></div><button class="btn small" data-cwunmute="${esc(x.id)}">Unmute</button></div>`).join('')
+      : '<p class="hint">Nobody. Click a name in the chat to mute that player.</p>');
+    canSend = false;
+  } else if (cw.tab === 'table' || cw.tab === 'team') {
+    const team = cw.tab === 'team';
+    const msgs = cw.talk.filter(m => (team ? m.team !== null : m.team === null) && !muted.has(m.accountId));
+    body = msgs.length ? msgs.map(m => line(m.name, m.accountId, m.pid === S.yourPid, m.at, m.text)).join('')
+      : `<p class="hint cwempty">${team ? 'Only your partner sees this chat.' : 'Say hello to the table!'}</p>`;
+    place = team ? 'Message your partner…' : 'Message the table…';
+  } else if (!cw.dmWith) {
+    const fs = fr.data ? fr.data.friends : [], un = (fr.data && fr.data.unread) || {};
+    body = fs.length ? fs.map(f => `<button class="frow cwfriend" data-cwdm="${esc(f.id)}"><span class="fdot ${f.online ? 'on' : ''}"></span><img class="pavatar tiny" src="${esc(f.avatarSrc)}" alt=""><div class="fname"><b>${esc(f.username)}</b><span class="hint">${f.online ? 'Online' : 'Offline'}</span></div>${un[f.id] ? `<span class="badge">${un[f.id] > 9 ? '9+' : un[f.id]}</span>` : ''}</button>`).join('')
+      : '<p class="hint cwempty">Add friends from 👥 Friends, then message them here.</p>';
+    canSend = false;
+  } else {
+    const f = fr.data && fr.data.friends.find(x => x.id === cw.dmWith);
+    const msgs = cw.dms[cw.dmWith];
+    body = `<div class="cwconvo"><button class="btn small" data-cwback>‹ Friends</button><b>${esc(f ? f.username : 'Friend')}</b></div>`
+      + (!msgs ? '<p class="hint">Loading…</p>' : msgs.length ? msgs.map(m => line(f ? f.username : 'Friend', cw.dmWith, m.mine, m.at, m.text)).join('')
+        : `<p class="hint cwempty">No messages yet. Say hi to ${esc(f ? f.username : 'your friend')}!</p>`);
+    place = `Message ${f ? f.username : 'your friend'}…`;
+  }
+  const ask = cw.muteAsk ? `<div class="cwask">Mute <b>${esc(cw.muteAsk.name)}</b>? You won't see their messages.<span class="row" style="gap:6px"><button class="btn small primary" data-cwmute="1">Mute</button><button class="btn small" data-cwmute="">Cancel</button></span></div>` : '';
+  $cw.innerHTML = `<div class="cwhead"><div class="cwtabs">${tabs}</div><button class="btn small fx ${cw.showMuted ? 'brass' : ''}" data-cwmuted title="Muted players">🔇</button><button class="btn small" data-cwclose title="Close">✕</button></div>
+    ${ask}<div class="cwlist">${body}</div>
+    ${cw.msg ? `<div class="fmsg error">${esc(cw.msg)}</div>` : ''}
+    ${canSend ? `<form class="cwsend" data-cwform><input id="cwInput" data-key="${esc(key)}" class="field" maxlength="200" placeholder="${esc(place)}" autocomplete="off" spellcheck="true"><button class="btn small primary" ${cw.busy ? 'disabled' : ''}>Send</button></form>` : ''}`;
+  $cw.classList.remove('hidden');
+  const nl = $cw.querySelector('.cwlist');
+  nl.scrollTop = atBottom ? nl.scrollHeight : oldTop;
+  const ni = document.getElementById('cwInput');
+  if (ni) { ni.value = cw.drafts[key] || ''; if (focused) { ni.focus(); ni.setSelectionRange(ni.value.length, ni.value.length); } }
+}
+async function cwSend() {
+  const input = document.getElementById('cwInput'); if (!input || cw.busy) return;
+  const text = input.value.trim(); if (!text) return;
+  cw.busy = true; cw.msg = '';
+  try {
+    if (cw.tab === 'dm') {
+      const id = cw.dmWith, r = await acctApi('dm/send', { id, text });
+      cw.dms[id] = r.msgs; if (fr.data) fr.data.unread = r.unread;
+    } else await api('talk', { text, team: cw.tab === 'team' });
+    // (your own message can come back and redraw the window before this answer does: clear whichever box is there now)
+    cw.drafts[input.dataset.key] = ''; const now = document.getElementById('cwInput'); if (now && now.dataset.key === input.dataset.key) now.value = '';
+  } catch (e) { cw.msg = e.message; SFX.error(); }
+  cw.busy = false; renderChat(); const ni = document.getElementById('cwInput'); if (ni) ni.focus();
+}
+function cwToggle(open = !cw.open) {
+  cw.open = open; cw.msg = ''; cw.muteAsk = null;
+  if (open) { cw.showMuted = false; cwFixTab(); if (cw.tab === 'dm') { pollFriends(); if (cw.dmWith) cwLoadDm(cw.dmWith); } }
+  refreshChatFab(); renderChat();
+  if (open) { const ni = document.getElementById('cwInput'); if (ni && !isPhone()) ni.focus(); }
+}
+$cwFab.onclick = e => { e.stopPropagation(); cwToggle(); };
+$cw.addEventListener('submit', e => { e.preventDefault(); cwSend(); });
+$cw.addEventListener('click', async e => {
+  const t = e.target.closest('[data-cwtab],[data-cwclose],[data-cwdm],[data-cwback],[data-cwname],[data-cwmute],[data-cwmuted],[data-cwunmute]');
+  if (!t) return;
+  if (t.matches('[data-cwtab]')) { cw.tab = t.dataset.cwtab; cw.showMuted = false; cw.muteAsk = null; cw.msg = ''; if (cw.tab === 'dm') { pollFriends(); if (cw.dmWith) cwLoadDm(cw.dmWith); } }
+  else if (t.matches('[data-cwclose]')) return cwToggle(false);
+  else if (t.matches('[data-cwdm]')) { cw.dmWith = t.dataset.cwdm; cw.msg = ''; renderChat(); return cwLoadDm(cw.dmWith); }
+  else if (t.matches('[data-cwback]')) { cw.dmWith = null; cw.msg = ''; pollFriends(); }
+  else if (t.matches('[data-cwname]')) { if (t.dataset.cwname) cw.muteAsk = { id: t.dataset.cwname, name: t.dataset.n }; }
+  else if (t.matches('[data-cwmuted]')) { cw.showMuted = !cw.showMuted; cw.muteAsk = null; }
+  else if (t.matches('[data-cwmute]') || t.matches('[data-cwunmute]')) {
+    const id = t.matches('[data-cwunmute]') ? t.dataset.cwunmute : t.dataset.cwmute ? cw.muteAsk.id : null;
+    const on = t.matches('[data-cwmute]');
+    cw.muteAsk = null;
+    if (id) try { const r = await acctApi('chat/mute', { id, on }); acct.me = r.me; if (on) showToast('Muted. You can unmute them from 🔇 in the chat window.'); pollFriends(); }
+    catch (err) { cw.msg = err.message; SFX.error(); }
+  }
+  refreshChatFab(); renderChat();
+});
+// while a conversation is open, check for replies every few seconds
+setInterval(() => { if (cw.open && cw.tab === 'dm' && cw.dmWith && !document.hidden) cwLoadDm(cw.dmWith); }, 4000);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && cw.open && $cw.contains(document.activeElement)) cwToggle(false); });
+chatReady = true;
+
 // ---------- stats: your win rate (overall and per character); admins also see the whole server ----------
 // Like the friends dropdown, it lives outside #app so game re-renders leave it alone. Fetched each time it opens.
 const st = { open: false, tab: 'me', data: null, msg: '' };
@@ -1183,7 +1385,6 @@ function serverStatsHtml(S) {
   if (!S) return '';
   const competitive = Object.entries(S.modes).filter(([k]) => k !== 'coop').reduce((a, [, m]) => a + m.games, 0);
   const tbl = (head, rows) => `<div class="stable"><table><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('') || `<tr><td colspan="${head.length}" class="hint">No data yet.</td></tr>`}</tbody></table></div>`;
-  const tip = t => `<p class="hint stip">${t}</p>`;
   const seatsTxt = x => `${esc(roleName(x.role))}${x.bot ? ' (bot)' : ''} ${x.score}`;
   // characters (classic and partners: the modes where players compete)
   const roleRows = Object.entries(S.roles).sort((a, b) => pctOf(b[1].wins, b[1].seats) - pctOf(a[1].wins, a[1].seats)).map(([id, x]) => {
@@ -1224,22 +1425,18 @@ function serverStatsHtml(S) {
       <div><b>${avg(S.crises, S.games, 2)}</b><span>Invasive Crises / game</span></div>
       <div><b>${pctTxt(S.ties, S.modes.classic ? S.modes.classic.games : 0)}</b><span>classic games tied</span></div>
       <div><b>${A.played ?? '—'}</b><span>players with a game · ${A.activeWeek ?? 0} this week</span></div>
-      <div><b>${S.easyGames || 0}</b><span>games with easy bots (new players) · people won ${pctTxt(S.easyWins || 0, S.easySeats || 0)}</span></div>
+      <div><b>${S.easyGames || 0}</b><span>games with easy bots (new players) · people won ${pctTxt(S.easyWins || 0, S.easySeats || 0)}${S.easyGames ? ' ' + qtip('Games with easy bots are left out of the character, seat, card and Disruption tables below.') : ''}</span></div>
     </div>
-    ${S.easyGames ? '<p class="hint stip">Games with easy bots are left out of the character, seat, card and Disruption tables below.</p>' : ''}
     <div class="schips">${modes}<span>Accounts: <b>${A.total ?? '—'}</b> (${A.google ?? 0} Google, ${A.guests ?? 0} guest)</span></div>
-    <div class="fsec">Characters — classic &amp; partners (${competitive} games)</div>
-    ${tip('Win % counts every seat, bots included; the tick on each bar is the fair share for the table sizes played, and ±fair is how many points above or below it. People = win % of the seats played by people. Pick = average place in the role draft (1 = first).')}
+    <div class="fsec">Characters — classic &amp; partners (${competitive} games) ${qtip('Win % counts every seat, bots included; the tick on each bar is the fair share for the table sizes played, and ±fair is how many points above or below it. People = win % of the seats played by people. Pick = average place in the role draft (1 = first).')}</div>
     ${tbl(['Character', 'Seats', 'Win %', '±fair', 'People', 'Avg pts', 'Tricks', 'Good end', 'Crises', 'Pick', '1st pick'], roleRows)}
     <div class="fsec">Characters — co-op</div>
     ${tbl(['Character', 'Seats', 'Players won', 'Avg pts', 'Good end'], coopRoles)}
-    <div class="fsec">Turn order — classic</div>
-    ${tip('Does going first (or last) help? Seat 1 leads the first round.')}
+    <div class="fsec">Turn order — classic ${qtip('Does going first (or last) help? Seat 1 leads the first round.')}</div>
     ${tbl(['Seat', 'Games', 'Win %', 'Fair'], seatRows)}
     <div class="fsec">Table size</div>
     ${tbl(['Players', 'Games', 'Avg top score', 'Avg winning margin', 'Co-op won'], countRows)}
-    <div class="fsec">Disruptions</div>
-    ${tip("Win % of the player who played it (in co-op: whether the players' team won).")}
+    <div class="fsec">Disruptions ${qtip("Win % of the player who played it (in co-op: whether the players' team won).")}</div>
     ${tbl(['Disruption', 'Played', 'Owner won', 'Fair'], disRows)}
     <details class="sdetails"><summary>Ecology cards: how often each wins the trick it's played in (${cards.length})</summary>
       ${tbl(['Card', 'Kind', 'Impact', 'Played', 'Won', 'Win %'], cardRows)}</details>
@@ -1297,13 +1494,14 @@ function renderLb() {
   let body;
   if (!d) body = '<p class="hint">Loading…</p>';
   else {
-    body = d.top.length ? d.top.map(x => row(x)).join('') : `<p class="hint">Nobody has earned Eco-bucks ${lb.period === 'day' ? 'today' : lb.period === 'month' ? 'this month' : 'yet'}. Win a game with a buy-in to get on the board!</p>`;
+    body = d.top.length ? d.top.map(x => row(x)).join('') : `<p class="hint">Nobody has earned Eco-bucks ${lb.period === 'day' ? 'today' : lb.period === 'month' ? 'this month' : 'yet'}. Win a game at a table with a payout multiplier to get on the board!</p>`;
     if (d.me && !d.top.some(x => x.id === d.me.id)) body += `<div class="fsec">You</div>` + row(d.me);
-    else if (!d.me) body += `<p class="hint lbnote">You're not on this board yet. Come out ahead in a game with a buy-in to join it.</p>`;
+    else if (!d.me) body += `<p class="hint lbnote">You're not on this board yet. Come out ahead in a game with a payout multiplier to join it.</p>`;
   }
-  $lb.innerHTML = `<div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Leaderboard</div><button class="btn small" data-lb-close>Close</button></div>
+  const lbStatus = `${d && d.resetsAt ? `Starts again in ${lbUntil(d.resetsAt)} (midnight UTC${lb.period === 'month' ? ' on the 1st' : ''}).` : ''}${d && d.players > d.top.length ? ` Top ${d.top.length} of ${d.players}.` : ''}`;
+  $lb.innerHTML = `<div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Leaderboard ${qtip("Eco-bucks won from games: what each player came out ahead. Bought Eco-bucks, daily bonuses and gifts don't count.")}</div><button class="btn small" data-lb-close>Close</button></div>
     <div class="row stabs">${LB_TABS.map(([k, n]) => `<button class="btn small ${lb.period === k ? 'brass' : ''}" data-lb-tab="${k}">${n}</button>`).join('')}</div>
-    <p class="hint lbnote">Eco-bucks won from games, beyond the buy-in.${d && d.resetsAt ? ` Starts again in ${lbUntil(d.resetsAt)} (midnight UTC${lb.period === 'month' ? ' on the 1st' : ''}).` : ''}${d && d.players > d.top.length ? ` Top ${d.top.length} of ${d.players}.` : ''}</p>
+    ${lbStatus ? `<p class="hint lbnote">${lbStatus}</p>` : ''}
     ${lb.msg ? `<div class="fmsg error">${esc(lb.msg)}</div>` : ''}
     <div class="flist">${body}</div>`;
   $lb.classList.remove('hidden');
@@ -1432,7 +1630,10 @@ function connect() {
   if (es) es.close();
   if (!sess) return render();
   es = new EventSource(`/api/events?room=${encodeURIComponent(sess.room)}&token=${encodeURIComponent(sess.token)}`);
-  es.onmessage = ev => { const prev = S; S = JSON.parse(ev.data); if (S.serverNow) ui.clockSkew = S.serverNow - Date.now(); onUpdate(prev); render(); };
+  es.onmessage = ev => { const prev = S; S = JSON.parse(ev.data); if (S.serverNow) ui.clockSkew = S.serverNow - Date.now(); onUpdate(prev); render(); if (cw.early) cwTalkIn([]); };
+  cw.since = Date.now() - 2000; // chat older than this is history: no ping
+  es.addEventListener('talk', ev => cwTalkIn(JSON.parse(ev.data))); // table and team chat
+  es.addEventListener('dm', ev => cwDmIn(JSON.parse(ev.data).from)); // a friend sent you a DM
   es.addEventListener('kicked', () => leave(`You ran out of time ${S && S.maxStrikes || 3} times, so a bot took over your seat.`));
   es.onerror = async () => { try { await api('lobby', { cmd: 'ping' }); } catch (e) { /* api() handles a vanished room */ } };
 }
@@ -1604,6 +1805,9 @@ function render() {
   fitScreen();
   // the friends dropdown follows the table you're at (Invite buttons), unless you're typing in it
   if (fr.open && !(document.activeElement && document.activeElement.id === 'friendName')) renderFriends();
+  if (!chatReady) return; // (render can run before the chat window's code has loaded)
+  refreshChatFab(); // the chat window's tabs follow the table and team you're at
+  if (cw.open && cwTabs().map(x => x[0]).join() !== cw.lastTabs) { cw.lastTabs = cwTabs().map(x => x[0]).join(); renderChat(); }
 }
 // Computers: the home page and the lobby never scroll. On a short window their panel is scaled down to fit
 // (down to 70%; below that it scrolls rather than become unreadable). Phones scroll these pages normally.
@@ -1656,7 +1860,7 @@ function renderLanding() {
       <div class="facts"><span>2–6 players</span><span>Solo · Partners · Co-op vs The Anaconda</span><span>Bots fill empty seats</span></div>
     </section>
     <div class="paper spiral landing-card stack">
-      <div class="panel-title" style="margin:0">Head into the swamp</div>
+      <div class="panel-title" style="margin:0">Head into the swamp ${qtip('Start a table and share its 4-letter code or link. Every table has a payout multiplier for Eco-bucks, or the host can make it a free table just for fun. Bots fill empty seats, so every game has at least 4 players.')}</div>
       ${accountPanelHtml()}
       <button id="create" class="btn primary" ${acct.me ? '' : 'disabled'}>Start a new table</button>
       <button id="tutorial" class="btn brass" ${acct.me ? '' : 'disabled'} title="A short guided game against two bots. Free, nothing at stake.">New here? Learn to play</button>
@@ -1667,7 +1871,6 @@ function renderLanding() {
         <button id="join" class="btn brass" style="flex:1" ${acct.me ? '' : 'disabled'}>Join table</button>
       </div>
       <div class="error">${esc(ui.err)}</div>
-      <p class="hint" style="margin:0">Tables have an Eco-buck buy-in, or the host can make it a free table just for fun. Start a table and share its 4-letter code or link. Bots fill empty seats, so every game has at least 4 players.</p>
       <p class="legal-links"><a href="terms.html" target="_blank" rel="noopener">Terms of Service</a> · <a href="refunds.html" target="_blank" rel="noopener">Refund Policy</a></p>
     </div>
     </div>
@@ -1699,7 +1902,7 @@ function accountPanelHtml() {
   if (acct.loading) return '<p class="hint" style="margin:0">Checking your account…</p>';
   const C = acct.config || {};
   if (!acct.me) return `<div class="signin stack" style="gap:8px">
-      <span class="hint" style="margin:0">Sign in to keep your Eco-bucks, profile picture and unlocks.</span>
+      <span style="margin:0">Sign in ${qtip('Sign in to keep your Eco-bucks, profile picture and unlocks.')}</span>
       ${C.googleClientId ? '<div id="gbtn" class="gbtn" data-keep></div>' : ''}
       ${C.guestsAllowed !== false ? `<button id="guest" class="btn">${C.googleClientId ? 'Play as a guest instead' : 'Play as guest'}</button>` : ''}
       ${C.guestsAllowed !== false && C.googleClientId && guestAtRisk() ? '<span class="hint" style="margin:0;font-size:15px">On iPhone, iPad and Safari, a guest account is erased if you don\'t play for 7 days. Sign in with Google to keep your Eco-bucks.</span>' : ''}
@@ -1749,51 +1952,52 @@ function renderLobby() {
       <div class="row"><input class="field" readonly value="${esc(link)}" style="flex:1;font-size:15px"><button id="copy" class="btn small">Copy link</button></div>
       <div class="row" style="justify-content:space-between">
         <div><div class="panel-title" style="margin:0">Game mode</div>
-          <span style="font-size:18px">${({ solo: 'Everyone for themselves', partners: 'Partners — teams of 2 score together', coop: 'Co-op — everyone vs The Anaconda' })[S.mode || 'solo']}</span></div>
+          <span style="font-size:18px">${({ solo: 'Everyone for themselves', partners: 'Partners — teams of 2 score together', coop: 'Co-op — everyone vs The Anaconda' })[S.mode || 'solo']}</span>
+          ${S.mode === 'partners' ? qtip(`Pick a team for yourself${S.isHost ? ' (as host you can also place others and bots)' : ''}. Anyone without a team gets a random partner. Teammates never take turns back to back.`) : ''}</div>
         ${S.isHost ? `<div class="modepick">${[['solo', 'Solo'], ['partners', 'Partners'], ['coop', 'Co-op']].map(([m, l]) =>
           `<button class="btn small ${(S.mode || 'solo') === m ? 'brass' : ''}" data-mode="${m}">${l}</button>`).join('')}</div>` : ''}
       </div>
       <div class="row" style="justify-content:space-between">
         <div><div class="panel-title" style="margin:0">Match modifiers</div>
           <span style="font-size:18px">Disruptions: <b>${S.disruptions ? 'On' : 'Off'}</b></span>
-          <span class="hint">— each player drafts 2 Disruption cards and may play one face down after the biome is chosen</span></div>
+          ${qtip('Each player drafts 2 Disruption cards and may play one face down after the biome is chosen.')}</div>
         ${S.isHost ? `<div class="modepick"><button class="btn small ${S.disruptions ? 'brass' : ''}" data-dis="1">On</button><button class="btn small ${S.disruptions ? '' : 'brass'}" data-dis="0">Off</button></div>` : ''}
       </div>
       <div class="row" style="justify-content:space-between">
         <div><span style="font-size:18px">Burn: <b>${S.burn ? 'On' : 'Off'}</b></span>
-          <span class="hint">— 1 card per player is burned face down before the deal. Nobody sees them, so the game is harder to read, and every hand is 1 card smaller</span></div>
+          ${qtip('1 card per player is burned face down before the deal. Nobody sees them, so the game is harder to read, and every hand is 1 card smaller.')}</div>
         ${S.isHost ? `<div class="modepick"><button class="btn small ${S.burn ? 'brass' : ''}" data-burn="1">On</button><button class="btn small ${S.burn ? '' : 'brass'}" data-burn="0">Off</button></div>` : ''}
       </div>
       <div class="row" style="justify-content:space-between">
         <div><div class="panel-title" style="margin:0">Table</div>
-          <span style="font-size:18px">${S.public ? 'Public' : 'Private'}</span> <span class="hint">${S.public ? '— anyone can join with “Join a random public table”' : '— only people with the code or link can join'}</span></div>
+          <span style="font-size:18px">${S.public ? 'Public' : 'Private'}</span> ${qtip(S.public ? 'Anyone can join with “Join a random public table”.' : 'Only people with the code or link can join.')}</div>
         ${S.isHost ? `<div class="modepick"><button class="btn small ${S.public ? '' : 'brass'}" data-public="0">Private</button><button class="btn small ${S.public ? 'brass' : ''}" data-public="1">Public</button></div>` : ''}
       </div>
       <div class="row" style="justify-content:space-between">
         <div><div class="panel-title" style="margin:0">Turn timer</div>
-          <span style="font-size:18px">${S.turnTimer ? `${Math.round(S.turnLimitMs / 1000)} seconds` : 'Off'}</span> <span class="hint">${S.turnTimer ? `— run out of time and a bot plays that turn; ${S.maxStrikes} times and a bot takes your seat` : '— take as long as you like'}${S.public ? ' · always on at public tables' : ''}</span></div>
+          <span style="font-size:18px">${S.turnTimer ? `${Math.round(S.turnLimitMs / 1000)} seconds` : 'Off'}</span> ${qtip(`${S.turnTimer ? `Run out of time and a bot plays that turn; ${S.maxStrikes} times and a bot takes your seat.` : 'Take as long as you like.'}${S.public ? ' Always on at public tables.' : ''}`)}</div>
         ${S.isHost && !S.public ? `<div class="modepick"><button class="btn small ${S.turnTimer ? 'brass' : ''}" data-timer="1">On</button><button class="btn small ${S.turnTimer ? '' : 'brass'}" data-timer="0">Off</button></div>` : ''}
       </div>
       <div class="buyin">
         <div class="row" style="justify-content:space-between">
           <div><div class="panel-title" style="margin:0">Payout multiplier</div>
-            ${S.mult === 0 ? `<span style="font-size:18px"><b>Free table</b></span> <span class="hint">· ${S.coop ? 'co-op tables are always free' : 'just for fun: no risk, no reward'}</span>`
-              : `<span style="font-size:18px"><b>${S.mult}x</b> payouts</span> <span class="hint">· ${fmtEB(S.need)} needed to confirm</span>`}</div>
+            ${S.mult === 0 ? `<span style="font-size:18px"><b>Free table</b></span>`
+              : `<span style="font-size:18px"><b>${S.mult}x</b> payouts</span> <span class="hint">· ${fmtEB(S.need)} needed to confirm</span>`}
+            ${qtip(S.coop ? 'Co-op tables are always free: nobody pays in and nobody gets paid out.'
+              : S.mult === 0 ? 'Just for fun: nobody pays in and nobody gets paid out. Your Eco-bucks stay exactly where they are.'
+              : `Every losing player pays the winner the gap between the winner's score and theirs, × ${S.mult}. For example, win 50 to 15 and that player pays you (50 − 15) × ${S.mult} = ${Math.floor(35 * S.mult).toLocaleString()} EB. Players tied for the top score split the pot. Can't cover what you owe? You pay everything you have. The house plays for the bots.`)}</div>
           ${S.isHost && !S.coop ? `<div class="modepick bidpick">${S.mults.map(x => `<button class="btn small ${S.multSet === x ? 'brass' : ''}" data-mult="${x}" title="${x === 0 ? 'Play just for fun: no Eco-bucks are bet or won' : `Losers pay the winner their score gap × ${x}. Needs ${Math.ceil(25 * x)} EB to confirm.`}">${x === 0 ? 'Free' : x + 'x'}</button>`).join('')}</div>` : ''}
         </div>
-        <p class="hint" style="margin:2px 0 0">${S.coop ? 'Co-op tables are always free: nobody pays in and nobody gets paid out.'
-          : S.mult === 0 ? 'Nobody pays in and nobody gets paid out. Your Eco-bucks stay exactly where they are.'
-          : `Every losing player pays the winner the gap between the winner's score and theirs, × ${S.mult}. For example, win 50 to 15 and that player pays you (50 − 15) × ${S.mult} = ${Math.floor(35 * S.mult).toLocaleString()} EB. Players tied for the top score split the pot. Can't cover what you owe? You pay everything you have. The house plays for the bots.`}</p>
         ${S.myAccount ? `<p class="hint" style="margin:2px 0 0">Your balance: ${fmtEB(S.myAccount.balance)}${S.myAccount.balance < S.need ? ` — <b style="color:var(--red)">you need ${S.need.toLocaleString()} EB to confirm this bet</b>` : ''}</p>` : ''}
         ${(() => { const mine = S.lobby.find(x => x.pid === S.yourPid); if (!mine || S.mult === 0) return '';
           return mine.confirmed
             ? `<div class="row bidrow"><span class="bidok">✓ You confirmed the ${S.mult}x bet.</span><button class="btn small" data-confirm="0">Cancel</button></div>`
-            : `<div class="row bidrow"><button class="btn primary" data-confirm="1" ${S.myAccount && S.myAccount.balance < S.need ? 'disabled' : ''}>Confirm the ${S.mult}x bet</button><span class="hint">Needs ${S.need.toLocaleString()} EB, held until the game ends. Everyone confirms before the game can start; a new multiplier or game mode needs confirming again.</span></div>`; })()}
+            : `<div class="row bidrow"><button class="btn primary" data-confirm="1" ${S.myAccount && S.myAccount.balance < S.need ? 'disabled' : ''}>Confirm the ${S.mult}x bet</button>${qtip(`Needs ${S.need.toLocaleString()} EB, held until the game ends. Everyone confirms before the game can start; a new multiplier or game mode needs confirming again.`)}</div>`; })()}
       </div>
-      ${S.mode === 'partners' ? `<p class="hint" style="margin:-4px 0 0">Pick a team for yourself${S.isHost ? ' (as host you can also place others and bots)' : ''}. Anyone without a team gets a random partner. Teammates never take turns back to back.</p>` : ''}
-      ${S.mode === 'coop' ? `<div class="row" style="flex-wrap:nowrap;gap:12px;align-items:flex-start;margin-top:-4px">
+      ${S.mode === 'coop' ? `<div class="row" style="flex-wrap:nowrap;gap:12px;align-items:center;margin-top:-4px">
           <img src="${BOSS.portrait}" alt="" class="bossthumb" data-peek="${BOSS.img}">
-          <p class="hint" style="margin:0">Everyone plays together against <b>The Anaconda</b>. Players get the Native cards; after each player's turn the Anaconda flips an Invasive card. The game ends after the round it plays its last card. Add up all players' scores — you must beat the Anaconda's total. Hover the portrait to read its boss card.</p></div>` : ''}
+          <span style="font-size:18px"><b>The Anaconda</b></span>
+          ${qtip("Everyone plays together against <b>The Anaconda</b>. Players get the Native cards; after each player's turn the Anaconda flips an Invasive card. The game ends after the round it plays its last card. Add up all players' scores — you must beat the Anaconda's total. Hover the portrait to read its boss card.")}</div>` : ''}
       <div>
         <div class="panel-title">At the table (${S.lobby.length}/6)</div>
         ${S.lobby.map(m => `
@@ -2173,7 +2377,7 @@ function renderGame() {
       <button class="${stage === 'map' ? 'on' : ''} ${mapTurn && stage !== 'map' ? 'call' : ''}" data-stage="map" role="tab" aria-selected="${stage === 'map'}">Map${ui.mapNew && stage !== 'map' ? '<i class="newdot"></i>' : ''}</button>
     </div>
     ${S.you >= 0 ? `<div class="chat-wrap">
-      <button class="btn small dk ${ui.showChat ? 'brass' : ''}" id="chatBtn" title="Send a chat line to the table">💬 Chat ▾</button>
+      <button class="btn small dk ${ui.showChat ? 'brass' : ''}" id="chatBtn" title="Send one of your chat lines as a speech bubble">🗨 Quick lines ▾</button>
       ${ui.showChat ? chatDropHtml() : ''}
     </div>` : ''}
     ${S.you >= 0 ? `<button class="btn small dk ${ui.showPile ? 'brass' : ''}" data-g="pile" title="The cards you have won in tricks">Scoring pile (${(S.pile || []).length})</button>` : ''}
@@ -2192,7 +2396,7 @@ function renderGame() {
   <div class="game" data-view="${stage}" data-slide="${ui.slide || ''}">
     <div class="pstrip players-mini" style="--n:${S.players.length}">${playersHtml(true)}</div>
     <aside class="side">
-      <div class="paper spiral players" style="--rows:${S.players.length}"><div class="panel-title" title="Hover a player to read their role card">Players <span class="hint">· hover to read roles</span></div>${playersHtml(false)}</div>
+      <div class="paper spiral players" style="--rows:${S.players.length}"><div class="panel-title">Players ${qtip(`${isPhone() ? 'Tap' : 'Hover over'} a player to read their role card.`)}</div>${playersHtml(false)}</div>
     </aside>
     <section class="boardwrap">${boardHtml()}</section>
     <section class="tablecol">${tableHtml()}</section>
@@ -2390,8 +2594,7 @@ function pileModal() {
   const chips = pile.length ? [['kind', 'Native'], ['kind', 'Invasive'], ['habitat', 'Water'], ['habitat', 'Wetland'], ['habitat', 'Land']]
     .map(([k, v]) => `<span>${v} ${count(k, v)}</span>`).join('') : '';
   return `<div class="modal"><div class="paper spiral pilemodal">
-    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Your scoring pile · ${pile.length} card${pile.length === 1 ? '' : 's'}</div><button class="btn small" id="closePile">Close</button></div>
-    <p class="hint" style="margin:0">Every card in a trick you win comes here. ${isPhone() ? 'Press and hold' : 'Hover over'} a card to read it.</p>
+    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Your scoring pile · ${pile.length} card${pile.length === 1 ? '' : 's'} ${qtip(`Every card in a trick you win comes here. ${isPhone() ? 'Press and hold' : 'Hover over'} a card to read it.`)}</div><button class="btn small" id="closePile">Close</button></div>
     ${chips ? `<div class="pilechips">${chips}</div>` : ''}
     <div class="pilegrid">${pile.length ? pile.map(id => cardEl(id, foil(id))).join('') : '<p class="hint">Empty so far. Win a trick to start your pile.</p>'}</div>
   </div></div>`;
@@ -2408,9 +2611,8 @@ function playersModal() {
       <td>${role ? `<button class="btn small" data-pinseat="${i}">Role</button>` : ''}</td></tr>`;
   }).join('');
   return `<div class="modal"><div class="paper spiral playersmodal">
-    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Players · round ${S.round || 1}</div><button class="btn small" id="closePlayers">Close</button></div>
+    <div class="row" style="justify-content:space-between"><div class="panel-title" style="margin:0">Players · round ${S.round || 1} ${qtip('Each trick won is worth 5 points. You can also tap a player at the top of the screen to read their role card.')}</div><button class="btn small" id="closePlayers">Close</button></div>
     <table class="scores"><tr><th></th><th>Player</th><th title="Tricks won">Tricks</th><th></th></tr>${rows}</table>
-    <p class="hint" style="margin:0">Each trick won is worth 5 points. You can also tap a player at the top of the screen to read their role card.</p>
   </div></div>`;
 }
 // Liberation: pick a card from the chosen player's scoring pile.
@@ -2552,8 +2754,7 @@ function settlementHtml() {
   }).join('');
   const mine = st.results.find(r => r.seat === S.you);
   return `<div class="ebresult">
-    <div class="panel-title" style="margin:0">Eco-bucks · ${st.mult}x payouts · pot ${Number(st.pot).toLocaleString()} EB</div>
-    <p class="hint" style="margin:2px 0">Each player below the top score (${st.top}) paid the gap × ${st.mult}.</p>
+    <div class="panel-title" style="margin:0">Eco-bucks · ${st.mult}x payouts · pot ${Number(st.pot).toLocaleString()} EB ${qtip(`Each player below the top score (${st.top}) paid the gap between their score and it, × ${st.mult}. Players tied for the top split the pot.`)}</div>
     ${mine && mine.balance !== undefined ? `<p style="margin:4px 0;font-size:18px">You ${mine.net >= 0 ? 'won' : 'lost'} <b class="${mine.net >= 0 ? 'ebup' : 'ebdown'}">${Math.abs(mine.net).toLocaleString()} EB</b>. Your balance is now ${fmtEB(mine.balance)}.</p>` : ''}
     <table class="scores ebtable"><tr><th>Place</th><th>Player</th><th>Score</th><th>Eco-bucks</th><th>Net</th></tr>${rows}</table>
   </div>`;
@@ -3025,6 +3226,45 @@ function wire() {
     ui.mode = 'swap'; ui.swapHand = ui.swapPile = null; render();
   });
 }
+
+// ---------- "?" pop-ups (qtip): explainer text on hover, keyboard focus or tap ----------
+// One shared pop-up element outside #app. Hover (mouse) and focus (keyboard) show it while the pointer or focus is
+// on the "?"; a tap or click pins it open until you tap the "?" again or anywhere else (phones have no hover).
+const $qpop = document.createElement('div'); $qpop.id = 'qtipPop'; $qpop.className = 'qtippop hidden'; $qpop.setAttribute('role', 'tooltip');
+document.body.appendChild($qpop);
+let qAnchor = null, qPinned = false, qMouse = null; // qMouse: the last pointer position
+function qShow(el) {
+  qAnchor = el; $qpop.innerHTML = el.dataset.tip; $qpop.classList.remove('hidden');
+  const r = el.getBoundingClientRect(), w = $qpop.offsetWidth, h = $qpop.offsetHeight, m = 8;
+  let x = r.left + r.width / 2 - w / 2; x = Math.max(m, Math.min(innerWidth - w - m, x));
+  let y = r.bottom + 6; if (y + h > innerHeight - m && r.top - 6 - h >= m) y = r.top - 6 - h; // no room below: above
+  $qpop.style.left = x + 'px'; $qpop.style.top = Math.max(m, y) + 'px';
+}
+function qHide() { qAnchor = null; qPinned = false; $qpop.classList.add('hidden'); }
+document.addEventListener('mouseover', e => { qMouse = [e.clientX, e.clientY]; const q = e.target.closest('.qtip'); if (q && !qPinned) qShow(q); });
+document.addEventListener('mouseout', e => { const q = e.target.closest('.qtip'); if (q && q === qAnchor && !qPinned && !q.contains(e.relatedTarget)) qHide(); });
+document.addEventListener('focusin', e => { if (e.target.classList && e.target.classList.contains('qtip')) qShow(e.target); });
+document.addEventListener('focusout', e => { if (e.target === qAnchor && !qPinned) qHide(); });
+document.addEventListener('click', e => {
+  const q = e.target.closest('.qtip');
+  if (q) { e.preventDefault(); if (qPinned && q === qAnchor) qHide(); else { qShow(q); qPinned = true; } return; }
+  if (qAnchor) qHide();
+}, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && qAnchor) qHide(); });
+// scrolling or resizing moves the "?": the pop-up follows it (the game also restores scroll positions as it re-renders)
+addEventListener('scroll', () => { if (qAnchor && qAnchor.isConnected) qShow(qAnchor); }, true);
+addEventListener('resize', () => { if (qAnchor && qAnchor.isConnected) qShow(qAnchor); });
+// The screen re-renders often during a game, replacing the "?" under the pointer with an identical new one: the pop-up
+// moves to the new one (the "?" now under the pointer, or for a tapped one the "?" with the same text), and closes only
+// when its "?" is really gone.
+document.addEventListener('mousemove', e => { qMouse = [e.clientX, e.clientY]; }, { passive: true });
+new MutationObserver(() => {
+  if (!qAnchor || qAnchor.isConnected) return;
+  const tip = qAnchor.dataset.tip, pinned = qPinned;
+  let el = qMouse && !pinned ? (document.elementFromPoint(qMouse[0], qMouse[1]) || {}).closest?.('.qtip') : null;
+  if (!el && pinned) el = [...document.querySelectorAll('.qtip')].find(q => q.dataset.tip === tip);
+  if (el && el.dataset.tip === tip) { qShow(el); qPinned = pinned; } else qHide();
+}).observe(document.body, { childList: true, subtree: true }); // (the panels outside #app re-render too)
 
 connect();
 render();

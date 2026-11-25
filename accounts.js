@@ -80,7 +80,7 @@ const avatarSrc = id => {
 };
 
 // ---------- storage (see storage.js: Upstash Redis when configured, otherwise a local file) ----------
-const TABLES = ['accounts', 'sessions', 'google', 'guests', 'tags', 'escrows', 'payments', 'gifts', 'stats'];
+const TABLES = ['accounts', 'sessions', 'google', 'guests', 'tags', 'escrows', 'payments', 'gifts', 'stats', 'dms'];
 const STATS = require('./stats.js');
 const store = require('./storage.js').pickStore();
 let db = Object.fromEntries(TABLES.map(t => [t, {}]));
@@ -438,9 +438,58 @@ function friendRemove(a, id) {
   friendLists(a); const b = db.accounts[id];
   a.friends = drop(a.friends, id); a.friendOut = drop(a.friendOut, id); a.friendIn = drop(a.friendIn, id);
   if (b) { friendLists(b); b.friends = drop(b.friends, a.id); b.friendIn = drop(b.friendIn, a.id); b.friendOut = drop(b.friendOut, a.id); }
+  delete db.dms[dmKey(a.id, id)]; // no longer friends: their messages go too
   save();
 }
 const isFriend = (a, id) => !!a && (a.friends || []).includes(id);
+
+// ---------- chat: DMs between friends, and mutes ----------
+// db.dms: one record per pair of friends ("idA|idB", sorted), holding their latest DM_KEEP messages
+// [{ id, from, text, at }]. a.dmRead: { friendId: time you last opened that conversation } (for unread counts).
+// a.muted: account ids whose table, team and direct messages you never see (MUTE_MAX at most).
+const TALK = require('./chat.js'); // free-text chat: filter and send limits
+const DM_KEEP = 50, MUTE_MAX = 200;
+const dmKey = (x, y) => [x, y].sort().join('|');
+const dmRate = new Map(); // account id -> send-rate state (chat.js rateCheck)
+const mutedBy = (a, id) => !!a && (a.muted || []).includes(id);
+function dmSend(a, toId, text) {
+  const b = db.accounts[toId];
+  if (!b || !isFriend(a, toId)) throw userErr('You can only send messages to your friends.');
+  const clean = TALK.clean(text);
+  const rs = dmRate.get(a.id) || {}; TALK.rateCheck(rs); dmRate.set(a.id, rs);
+  const k = dmKey(a.id, toId), rec = db.dms[k] || (db.dms[k] = { msgs: [] });
+  const msg = { id: crypto.randomBytes(6).toString('hex'), from: a.id, text: clean, at: Date.now() };
+  rec.msgs.push(msg); if (rec.msgs.length > DM_KEEP) rec.msgs.splice(0, rec.msgs.length - DM_KEEP);
+  (a.dmRead = a.dmRead || {})[toId] = msg.at; // your own message counts as read
+  save();
+  return msg;
+}
+// One conversation, oldest first; opening it marks it read. Messages from a muted friend are left out.
+function dmList(a, friendId) {
+  if (!isFriend(a, friendId)) throw userErr('You can only message your friends.');
+  const rec = db.dms[dmKey(a.id, friendId)];
+  const msgs = (rec ? rec.msgs : []).filter(m => !mutedBy(a, m.from));
+  const last = msgs.length ? msgs[msgs.length - 1].at : 0;
+  if (last && (!a.dmRead || (a.dmRead[friendId] || 0) < last)) { (a.dmRead = a.dmRead || {})[friendId] = last; save(); }
+  return msgs.map(m => ({ id: m.id, mine: m.from === a.id, text: m.text, at: m.at }));
+}
+// Unread messages from each friend: { friendId: count } (friends with none are left out).
+function dmUnread(a) {
+  const out = {};
+  for (const id of a.friends || []) {
+    if (mutedBy(a, id)) continue;
+    const rec = db.dms[dmKey(a.id, id)]; if (!rec) continue;
+    const since = (a.dmRead || {})[id] || 0, n = rec.msgs.filter(m => m.from === id && m.at > since).length;
+    if (n) out[id] = n;
+  }
+  return out;
+}
+function setMute(a, id, on) {
+  if (!id || id === a.id || !db.accounts[id]) throw userErr("That player can't be muted.");
+  a.muted = (a.muted || []).filter(x => x !== id);
+  if (on) { if (a.muted.length >= MUTE_MAX) throw userErr(`You can mute up to ${MUTE_MAX} players.`); a.muted.push(id); }
+  save();
+}
 // what the friends list shows about a player
 const friendCard = b => ({ id: b.id, username: b.gamertag, avatarSrc: avatarSrc(b.avatar), titleName: titleName(b.title), titleStyle: titleStyle(b.title) });
 function friendsOf(a) {
@@ -628,6 +677,7 @@ function privateProfile(a) { // shown to the account owner
     inbox: (a.inbox || []).map(m => ({ id: m.id, kind: m.kind, amount: m.amount, note: m.note, at: m.at, item: m.item || null, itemName: m.item ? titleName(m.item) : null })), // unopened letters
     unlocked: unlockedAvatars(a),
     chars: charProfiles(a), // per-character chat lines, splash effect and card treatments
+    muted: (a.muted || []).filter(id => db.accounts[id]).map(id => ({ id, username: db.accounts[id].gamertag })), // players you've muted in chat
   });
 }
 function config() {
@@ -683,5 +733,5 @@ module.exports = {
   ECON, NEWBIE, isNewPlayer, STORE, ready, flush, saveNow, storeName: () => store.name, get, bySession, requireAccount, signOut, guestLogin, googleLogin,
   setProfile, dailyBonus, buy, takeStakes, refundEscrow, refundAllEscrows, settle, owes, confirmCost, recordCardWin,
   publicProfile, privateProfile, config, recordGame, playerStats, serverStats, canSeeServerStats, leaderboard, avatarSrc, titleName, skinFor, splashFor, ownsChat, chatFor, chatAllowed, treatmentFor, creditPurchase, adjustPurchase, grantStaff, giftByTag, openMail, sendMail,
-  friendRequest, friendRespond, friendRemove, friendsOf, isFriend,
+  friendRequest, friendRespond, friendRemove, friendsOf, isFriend, dmSend, dmList, dmUnread, setMute, mutedBy,
 };
