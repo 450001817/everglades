@@ -1,4 +1,4 @@
-// Chat: table chat, Partners team chat, DMs between friends, mutes and the message filter, against a real server
+// Chat: Partners team chat (there is no whole-table chat), DMs between friends, mutes and the message filter, against a real server
 // on a throwaway data folder (never the live database).  Run: node test/chat.js
 const { spawn } = require('child_process');
 const os = require('os'), fs = require('fs'), path = require('path'), crypto = require('crypto'), http = require('http');
@@ -45,20 +45,36 @@ const texts = w => w.talk.map(m => m.text);
   const me = [];
   for (let k = 0; k < 4; k++) me.push((await post('profile', { session: S[k], gamertag: names[k] })).me);
 
-  console.log('Table chat');
+  console.log('No whole-table chat');
   const t = await post('create', { session: S[0] });
   const tok = [t.token];
   for (let k = 1; k < 4; k++) tok.push((await post('join', { session: S[k], room: t.room })).token);
   const w = tok.map(x => watch(t.room, x));
   await until(() => w.every(x => x.view), 3000);
   let r = await post('talk', { room: t.room, token: tok[0], text: 'Hello table!' });
-  ok(r.status === 200, 'a player can send a message to the table');
-  ok(await until(() => w.every(x => texts(x).includes('Hello table!')), 3000), 'everyone at the table gets it at once');
-  const m0 = w[1].talk.find(m => m.text === 'Hello table!');
-  ok(m0.name === 'Ana Heron' && m0.team === null && m0.accountId === me[0].id, 'it carries the sender and is a table message');
+  ok(r.status === 400 && /Partners/.test(r.error), 'a message to the whole table is refused');
+  r = await post('talk', { room: t.room, token: tok[0], text: 'team only', team: true });
+  ok(r.status === 400 && /Partners/.test(r.error), 'team chat needs a Partners table');
+  await sleep(300);
+  ok(w.every(x => x.talk.length === 0), 'nobody received anything');
+
+  console.log('Team chat (Partners)');
+  await post('lobby', { room: t.room, token: tok[0], cmd: 'mode', mode: 'partners' });
+  await post('lobby', { room: t.room, token: tok[0], cmd: 'team', team: 0 });
+  await post('lobby', { room: t.room, token: tok[1], cmd: 'team', team: 0 });
+  await post('lobby', { room: t.room, token: tok[2], cmd: 'team', team: 1 });
+  await post('lobby', { room: t.room, token: tok[3], cmd: 'team', team: 1 });
+  await sleep(700);
+  r = await post('talk', { room: t.room, token: tok[0], text: 'our secret plan' });
+  ok(r.status === 200, 'with a team, a player can message it');
+  ok(await until(() => texts(w[1]).includes('our secret plan'), 3000), 'their partner gets it at once');
+  const m0 = w[1].talk.find(m => m.text === 'our secret plan');
+  ok(m0.name === 'Ana Heron' && m0.team === 0 && m0.accountId === me[0].id, 'it carries the sender and their team');
+  await sleep(300);
+  ok(!texts(w[2]).includes('our secret plan') && !texts(w[3]).includes('our secret plan'), 'the other team never sees it');
   await sleep(700);
   r = await post('talk', { room: t.room, token: tok[1], text: 'what the fuuuck' });
-  ok(await until(() => texts(w[0]).includes('what the ******'), 3000), 'profanity is masked for everyone');
+  ok(await until(() => texts(w[0]).includes('what the ******'), 3000), 'profanity is masked');
   await sleep(700);
   r = await post('talk', { room: t.room, token: tok[1], text: 'join me at www.example.com' });
   ok(r.status === 400 && /Links/.test(r.error), 'links are refused');
@@ -68,41 +84,38 @@ const texts = w => w.talk.map(m => m.text);
   await sleep(700);
   let sent = 0; for (let k = 0; k < 8; k++) if ((await post('talk', { room: t.room, token: tok[2], text: 'spam ' + k })).status === 200) sent++;
   ok(sent >= 1 && sent < 8, `sending too fast is limited (${sent} of 8 quick messages went through)`);
-  const late = watch(t.room, tok[3]);
-  ok(await until(() => texts(late).includes('Hello table!'), 3000), 'reconnecting brings the chat so far');
+  const late = watch(t.room, tok[1]);
+  ok(await until(() => texts(late).includes('our secret plan'), 3000), 'reconnecting brings the team chat so far');
   late.req.destroy();
+  const spy = watch(t.room, tok[2]); await until(() => spy.talk.length, 3000); await sleep(200);
+  ok(spy.talk.length > 0 && !texts(spy).includes('our secret plan'), "the other team's history never includes it");
+  spy.req.destroy();
 
   console.log('Mutes');
-  r = await post('chat/mute', { session: S[3], id: me[0].id, on: true });
+  r = await post('chat/mute', { session: S[1], id: me[0].id, on: true });
   ok(r.status === 200 && r.me.muted.length === 1 && r.me.muted[0].username === 'Ana Heron', 'a player can mute someone');
   await sleep(700);
   await post('talk', { room: t.room, token: tok[0], text: 'can you hear me?' });
-  ok(await until(() => texts(w[1]).includes('can you hear me?'), 3000), 'others still see their messages');
-  await sleep(300);
-  ok(!texts(w[3]).includes('can you hear me?'), "the player who muted them doesn't");
-  r = await post('chat/mute', { session: S[3], id: me[3].id, on: true });
+  await sleep(500);
+  ok(!texts(w[1]).includes('can you hear me?'), "the player who muted them doesn't see their messages");
+  r = await post('chat/mute', { session: S[1], id: me[1].id, on: true });
   ok(r.status === 400, "you can't mute yourself");
-  r = await post('chat/mute', { session: S[3], id: me[0].id, on: false });
+  r = await post('chat/mute', { session: S[1], id: me[0].id, on: false });
   ok(r.status === 200 && r.me.muted.length === 0, 'and can unmute them');
-
-  console.log('Team chat (Partners)');
-  r = await post('talk', { room: t.room, token: tok[0], text: 'team only', team: true });
-  ok(r.status === 400 && /Partners/.test(r.error), 'team chat needs a Partners table');
-  await post('lobby', { room: t.room, token: tok[0], cmd: 'mode', mode: 'partners' });
-  await post('lobby', { room: t.room, token: tok[0], cmd: 'team', team: 0 });
-  await post('lobby', { room: t.room, token: tok[1], cmd: 'team', team: 0 });
-  await post('lobby', { room: t.room, token: tok[2], cmd: 'team', team: 1 });
-  await post('lobby', { room: t.room, token: tok[3], cmd: 'team', team: 1 });
   await sleep(700);
-  r = await post('talk', { room: t.room, token: tok[0], text: 'our secret plan', team: true });
-  ok(r.status === 200, 'with a team, a player can message it');
-  ok(await until(() => texts(w[1]).includes('our secret plan'), 3000) && w[1].talk.find(m => m.text === 'our secret plan').team === 0, 'their partner gets it as a team message');
-  await sleep(300);
-  ok(!texts(w[2]).includes('our secret plan') && !texts(w[3]).includes('our secret plan'), 'the other team never sees it');
-  // ...not even when they reconnect
-  const spy = watch(t.room, tok[2]); await until(() => spy.talk.length, 3000); await sleep(200);
-  ok(spy.talk.length > 0 && !texts(spy).includes('our secret plan'), 'nor in the history sent on reconnecting');
-  spy.req.destroy();
+  await post('talk', { room: t.room, token: tok[0], text: 'how about now?' });
+  ok(await until(() => texts(w[1]).includes('how about now?'), 3000), 'after unmuting, their messages come through again');
+
+  console.log('Co-op: all the players are one team');
+  const c = await post('create', { session: S[0] });
+  const ctok = [c.token, (await post('join', { session: S[1], room: c.room })).token];
+  const cw = ctok.map(x => watch(c.room, x));
+  await until(() => cw.every(x => x.view), 3000);
+  await post('lobby', { room: c.room, token: ctok[0], cmd: 'mode', mode: 'coop' });
+  await sleep(700);
+  r = await post('talk', { room: c.room, token: ctok[0], text: 'lets beat the snake' });
+  ok(r.status === 200 && await until(() => texts(cw[1]).includes('lets beat the snake'), 3000), 'a co-op table has team chat for everyone at it');
+  for (const x of cw) x.req.destroy();
 
   console.log('DMs between friends');
   r = await post('dm/send', { session: S[0], id: me[1].id, text: 'psst' });

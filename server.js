@@ -219,16 +219,19 @@ function viewFor(room, member) {
   });
 }
 
-// ---------- table and team chat (free text: chat.js filters it) ----------
-// room.talk keeps the latest TALK_KEEP messages: { id, at, pid, accountId, name, text, team }. team: null for the
-// whole table, or a team number (Partners) that only that team's players see. Messages go out as their own
+// ---------- team chat (free text: chat.js filters it) ----------
+// There is no whole-table chat: at a table, players only chat with their own Partners team (and with friends by DM).
+// room.talk keeps the latest TALK_KEEP messages: { id, at, pid, accountId, name, text, team }, team being the team
+// number (Partners) whose players alone see it. Messages go out as their own
 // 'talk' events on each player's event stream, not inside the game view, so the view stays small.
 const TALK_KEEP = 60;
-// Your team at this table, or null: Partners only (a team picked in the lobby, then your seat's team in the game).
+// Your team at this table, or null: Partners (a team picked in the lobby, then your seat's team in the game), or
+// co-op, where all the players are one team (0) against the Anaconda.
 function teamOf(room, m) {
   if (!m) return null;
   const s = room.game;
-  if (s.phase === 'lobby') return room.mode === 'partners' && m.team !== null && m.team !== undefined ? m.team : null;
+  if (s.phase === 'lobby') return room.mode === 'coop' ? 0 : room.mode === 'partners' && m.team !== null && m.team !== undefined ? m.team : null;
+  if (s.coop) return seatOf(room, m.pid) >= 0 ? 0 : null;
   if (!s.partners) return null;
   const i = seatOf(room, m.pid);
   return i >= 0 && s.players[i].team !== null && s.players[i].team !== undefined ? s.players[i].team : null;
@@ -236,17 +239,17 @@ function teamOf(room, m) {
 // Can this member see this message? (team messages: their team only; never anyone they've muted)
 function seesTalk(room, m, msg) {
   if (!m) return false;
-  if (msg.team !== null && msg.team !== teamOf(room, m) && msg.pid !== m.pid) return false;
+  if (msg.team === null || msg.team === undefined || (msg.team !== teamOf(room, m) && msg.pid !== m.pid)) return false;
   return !(msg.accountId && A.mutedBy(memberAccount(m), msg.accountId));
 }
 const talkOut = msg => ({ id: msg.id, at: msg.at, pid: msg.pid, accountId: msg.accountId, name: msg.name, text: msg.text, team: msg.team });
 function sendTalkTo(client, list) { if (list.length) client.write(`event: talk\ndata: ${JSON.stringify(list.map(talkOut))}\n\n`); }
-function sendTalk(room, m, text, toTeam) {
+function sendTalk(room, m, text) {
   if (room.tutorial) throw Object.assign(new Error('There is nobody to chat with in the tutorial.'), { userError: true });
   const a = memberAccount(m);
   if (!a || m.bot) throw Object.assign(new Error('Only players can chat.'), { userError: true });
-  const team = toTeam ? teamOf(room, m) : null;
-  if (toTeam && team === null) throw Object.assign(new Error('Team chat is for Partners games, once you have a team.'), { userError: true });
+  const team = teamOf(room, m);
+  if (team === null) throw Object.assign(new Error('Team chat is for Partners games (once you have a team) and co-op.'), { userError: true });
   const clean = TALK.clean(text);
   TALK.rateCheck(m.talkRate = m.talkRate || {});
   const msg = { id: ++room.talkId, at: Date.now(), pid: m.pid, accountId: a.id, name: a.gamertag, text: clean, team };
@@ -843,8 +846,8 @@ const server = http.createServer(async (req, res) => {
         broadcast(room);
         return send(res, 200, { ok: true });
       }
-      if (op === 'talk') { // a free-text message to the table (or, with team: true, to your Partners team)
-        sendTalk(room, m, body.text, !!body.team);
+      if (op === 'talk') { // a free-text message to your Partners team (there is no whole-table chat)
+        sendTalk(room, m, body.text);
         return send(res, 200, { ok: true });
       }
       if (op === 'chat') {

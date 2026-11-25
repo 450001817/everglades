@@ -180,11 +180,12 @@ html.intro-hold .hero .logo, html.intro-hold .hero .tagline { visibility: hidden
   .statspanel.wide { width: auto; }
 }
 /* computers: the game's top bar keeps one line. Narrower windows drop the small logo, then move the account and
-   sound buttons into the Menu (Chat, Field notes, Rules and Leave stay out) */
+   sound buttons into the Menu (Quick lines, 💬 Chat, Field notes, Rules and Leave stay out) */
 @media (max-width: 1660px) { .topbar .logo-sm { display: none; } }
+@media (max-width: 1560px) { .topbar .chatbtn .cbl { display: none; } } /* (just the 💬: the title says what it is) */
 @media (max-width: 1460px) {
   .topbar .mmenu { display: block; position: relative; flex-shrink: 0; }
-  .topbar .dkrow > :not(#rules):not(#quit) { display: none; }
+  .topbar .dkrow > :not(#rules):not(#quit):not(.chatbtn) { display: none; }
 }
 /* the lobby on a computer: two columns (table settings, then the buy-in and who's at the table) so it fits the screen */
 @media (min-width: 1000px) and (min-height: 521px) {
@@ -1188,13 +1189,10 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
   background: var(--brass); color: var(--ink); border: 3px solid var(--ink); font-weight: 700; font-size: 13px; padding: 0 6px; white-space: nowrap;
 }
 
-/* ---------- chat window: table, team and friends' DMs (client.js renderChat) ---------- */
-.chatfab { position: fixed; right: 14px; bottom: 14px; z-index: 59; width: 52px; height: 52px; padding: 0; font-size: 24px; line-height: 1;
-  display: flex; align-items: center; justify-content: center; }
-.chatfab.hidden { display: none; }
-.chatfab .badge { position: absolute; top: -8px; right: -8px; margin: 0; }
-.friendspanel.chatwin { top: auto; bottom: 74px; right: 14px; width: min(360px, calc(100vw - 28px)); height: min(460px, calc(100dvh - 140px));
-  padding: 10px; gap: 6px; }
+/* ---------- chat window: team chat and friends' DMs (client.js renderChat) ----------
+   Opened from the 💬 Chat button in the top bar (phones: the menu), it drops down below the bar where the friends
+   list does, so nothing covers the role cards along the bottom. */
+.friendspanel.chatwin { width: min(360px, calc(100vw - 24px)); height: min(460px, calc(100dvh - 76px)); padding: 10px; gap: 6px; }
 .chatwin .cwhead { display: flex; align-items: center; gap: 4px; }
 .chatwin .cwtabs { display: flex; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; }
 .chatwin .cwtab { flex: none; }
@@ -1216,8 +1214,7 @@ input.field.codefield::placeholder { font-size: 15px; letter-spacing: 3px; }
 .chatwin .cwsend { display: flex; gap: 6px; margin: 0; }
 .chatwin .cwsend .field { flex: 1; min-width: 0; }
 @media (max-width: 700px) {
-  .chatfab { right: 8px; bottom: 8px; width: 46px; height: 46px; font-size: 21px; }
-  .friendspanel.chatwin { right: 8px; bottom: 62px; width: calc(100vw - 16px); height: min(420px, calc(100dvh - 120px)); padding-left: 10px; }
+  .friendspanel.chatwin { width: calc(100vw - 16px); height: min(420px, calc(100dvh - 64px)); padding-left: 10px; }
 }
 
 /* ---------- "?" explainer icons and their pop-up (client.js qtip) ---------- */

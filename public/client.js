@@ -179,13 +179,13 @@ function setSceneOnly(on) {
 }
 document.getElementById('sceneEye')?.addEventListener('click', () => setSceneOnly(!document.documentElement.classList.contains('scene-only')));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') setSceneOnly(false); });
-// The music toggle, with the friends dropdown button beside it (top right of the home page and lobby; in the game's top bar)
+// The music toggle, with the friends dropdown and chat buttons beside it (top right of the home page and lobby; in the game's top bar)
 // (phones show the short labels: <span class="lbl-l"> is hidden and <span class="lbl-s"> shown; see style.css)
 const musicLabel = () => `♪ Music: ${musicOn ? 'On' : 'Off'}`;
 const musicBtnHtml = (cls = 'musicbtn') => {
   const music = `<button class="btn small" id="musicBtn" data-music title="Music on/off">${musicLabel()}</button>`;
   // phones get the single Menu button instead of the row (see menuHtml)
-  return cls ? `<div class="topctl ${cls}">${lbBtnHtml()}${statsBtnHtml()}${friendsBtnHtml()}${music}</div>${menuHtml()}` : lbBtnHtml() + statsBtnHtml() + friendsBtnHtml() + music;
+  return cls ? `<div class="topctl ${cls}">${lbBtnHtml()}${statsBtnHtml()}${friendsBtnHtml()}${chatBtnHtml()}${music}</div>${menuHtml()}` : lbBtnHtml() + statsBtnHtml() + friendsBtnHtml() + chatBtnHtml() + music;
 };
 document.addEventListener('click', e => {
   if (!e.target.closest('[data-music]')) return;
@@ -202,7 +202,7 @@ document.addEventListener('click', e => {
 // friends, music, and in a game: chat, field notes, sound, rules, leave) lives in one Menu button with a list.
 // Desktop keeps its buttons; style.css shows one or the other.
 function menuHtml(game = false) {
-  const nFr = frBadgeCount(), badge = n => n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : '';
+  const nFr = menuBadgeCount(), badge = n => n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : '';
   const on = fr.data ? fr.data.friends.filter(f => f.online).length : 0;
   const item = (attrs, icon, label, extra = '', cls = '') => `<button class="mi ${cls}" ${attrs}><span class="mi-ic">${icon}</span><span class="mi-l">${label}</span>${extra}</button>`;
   const val = v => `<span class="mi-v">${v}</span>`;
@@ -217,7 +217,8 @@ function menuHtml(game = false) {
   }
   if (acct.me) {
     main += item('data-lb', '🏆', 'Leaderboard') + item('data-stats', '📊', 'Stats');
-    main += item('data-friends', '👥', 'Friends', (on ? `<span class="fon">${on}</span>` : '') + badge(nFr));
+    main += item('data-friends', '👥', 'Friends', (on ? `<span class="fon">${on}</span>` : '') + badge(frBadgeCount()));
+    if (chatReady) main += item('data-chatwin', '💬', 'Chat', badge(cwUnreadCount()));
   }
   more += item('data-music', '♪', 'Music', val(musicOn ? 'On' : 'Off'), 'keep');
   if (game) {
@@ -1042,6 +1043,8 @@ const fr = { open: false, data: null, msg: '', busy: false, confirmRemove: null,
 const $friends = document.createElement('div'); $friends.id = 'friendsPanel'; $friends.className = 'paper spiral friendspanel hidden';
 document.body.appendChild($friends);
 const frBadgeCount = () => fr.data ? fr.data.incoming.length + fr.data.invites.length : 0;
+// the phone menu button's badge: friend requests, table invites and unread chat
+const menuBadgeCount = () => frBadgeCount() + (chatReady && acct.me ? cwUnreadCount() : 0);
 function friendsBtnHtml() {
   if (!acct.me) return '';
   const n = frBadgeCount(), on = fr.data ? fr.data.friends.filter(f => f.online).length : 0;
@@ -1049,9 +1052,11 @@ function friendsBtnHtml() {
 }
 function refreshFriendsBtns() { // update the buttons in place (no full re-render)
   for (const b of document.querySelectorAll('[data-friends]:not(.mi)')) b.outerHTML = friendsBtnHtml();
-  // the phone menu's badge (friend requests and table invites)
-  const n = frBadgeCount();
-  for (const b of document.querySelectorAll('[data-menu]')) { b.querySelector('.badge')?.remove(); if (n) b.insertAdjacentHTML('beforeend', `<span class="badge">${n > 9 ? '9+' : n}</span>`); }
+  refreshMenuBadge();
+}
+function refreshMenuBadge() { // the phone menu's badge (friend requests, table invites and unread chat)
+  const n = menuBadgeCount(), html = n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : '';
+  for (const b of document.querySelectorAll('[data-menu]')) { const old = b.querySelector('.badge'); if ((old ? old.outerHTML : '') === html) continue; old?.remove(); if (html) b.insertAdjacentHTML('beforeend', html); }
 }
 async function pollFriends() {
   if (!acct.session || !acct.me) { fr.data = null; return; }
@@ -1144,6 +1149,7 @@ document.addEventListener('click', async e => {
   }
   if (t.matches('[data-friends]')) {
     fr.open = !fr.open; fr.msg = ''; fr.confirmRemove = null;
+    if (fr.open && chatReady && cw.open) cwToggle(false); // (they open in the same spot)
     refreshFriendsBtns(); renderFriends();
     if (fr.open) pollFriends();
   } else if (t.matches('[data-friends-close]')) { fr.open = false; renderFriends(); refreshFriendsBtns(); }
@@ -1164,21 +1170,21 @@ document.addEventListener('click', async e => {
 });
 
 var chatReady = false; // set once the chat window below is ready (render() checks it)
-// ---------- chat window: table chat, team chat (Partners) and direct messages with friends ----------
+// ---------- chat window: team chat (Partners and co-op) and direct messages with friends ----------
+// (There is no whole-table chat; the Quick lines speech bubbles are how a table talks.)
 // Free text, cleaned and filtered on the server (chat.js). Like the friends dropdown it lives outside #app, so game
-// re-renders never wipe what you're typing. Table and team messages arrive as 'talk' events on the game's event
+// re-renders never wipe what you're typing. Team messages arrive as 'talk' events on the game's event
 // stream (see connect()); DMs are fetched (dm/list) while a conversation is open, a 'dm' event on the game's stream
 // says one arrived, and the friends poll (every 20 s) carries the unread counts everywhere else.
-const cw = { open: false, tab: 'table', dmWith: null, talk: [], room: null, since: 0, dms: {}, unread: { table: 0, team: 0 },
+const cw = { open: false, tab: 'team', dmWith: null, talk: [], room: null, since: 0, dms: {}, unread: { team: 0 },
   drafts: {}, msg: '', busy: false, muteAsk: null, showMuted: false };
 const $cw = document.createElement('div'); $cw.id = 'chatWindow'; $cw.className = 'paper friendspanel chatwin hidden';
-const $cwFab = document.createElement('button'); $cwFab.id = 'chatFab'; $cwFab.type = 'button'; $cwFab.className = 'btn chatfab hidden';
-$cwFab.title = 'Chat'; $cwFab.setAttribute('aria-label', 'Chat');
-document.body.appendChild($cw); document.body.appendChild($cwFab);
+document.body.appendChild($cw);
 const cwInRoom = () => !!(sess && S && !S.tutorial);
-function cwMyTeam() { // your Partners team at this table, or null
+function cwMyTeam() { // your team at this table (Partners; in co-op all the players are team 0), or null
   if (!cwInRoom()) return null;
-  if (S.phase === 'lobby') { const me = S.lobby.find(x => x.pid === S.yourPid); return S.mode === 'partners' && me && me.team !== null && me.team !== undefined ? me.team : null; }
+  if (S.phase === 'lobby') { const me = S.lobby.find(x => x.pid === S.yourPid); return S.coop ? 0 : S.mode === 'partners' && me && me.team !== null && me.team !== undefined ? me.team : null; }
+  if (S.coop) return S.you >= 0 ? 0 : null;
   const p = S.partners && S.players && S.players[S.you];
   return p && p.team !== null && p.team !== undefined ? p.team : null;
 }
@@ -1186,36 +1192,45 @@ const cwMuted = () => new Set(((acct.me && acct.me.muted) || []).map(x => x.id))
 const cwDmUnread = () => (fr.data && fr.data.unread ? Object.values(fr.data.unread).reduce((a, n) => a + n, 0) : 0);
 function cwTabs() {
   const t = [];
-  if (cwInRoom()) { t.push(['table', 'Table']); if (cwMyTeam() !== null) t.push(['team', 'Team']); }
+  if (cwMyTeam() !== null) t.push(['team', 'Team']);
   t.push(['dm', 'Friends']);
   return t;
 }
 function cwFixTab() { if (!cwTabs().some(([k]) => k === cw.tab)) cw.tab = cwTabs()[0][0]; }
 const cwTime = at => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
-// the round button in the corner, with everything unread on it
-function refreshChatFab() {
-  if (!acct.me) { $cwFab.classList.add('hidden'); if (cw.open) { cw.open = false; renderChat(); } return; }
-  if (cwInRoom() && cw.room !== S.room) { cw.room = S.room; cw.talk = []; cw.unread = { table: 0, team: 0 }; } // a new table
-  if (!cwInRoom() && cw.room) { cw.room = null; cw.talk = []; cw.unread = { table: 0, team: 0 }; }
-  const n = cw.unread.table + (cwMyTeam() !== null ? cw.unread.team : 0) + cwDmUnread();
-  $cwFab.innerHTML = `💬${n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : ''}`;
-  $cwFab.classList.toggle('brass', cw.open);
-  $cwFab.classList.remove('hidden');
+const cwUnreadCount = () => (cwMyTeam() !== null ? cw.unread.team : 0) + cwDmUnread();
+// the 💬 Chat button in the top bar (beside 👥 Friends), with everything unread on it; phones have it in the menu
+function chatBtnHtml() {
+  if (!chatReady || !acct.me) return '';
+  const n = cwUnreadCount();
+  return `<button class="btn small chatbtn ${cw.open ? 'brass' : ''}" data-chatwin title="Chat: your team and friends" aria-label="Chat">💬<span class="cbl"> Chat</span>${n ? ` <span class="badge">${n > 9 ? '9+' : n}</span>` : ''}</button>`;
+}
+function refreshChatFab() { // update the buttons in place (no full re-render)
+  if (!acct.me && cw.open) { cw.open = false; renderChat(); }
+  if (cwInRoom() && cw.room !== S.room) { cw.room = S.room; cw.talk = []; cw.unread = { team: 0 }; cw.tab = 'team'; } // a new table (opens on Team chat when you have a team)
+  if (!cwInRoom() && cw.room) { cw.room = null; cw.talk = []; cw.unread = { team: 0 }; }
+  const html = chatBtnHtml();
+  for (const b of document.querySelectorAll('[data-chatwin]:not(.mi)')) { if (b.outerHTML !== html) b.outerHTML = html; }
+  // (a top bar drawn before this code loaded has no chat button yet: it goes after 👥 Friends)
+  if (html) for (const b of document.querySelectorAll('[data-friends]:not(.mi)')) if (!b.parentElement.querySelector('[data-chatwin]')) b.insertAdjacentHTML('afterend', html);
+  const n = acct.me ? cwUnreadCount() : 0, badge = n ? `<span class="badge">${n > 9 ? '9+' : n}</span>` : '';
+  for (const b of document.querySelectorAll('.mi[data-chatwin]')) { const old = b.querySelector('.badge'); if ((old ? old.outerHTML : '') === badge) continue; old?.remove(); if (badge) b.insertAdjacentHTML('beforeend', badge); }
+  refreshMenuBadge(); // (it counts unread chat too)
 }
 
-// table and team messages from the game's event stream (on connecting, the history comes first)
+// team messages from the game's event stream (on connecting, the history comes first)
 function cwTalkIn(list) {
   if (sess && !S) { (cw.early = cw.early || []).push(...list); return; } // before the first game view: hold them
   if (cw.early) { list = cw.early.concat(list); cw.early = null; }
   if (!cwInRoom()) return;
-  if (cw.room !== S.room) { cw.room = S.room; cw.talk = []; cw.unread = { table: 0, team: 0 }; }
+  if (cw.room !== S.room) { cw.room = S.room; cw.talk = []; cw.unread = { team: 0 }; cw.tab = 'team'; }
   const have = new Set(cw.talk.map(m => m.id)), muted = cwMuted();
   let ping = false;
   for (const m of list) {
-    if (have.has(m.id)) continue;
+    if (have.has(m.id) || m.team === null || m.team === undefined) continue; // (team messages only)
     cw.talk.push(m);
-    const fresh = m.at >= cw.since, ch = m.team === null ? 'table' : 'team';
+    const fresh = m.at >= cw.since, ch = 'team';
     if (!fresh || m.pid === S.yourPid || muted.has(m.accountId)) continue;
     if (!(cw.open && cw.tab === ch)) cw.unread[ch]++;
     ping = true;
@@ -1231,7 +1246,7 @@ async function cwDmIn(from) {
     await pollFriends();
     const f = fr.data && fr.data.friends.find(x => x.id === from);
     SFX.chat();
-    if (!cw.open) showToast(`New message from <b>${esc(f ? f.username : 'a friend')}</b><small>Open 💬 to read it.</small>`, false, 4000);
+    if (!cw.open) showToast(`New message from <b>${esc(f ? f.username : 'a friend')}</b><small>Open 💬 Chat to read it.</small>`, false, 4000);
   }
 }
 async function cwLoadDm(id) {
@@ -1272,12 +1287,11 @@ function renderChat() {
     body = `<div class="cwsec">Muted players · ${ms.length}</div>` + (ms.length ? ms.map(x => `<div class="frow"><div class="fname"><b>${esc(x.username)}</b></div><button class="btn small" data-cwunmute="${esc(x.id)}">Unmute</button></div>`).join('')
       : '<p class="hint">Nobody. Click a name in the chat to mute that player.</p>');
     canSend = false;
-  } else if (cw.tab === 'table' || cw.tab === 'team') {
-    const team = cw.tab === 'team';
-    const msgs = cw.talk.filter(m => (team ? m.team !== null : m.team === null) && !muted.has(m.accountId));
+  } else if (cw.tab === 'team') {
+    const msgs = cw.talk.filter(m => m.team !== null && !muted.has(m.accountId));
     body = msgs.length ? msgs.map(m => line(m.name, m.accountId, m.pid === S.yourPid, m.at, m.text)).join('')
-      : `<p class="hint cwempty">${team ? 'Only your partner sees this chat.' : 'Say hello to the table!'}</p>`;
-    place = team ? 'Message your partner…' : 'Message the table…';
+      : `<p class="hint cwempty">${S.coop ? 'Only your fellow players see this chat (never the Anaconda).' : 'Only your partner sees this chat.'}</p>`;
+    place = S.coop ? 'Message your team…' : 'Message your partner…';
   } else if (!cw.dmWith) {
     const fs = fr.data ? fr.data.friends : [], un = (fr.data && fr.data.unread) || {};
     body = fs.length ? fs.map(f => `<button class="frow cwfriend" data-cwdm="${esc(f.id)}"><span class="fdot ${f.online ? 'on' : ''}"></span><img class="pavatar tiny" src="${esc(f.avatarSrc)}" alt=""><div class="fname"><b>${esc(f.username)}</b><span class="hint">${f.online ? 'Online' : 'Offline'}</span></div>${un[f.id] ? `<span class="badge">${un[f.id] > 9 ? '9+' : un[f.id]}</span>` : ''}</button>`).join('')
@@ -1310,7 +1324,7 @@ async function cwSend() {
     if (cw.tab === 'dm') {
       const id = cw.dmWith, r = await acctApi('dm/send', { id, text });
       cw.dms[id] = r.msgs; if (fr.data) fr.data.unread = r.unread;
-    } else await api('talk', { text, team: cw.tab === 'team' });
+    } else await api('talk', { text });
     // (your own message can come back and redraw the window before this answer does: clear whichever box is there now)
     cw.drafts[input.dataset.key] = ''; const now = document.getElementById('cwInput'); if (now && now.dataset.key === input.dataset.key) now.value = '';
   } catch (e) { cw.msg = e.message; SFX.error(); }
@@ -1318,11 +1332,15 @@ async function cwSend() {
 }
 function cwToggle(open = !cw.open) {
   cw.open = open; cw.msg = ''; cw.muteAsk = null;
+  if (open && fr.open) { fr.open = false; renderFriends(); refreshFriendsBtns(); } // (they open in the same spot)
   if (open) { cw.showMuted = false; cwFixTab(); if (cw.tab === 'dm') { pollFriends(); if (cw.dmWith) cwLoadDm(cw.dmWith); } }
   refreshChatFab(); renderChat();
   if (open) { const ni = document.getElementById('cwInput'); if (ni && !isPhone()) ni.focus(); }
 }
-$cwFab.onclick = e => { e.stopPropagation(); cwToggle(); };
+document.addEventListener('click', e => { if (e.target.closest('[data-chatwin]')) cwToggle(); });
+// a click outside the window (and not on its button or the phone menu) closes it, like the friends dropdown
+// (by the event's path: a click inside the window can redraw it, leaving the clicked element detached)
+document.addEventListener('click', e => { if (cw.open && !e.composedPath().some(el => el.matches && el.matches('#chatWindow,[data-chatwin],[data-menu],.menusheet'))) cwToggle(false); });
 $cw.addEventListener('submit', e => { e.preventDefault(); cwSend(); });
 $cw.addEventListener('click', async e => {
   const t = e.target.closest('[data-cwtab],[data-cwclose],[data-cwdm],[data-cwback],[data-cwname],[data-cwmute],[data-cwmuted],[data-cwunmute]');
@@ -1632,7 +1650,7 @@ function connect() {
   es = new EventSource(`/api/events?room=${encodeURIComponent(sess.room)}&token=${encodeURIComponent(sess.token)}`);
   es.onmessage = ev => { const prev = S; S = JSON.parse(ev.data); if (S.serverNow) ui.clockSkew = S.serverNow - Date.now(); onUpdate(prev); render(); if (cw.early) cwTalkIn([]); };
   cw.since = Date.now() - 2000; // chat older than this is history: no ping
-  es.addEventListener('talk', ev => cwTalkIn(JSON.parse(ev.data))); // table and team chat
+  es.addEventListener('talk', ev => cwTalkIn(JSON.parse(ev.data))); // team chat
   es.addEventListener('dm', ev => cwDmIn(JSON.parse(ev.data).from)); // a friend sent you a DM
   es.addEventListener('kicked', () => leave(`You ran out of time ${S && S.maxStrikes || 3} times, so a bot took over your seat.`));
   es.onerror = async () => { try { await api('lobby', { cmd: 'ping' }); } catch (e) { /* api() handles a vanished room */ } };
